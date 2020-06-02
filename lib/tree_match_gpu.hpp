@@ -20,8 +20,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-#ifndef TRLIB_TREE_MATCH_HPP_
-#define TRLIB_TREE_MATCH_HPP_
+#ifndef TRLIB_TREE_MATCH_GPU_HPP_
+#define TRLIB_TREE_MATCH_GPU_HPP_
 
 #include <deque>
 #include <vector>
@@ -33,16 +33,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "feature_evaluator.hpp"
 #include "gabor_filter_bank.hpp"
 #include "grid.hpp"
-//#include "match.hpp"
 #include "patch.hpp"
 #include "texture.hpp"
 
-class TreeMatch
+class TreeMatchGPU
 {
 public:
-  TreeMatch(int min_patch_size, int patch_levels, double patch_quality_factor, int filter_resolution, double frequency_octaves, int num_filter_directions);
+  TreeMatchGPU(int min_patch_size, int patch_levels, double patch_quality_factor, int filter_resolution, double frequency_octaves, int num_filter_directions);
 
-  static TreeMatch load(const boost::filesystem::path& path, bool load_textures);
+  static TreeMatchGPU load(const boost::filesystem::path& path, bool load_textures);
 
   void add_target(const boost::filesystem::path& path, double dpi, double scale);
   void add_texture(const boost::filesystem::path& path, double dpi, double scale, int num_rotations, const TextureMarker& marker=TextureMarker(), const std::string id=std::string());
@@ -148,4 +147,4 @@ private:
   std::vector<Patch> m_patches;
 };
 
-#endif /* TRLIB_TREE_MATCH_HPP_ */
+#endif /* TRLIB_TREE_MATCH_GPU_HPP_ */

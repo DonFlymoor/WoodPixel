@@ -82,6 +82,8 @@ SET(SRC
 	transformations.hpp
 	tree_match.cpp
 	tree_match.hpp
+	tree_match_gpu.cpp
+	tree_match_gpu.hpp
 	vector.hpp
 	vector_graphics_saver.cpp
 	vector_graphics_saver.hpp

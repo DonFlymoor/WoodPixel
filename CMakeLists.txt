@@ -1,3 +1,4 @@
+
 CMAKE_MINIMUM_REQUIRED(VERSION 3.1)
 
 SET(PROJECT_NAME texture_remix_optimizer)
@@ -72,6 +73,12 @@ ADD_LIBRARY(LIBS_OPENCL INTERFACE)
 target_link_libraries(LIBS_OPENCL
 	INTERFACE
 		OpenCL::OpenCL
+)
+# specify OpenCL version (200 => 2.0, 120 => 1.2 ...)
+target_compile_definitions(LIBS_OPENCL
+	INTERFACE
+		CL_HPP_TARGET_OPENCL_VERSION=200
+		CL_HPP_MINIMUM_OPENCL_VERSION=200
 )
 
 INCLUDE_DIRECTORIES(

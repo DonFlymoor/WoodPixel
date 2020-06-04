@@ -25,7 +25,7 @@ SET(BOOST_USE_STATIC_RUNTIME OFF)
 FIND_PACKAGE(Boost REQUIRED COMPONENTS chrono date_time filesystem log program_options system)
 FIND_PACKAGE(OpenCV 3 REQUIRED)
 FIND_PACKAGE(OpenMP REQUIRED)
-FIND_PACKAGE(OpenCL REQUIRED)
+FIND_PACKAGE(OpenCL REQUIRED) # creates target OpenCL::OpenCL
 
 # set_target_properties(${Boost_LIBRARIES} PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO RELEASE)
 set_target_properties(${OpenCV_LIBS} PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO RELEASE)
@@ -52,6 +52,7 @@ target_link_libraries(LIBS_BOOST
 	INTERFACE
 		${Boost_LIBRARIES}
 )
+
 # opencv
 ADD_LIBRARY(LIBS_OPENCV INTERFACE)
 target_include_directories(LIBS_OPENCV
@@ -62,23 +63,34 @@ target_link_libraries(LIBS_OPENCV
 	INTERFACE
 		${OpenCV_LIBS}
 )
+
 # trlib
 ADD_LIBRARY(LIBS_TRLIB INTERFACE)
 target_link_libraries(LIBS_TRLIB
 	INTERFACE
 		trlib
 )
+
 # opencl
+# interface library for CLHPP headers (C++ binding)
+SET(CLHPP_INCLUDE_DIR "" CACHE PATH "Path to CLHPP include directory (Khronos OpenCL C++ binding project)")
+ADD_LIBRARY(CLHPP INTERFACE)
+target_include_directories(CLHPP
+	INTERFACE
+		${CLHPP_INCLUDE_DIR}
+)
+# this target links against OpenCL and includes the C++ bindings
 ADD_LIBRARY(LIBS_OPENCL INTERFACE)
 target_link_libraries(LIBS_OPENCL
 	INTERFACE
 		OpenCL::OpenCL
+		CLHPP
 )
 # specify OpenCL version (200 => 2.0, 120 => 1.2 ...)
 target_compile_definitions(LIBS_OPENCL
 	INTERFACE
-		CL_HPP_TARGET_OPENCL_VERSION=200
-		CL_HPP_MINIMUM_OPENCL_VERSION=200
+		CL_HPP_TARGET_OPENCL_VERSION=120
+		CL_HPP_MINIMUM_OPENCL_VERSION=120
 )
 
 INCLUDE_DIRECTORIES(

@@ -27,18 +27,6 @@ FIND_PACKAGE(OpenCV 3 REQUIRED)
 FIND_PACKAGE(OpenMP REQUIRED)
 FIND_PACKAGE(OpenCL REQUIRED) # creates target OpenCL::OpenCL
 
-# set_target_properties(${Boost_LIBRARIES} PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO RELEASE)
-set_target_properties(${OpenCV_LIBS} PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO RELEASE)
-
-# ------------------------------ INTERNAL LIBS ---------------------------------------
-
-SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-
-# dependencies built along with this project
-ADD_DEFINITIONS(-DHAVE_CONFIG_H -D_CRT_SECURE_NO_WARNINGS -D_SCL_SECURE_NO_WARNINGS)
-ADD_SUBDIRECTORY(lib)
-
 # ----------------------------- SETUP TARGETS / DEPENDENCIES FOR SUB PROJECTS --------
 
 # create separate alias targets for individual dependencies
@@ -64,13 +52,6 @@ target_link_libraries(LIBS_OPENCV
 		${OpenCV_LIBS}
 )
 
-# trlib
-ADD_LIBRARY(LIBS_TRLIB INTERFACE)
-target_link_libraries(LIBS_TRLIB
-	INTERFACE
-		trlib
-)
-
 # opencl
 # interface library for CLHPP headers (C++ binding)
 SET(CLHPP_INCLUDE_DIR "" CACHE PATH "Path to CLHPP include directory (Khronos OpenCL C++ binding project)")
@@ -79,6 +60,14 @@ target_include_directories(CLHPP
 	INTERFACE
 		${CLHPP_INCLUDE_DIR}
 )
+# specify OpenCL version (200 => 2.0, 120 => 1.2 ...)
+target_compile_definitions(CLHPP
+	INTERFACE
+		CL_HPP_TARGET_OPENCL_VERSION=120
+		CL_HPP_MINIMUM_OPENCL_VERSION=120
+		CL_HPP_ENABLE_EXCEPTIONS
+		CL_HPP_CL_1_2_DEFAULT_BUILD
+)
 # this target links against OpenCL and includes the C++ bindings
 ADD_LIBRARY(LIBS_OPENCL INTERFACE)
 target_link_libraries(LIBS_OPENCL
@@ -86,25 +75,51 @@ target_link_libraries(LIBS_OPENCL
 		OpenCL::OpenCL
 		CLHPP
 )
-# specify OpenCL version (200 => 2.0, 120 => 1.2 ...)
-target_compile_definitions(LIBS_OPENCL
-	INTERFACE
-		CL_HPP_TARGET_OPENCL_VERSION=120
-		CL_HPP_MINIMUM_OPENCL_VERSION=120
-)
 
-INCLUDE_DIRECTORIES(
-	${PROJECT_SOURCE_DIR}
-	${CMAKE_CURRENT_SOURCE_DIR}
-	${Boost_INCLUDE_DIRS}
-	${OpenCV_INCLUDE_DIRS}
-)
+# set_target_properties(${Boost_LIBRARIES} PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO RELEASE)
+set_target_properties(${OpenCV_LIBS} PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO RELEASE)
 
+# ------------------------------ INTERNAL LIBS ---------------------------------------
+
+SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+
+# 
 SET(LIBS
 	${Boost_LIBRARIES}
 	${OpenCV_LIBS}
-	trlib
 )
+
+# dependencies built along with this project
+ADD_DEFINITIONS(-DHAVE_CONFIG_H -D_CRT_SECURE_NO_WARNINGS -D_SCL_SECURE_NO_WARNINGS)
+ADD_SUBDIRECTORY(lib)
+
+# trlib
+ADD_LIBRARY(LIBS_TRLIB INTERFACE)
+target_link_libraries(LIBS_TRLIB
+	INTERFACE
+		trlib
+)
+
+# add bundle lib target to replace old style global CMake dependencies
+
+ADD_LIBRARY(LIBS_ALLDEPS INTERFACE)
+TARGET_LINK_LIBRARIES(LIBS_ALLDEPS
+	INTERFACE
+		LIBS_BOOST
+		LIBS_OPENCV
+		LIBS_TRLIB)
+TARGET_INCLUDE_DIRECTORIES(LIBS_ALLDEPS
+	INTERFACE
+		${PROJECT_SOURCE_DIR}
+		${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# Library targets available:
+#	LIBS_BOOST
+#	LIBS_OPENCV
+#	LIBS_TRLIB
+#	LIBS_ALLDEPS # old "LIBS" variable.
 
 # --------------------------------- EXECUTABLE ------------------------------------
 

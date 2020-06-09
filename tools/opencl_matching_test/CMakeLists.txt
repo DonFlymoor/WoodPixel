@@ -6,8 +6,6 @@ SET(SRC
 	opencl_matching_test.cpp
 	ocl_template_matcher.hpp
 	ocl_template_matcher.cpp
-	ocl_instance.hpp
-	ocl_instance.cpp
 	cl_kernels.hpp
 	# ${PROJECT_SOURCE_DIR}/config.h
 )

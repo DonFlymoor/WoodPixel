@@ -54,26 +54,26 @@ target_link_libraries(LIBS_OPENCV
 
 # opencl
 # interface library for CLHPP headers (C++ binding)
-SET(CLHPP_INCLUDE_DIR "" CACHE PATH "Path to CLHPP include directory (Khronos OpenCL C++ binding project)")
-ADD_LIBRARY(CLHPP INTERFACE)
-target_include_directories(CLHPP
-	INTERFACE
-		${CLHPP_INCLUDE_DIR}
-)
+# SET(CLHPP_INCLUDE_DIR "" CACHE PATH "Path to CLHPP include directory (Khronos OpenCL C++ binding project)")
+# ADD_LIBRARY(CLHPP INTERFACE)
+# target_include_directories(CLHPP
+# 	INTERFACE
+# 		${CLHPP_INCLUDE_DIR}
+# )
 # specify OpenCL version (200 => 2.0, 120 => 1.2 ...)
-target_compile_definitions(CLHPP
-	INTERFACE
-		CL_HPP_TARGET_OPENCL_VERSION=120
-		CL_HPP_MINIMUM_OPENCL_VERSION=120
-		CL_HPP_ENABLE_EXCEPTIONS
-		CL_HPP_CL_1_2_DEFAULT_BUILD
-)
-# this target links against OpenCL and includes the C++ bindings
+# target_compile_definitions(CLHPP
+# 	INTERFACE
+# 		CL_HPP_TARGET_OPENCL_VERSION=120
+# 		CL_HPP_MINIMUM_OPENCL_VERSION=120
+# 		CL_HPP_ENABLE_EXCEPTIONS
+# 		CL_HPP_CL_1_2_DEFAULT_BUILD
+# )
+# this target links against OpenCL
 ADD_LIBRARY(LIBS_OPENCL INTERFACE)
 target_link_libraries(LIBS_OPENCL
 	INTERFACE
 		OpenCL::OpenCL
-		CLHPP
+		#CLHPP
 )
 
 # set_target_properties(${Boost_LIBRARIES} PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO RELEASE)

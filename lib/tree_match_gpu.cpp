@@ -435,6 +435,7 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 
 		if(cv::countNonZero(texture_mask) > 0)
 		{
+			// TODO: OpenCL impl here
 			cv::Mat match;
 			if(is_rectangular)
 			{

@@ -6,13 +6,14 @@ SET(SRC
 	opencl_matching_test.cpp
 	ocl_template_matcher.hpp
 	ocl_template_matcher.cpp
-	cl_kernels.hpp
+	matching_policies.hpp
+	maximum_extraction_policies.hpp
 	# ${PROJECT_SOURCE_DIR}/config.h
 )
 
 ADD_EXECUTABLE(${EXECUTABLE_NAME} ${SRC})
 
-TARGET_LINK_LIBRARIES(${EXECUTABLE_NAME} LIBS_OPENCL LIBS_OPENCV)
+TARGET_LINK_LIBRARIES(${EXECUTABLE_NAME} LIBS_OPENCL LIBS_OPENCV LIBS_TRLIB)
 
 TARGET_INCLUDE_DIRECTORIES(${EXECUTABLE_NAME}
 	PUBLIC

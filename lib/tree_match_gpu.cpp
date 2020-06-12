@@ -425,6 +425,8 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 			results.emplace_back(static_cast<int>(i), static_cast<int>(j));
 		}
 	}
+// TODO OpenCL impl here
+
 
 #pragma omp parallel for
 	for(int i = 0; i < static_cast<int>(results.size()); ++i)
@@ -435,7 +437,6 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 
 		if(cv::countNonZero(texture_mask) > 0)
 		{
-			// TODO: OpenCL impl here
 			cv::Mat match;
 			if(is_rectangular)
 			{

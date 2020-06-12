@@ -238,7 +238,6 @@ cv::Mat Texture::template_match_gpu(const Texture& kernel) const
   return match;
 }
 */
-// TODO: Implement OpenCL version
 cv::Mat Texture::template_match(const Texture& kernel) const
 {
   cv::Mat response_float, kernel_response_float;
@@ -260,7 +259,6 @@ cv::Mat Texture::template_match(const Texture& kernel) const
   return match_sum;
 }
 
-// TOD0: Implement OpenCL version
 cv::Mat Texture::template_match(const Texture& kernel, cv::Mat mask) const
 {
   cv::Mat response_float,  kernel_response_float;

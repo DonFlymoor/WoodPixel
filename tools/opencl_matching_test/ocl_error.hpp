@@ -3,6 +3,7 @@
 
 #include <CL/cl.h>
 #include <exception>
+#include <stdexcept>
 
 namespace ocl_template_matching
 {

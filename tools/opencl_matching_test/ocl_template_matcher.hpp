@@ -51,7 +51,7 @@ namespace ocl_template_matching
         double min_cost;
     };
 
-    class MatchingStrategyBase
+    class MatchingPolicyBase
     {
 
     };
@@ -62,26 +62,26 @@ namespace ocl_template_matching
         class MatcherBase
         {
         protected:
-            MatcherBase(const ocl_template_matching::MatchingStrategyBase& matching_strat);
+            MatcherBase(const ocl_template_matching::MatchingPolicyBase& matching_strat);
             MatcherBase(const MatcherBase&) = delete;
             MatcherBase(MatcherBase&& other) noexcept;
             MatcherBase& operator=(const MatcherBase&) = delete;
             MatcherBase& operator=(MatcherBase&& other) noexcept;
             ~MatcherBase();
 
-            MatchingResult match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, const MatchingStrategyBase& matching_strat);
-            void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, MatchingResult& result, const MatchingStrategyBase& matching_strat);
+            MatchingResult match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, const MatchingPolicyBase& matching_strat);
+            void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, MatchingResult& result, const MatchingPolicyBase& matching_strat);
 
         private:
             std::unique_ptr <ocl_template_matching::impl::MatcherImpl> m_impl;
         };
     }
 
-    template <typename MatchingStrategy>
+    template <typename MatchingPolicy>
     class Matcher : private impl::MatcherBase
     {
     public:
-        Matcher(const MatchingStrategy& matching_strat);
+        Matcher(const MatchingPolicy& matching_strat);
         Matcher(const Matcher&) = delete;
         Matcher(Matcher&& other) = default;
         Matcher& operator=(const Matcher&) = delete;
@@ -92,30 +92,30 @@ namespace ocl_template_matching
         void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, MatchingResult& result);
     
     private:
-        MatchingStrategy m_matching_strategy;
+        MatchingPolicy m_matching_strategy;
     };
 
-    template <typename MatchingStrategy>
-    Matcher<MatchingStrategy>::Matcher(const MatchingStrategy& matching_strat) :
+    template <typename MatchingPolicy>
+    Matcher<MatchingPolicy>::Matcher(const MatchingPolicy& matching_strat) :
         MatcherBase(matching_strat),
         m_matching_strategy(matching_strat)
     {
         std::cout << "Bla: " << matching_strat.a << std::endl;
     }
 
-    template <typename MatchingStrategy>
-    Matcher<MatchingStrategy>::~Matcher()
+    template <typename MatchingPolicy>
+    Matcher<MatchingPolicy>::~Matcher()
     {
     }
 
-    template <typename MatchingStrategy>
-    MatchingResult Matcher<MatchingStrategy>::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask)
+    template <typename MatchingPolicy>
+    MatchingResult Matcher<MatchingPolicy>::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask)
     {
         return impl::MatcherBase::match(texture, texture_mask, kernel, kernel_mask, m_matching_strategy);
     }
 
-    template <typename MatchingStrategy>
-    void Matcher<MatchingStrategy>::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, MatchingResult& result)
+    template <typename MatchingPolicy>
+    void Matcher<MatchingPolicy>::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, MatchingResult& result)
     {
         result = impl::MatcherBase::match(texture, texture_mask, kernel, kernel_mask, m_matching_strategy);
     }        

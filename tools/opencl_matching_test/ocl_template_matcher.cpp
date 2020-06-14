@@ -151,12 +151,12 @@ namespace ocl_template_matching
 		class MatcherImpl
 		{
 		public:
-			MatcherImpl(const MatchingStrategyBase& matching_strat);
+			MatcherImpl(const MatchingPolicyBase& matching_policy);
 		private:
 			cl::OpenCLState m_cl_state;
 		};
 
-		MatcherImpl::MatcherImpl(const MatchingStrategyBase& matching_strat) :
+		MatcherImpl::MatcherImpl(const MatchingPolicyBase& matching_policy) :
 			m_cl_state{}
 		{
 		}
@@ -166,8 +166,8 @@ namespace ocl_template_matching
 
 // ----------------------------------------- INTERFACE --------------------------------------------------
 
-ocl_template_matching::impl::MatcherBase::MatcherBase(const MatchingStrategyBase& matching_strat) :
-	m_impl(std::make_unique<MatcherImpl>(matching_strat))
+ocl_template_matching::impl::MatcherBase::MatcherBase(const MatchingPolicyBase& matching_policy) :
+	m_impl(std::make_unique<MatcherImpl>(matching_policy))
 {
 
 }
@@ -184,7 +184,7 @@ ocl_template_matching::MatchingResult ocl_template_matching::impl::MatcherBase::
 	const cv::Mat& texture_mask,
 	const Texture& kernel,
 	const cv::Mat& kernel_mask,
-	const MatchingStrategyBase& matching_strat)
+	const MatchingPolicyBase& matching_policy)
 {
 	return ocl_template_matching::MatchingResult{};
 }
@@ -194,7 +194,7 @@ void ocl_template_matching::impl::MatcherBase::match(const Texture& texture,
 	const Texture& kernel,
 	const cv::Mat& kernel_mask,
 	MatchingResult& result,
-	const MatchingStrategyBase& matching_strat)
+	const MatchingPolicyBase& matching_policy)
 {
 
 }

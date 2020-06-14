@@ -1,6 +1,6 @@
-#ifndef _CL_KERNELS_H_
-#define _CL_KERNELS_H_
+#ifndef _MATCHING_POLICIES_HPP_
+#define _MATCHING_POLICIES_HPP_
 
 
 
-#endif // !_CL_KERNELS_H_
+#endif

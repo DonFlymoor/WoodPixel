@@ -9,7 +9,6 @@ SET(SRC
 	ocl_error.hpp
 	ocl_error.cpp
 	matching_policies.hpp
-	maximum_extraction_policies.hpp
 	# ${PROJECT_SOURCE_DIR}/config.h
 )
 

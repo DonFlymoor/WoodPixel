@@ -1,8 +1,8 @@
 # WoodPixel
 
-Supplementary code for Computational Parquetry: Fabricated Style Transfer with Wood Pixels, ACM Transactions on Graphics 39(2), 2020
+Fork of [WoodPixel](https://github.com/isering/WoodPixel) to implement GPU(OpenCL 1.2)-based template matching in the patch matching step of the pipeline.
 
-### Authors
+### Original Authors
 * Julian Iseringhausen, University of Bonn, <[iseringhausen@cs.uni-bonn.de](mailto:iseringhausen@cs.uni-bonn.de)>
 * Matthias Hullin, University of Bonn, <[hullin@cs.uni-bonn.de](mailto:hullin@cs.uni-bonn.de)>
 

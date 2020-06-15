@@ -89,7 +89,7 @@ ocl_template_matching::CLException::CLException() :
 {
 }
 
-ocl_template_matching::CLException::CLException(cl_int error, int _line = 0, const char* _file = "") :
+ocl_template_matching::CLException::CLException(cl_int error, int _line, const char* _file) :
 	cl_error_val{error},
 	line{_line},
 	file{_file}
@@ -102,7 +102,7 @@ const char* ocl_template_matching::CLException::what() const noexcept
 }
 
 // throw if there is a cl error
-inline cl_int ocl_template_matching::_check_throw_cl_error(cl_int error_val, const char* file, int line)
+cl_int ocl_template_matching::_check_throw_cl_error(cl_int error_val, const char* file, int line)
 {
 	if(error_val != CL_SUCCESS)
 		throw CLException{error_val, line, file};

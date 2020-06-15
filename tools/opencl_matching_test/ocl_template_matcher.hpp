@@ -53,7 +53,9 @@ namespace ocl_template_matching
 
     class MatchingPolicyBase
     {
-
+    public:
+        virtual std::size_t platform_id() const = 0;
+        virtual std::size_t device_id() const = 0;
     };
 
     namespace impl
@@ -92,15 +94,14 @@ namespace ocl_template_matching
         void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, MatchingResult& result);
     
     private:
-        MatchingPolicy m_matching_strategy;
+        MatchingPolicy m_matching_policy;
     };
 
     template <typename MatchingPolicy>
-    Matcher<MatchingPolicy>::Matcher(const MatchingPolicy& matching_strat) :
-        MatcherBase(matching_strat),
-        m_matching_strategy(matching_strat)
+    Matcher<MatchingPolicy>::Matcher(const MatchingPolicy& matching_policy) :
+        MatcherBase(matching_policy),
+        m_matching_policy(matching_policy)
     {
-        std::cout << "Bla: " << matching_strat.a << std::endl;
     }
 
     template <typename MatchingPolicy>
@@ -111,13 +112,13 @@ namespace ocl_template_matching
     template <typename MatchingPolicy>
     MatchingResult Matcher<MatchingPolicy>::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask)
     {
-        return impl::MatcherBase::match(texture, texture_mask, kernel, kernel_mask, m_matching_strategy);
+        return impl::MatcherBase::match(texture, texture_mask, kernel, kernel_mask, m_matching_policy);
     }
 
     template <typename MatchingPolicy>
     void Matcher<MatchingPolicy>::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, MatchingResult& result)
     {
-        result = impl::MatcherBase::match(texture, texture_mask, kernel, kernel_mask, m_matching_strategy);
+        result = impl::MatcherBase::match(texture, texture_mask, kernel, kernel_mask, m_matching_policy);
     }        
 }
 #endif

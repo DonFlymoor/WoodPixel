@@ -1,5 +1,9 @@
 #include <ocl_error.hpp>
 #include <iostream>
+#include <cstring>
+#include <algorithm>
+#include <cstdlib>
+#include <cmath>
 
 const char* ocl_template_matching::_get_cl_error_string(cl_int error_val)
 {
@@ -85,20 +89,61 @@ cl_int ocl_template_matching::_print_cl_error(cl_int error_val, const char* file
 ocl_template_matching::CLException::CLException() :
 	cl_error_val{0},
 	line{0},
-	file{""}
+	file{""},
+	additional_info{nullptr}
 {
 }
 
-ocl_template_matching::CLException::CLException(cl_int error, int _line, const char* _file) :
+ocl_template_matching::CLException::CLException(cl_int error, int _line, const char* _file, const char* errormsg) :
 	cl_error_val{error},
 	line{_line},
-	file{_file}
+	file{_file},
+	additional_info{errormsg}
 {
 }
 
 const char* ocl_template_matching::CLException::what() const noexcept
 {
-	return _get_cl_error_string(cl_error_val);
+	static constexpr size_t ERR_STR_LEN{4192};
+	static char msg[ERR_STR_LEN]; // ugly but necessary for exception safety.
+	std::size_t msgidx{0ull};
+	const char* errorstring{_get_cl_error_string(cl_error_val)};	
+	std::strncpy(&msg[msgidx], errorstring, ERR_STR_LEN);
+	msgidx += std::strlen(errorstring);
+	if(file && msgidx < ERR_STR_LEN)
+	{
+		std::strncpy(&msg[msgidx], " File: ", ERR_STR_LEN - msgidx);
+		msgidx += 7;
+		if(msgidx < ERR_STR_LEN)
+		{
+			std::strncpy(&msg[msgidx], file, ERR_STR_LEN - msgidx);
+			msgidx += std::strlen(file);
+		}
+	}
+	if(file && msgidx < ERR_STR_LEN)
+	{
+		std::strncpy(&msg[msgidx], " Line: ", ERR_STR_LEN - msgidx);
+		msgidx += 7;		
+		if(msgidx < ERR_STR_LEN)
+		{
+			std::size_t numdigits = static_cast<std::size_t>(line) ? static_cast<std::size_t>(log10(abs(line))) + 1ull : 1ull;
+			if(msgidx + numdigits < ERR_STR_LEN - 1)
+			{
+				_itoa(abs(line), &msg[msgidx], 10);
+				msgidx += numdigits;
+			}
+				
+		}
+	}
+	if(additional_info && msgidx < ERR_STR_LEN)
+	{
+		std::strncpy(&msg[msgidx], " Message: ", ERR_STR_LEN - msgidx);
+		msgidx += 10;
+		std::strncpy(&msg[msgidx], additional_info, ERR_STR_LEN - msgidx);
+	}
+	// null terminate if additional info is too long
+	msg[4192 - 1] = '\0';
+	return msg;
 }
 
 // throw if there is a cl error

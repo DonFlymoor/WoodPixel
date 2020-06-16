@@ -19,7 +19,7 @@ namespace ocl_template_matching
 	{
 	public:
 		CLException();
-		CLException(cl_int error, int _line = 0, const char* _file = "");
+		CLException(cl_int error, int _line = 0, const char* _file = nullptr, const char* errormsg = nullptr);
 
 		CLException(const CLException&) noexcept = default;
 		CLException(CLException&&) noexcept = default;
@@ -31,6 +31,7 @@ namespace ocl_template_matching
 		const cl_int cl_error_val;
 		int line;
 		const char* file;
+		const char* additional_info;
 	};	
 }
 

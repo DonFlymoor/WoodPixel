@@ -31,7 +31,13 @@ namespace ocl_template_matching
 			class CLState
 			{
 			public:
-				CLState(std::size_t platform_index, std::size_t device_index)
+				CLState(std::size_t platform_index, std::size_t device_index) :
+					m_available_platforms{},
+					m_selected_platform_index{0},
+					m_selected_device_index{0},
+					m_context{nullptr},
+					m_command_queue{nullptr},
+					m_cl_ex_holder{nullptr}
 				{
 					try
 					{
@@ -41,13 +47,53 @@ namespace ocl_template_matching
 					}
 					catch(...)
 					{
+						cl_cleanup();
 						std::cerr << "[ERROR][OCL_TEMPLATE_MATCHER]: OpenCL initialization failed." << std::endl;
 						throw;
 					}
 				}
 
-			private:
+				// copy / move constructors
+				CLState(const CLState&) = delete;
+				CLState(CLState&&) = default;
+				// copy / move assignment
+				CLState& operator=(const CLState&) = delete;
+				CLState& operator=(CLState&&) = default;
 
+				// accessor for context and command queue (return by value because of cl_context and cl_command_queue being pointers)
+				cl_context context() const { return m_context; }
+				cl_command_queue command_queue() const { return m_command_queue; }
+
+				// print selected platform and device info
+				void print_selected_platform_info() const
+				{
+					std::cout << "===== Selected OpenCL platform =====" << std::endl;
+					std::cout << m_available_platforms[m_selected_platform_index];
+				}
+
+				void print_selected_device_info() const
+				{
+					std::cout << "===== Selected OpenCL device =====" << std::endl;
+					std::cout << m_available_platforms[m_selected_platform_index].devices[m_selected_device_index];
+				}
+
+				// print available platform and device info
+				void print_suitable_platform_and_device_info() const
+				{
+					std::cout << "===== SUITABLE OpenCL PLATFORMS AND DEVICES =====" << std::endl;
+					for(std::size_t p = 0ull; p < m_available_platforms.size(); ++p)
+					{
+						std::cout << "[Platform ID: " << p << "] " << m_available_platforms[p] << std::endl;
+						std::cout << "Suitable OpenCL 1.2+ devices:" << std::endl;
+						for(std::size_t d = 0ull; d < m_available_platforms[p].devices.size(); ++d)
+						{
+							std::cout << std::endl;
+							std::cout << "[Platform ID: " << p << "]" << "[Device ID: " << d << "] " << m_available_platforms[p].devices[d];
+						}
+					}
+				}
+
+			private:
 				// --- private types
 
 				// Hold list of platforms and devices for convenience
@@ -99,30 +145,34 @@ namespace ocl_template_matching
 					std::vector<CLDevice> devices;
 				};
 
+				struct CLExHolder
+				{
+					const char* ex_msg;
+				};
+				
 				// --- private data members
 
 				std::vector<CLPlatform> m_available_platforms;
 
 				// ID's and handles for current OpenCL instance
-				cl_platform_id m_current_platform;
-				cl_device_id m_current_device;
-				cl_context m_current_context;
-				cl_command_queue m_current_command_queue;
+				std::size_t m_selected_platform_index;
+				std::size_t m_selected_device_index;
+				cl_context m_context;
+				cl_command_queue m_command_queue;
+
+				// If cl error occurs which is supposed to be handled by a callback, we can't throw an exception there.
+				// Instead pass a pointer to this member via the "user_data" parameter of the corresponding OpenCL
+				// API function.
+				CLExHolder m_cl_ex_holder;				
 
 				// --- private member functions
 
 				// friends
+				// global operators
 				friend std::ostream& operator<<(std::ostream&, const CLState::CLPlatform&);
 				friend std::ostream& operator<<(std::ostream&, const CLState::CLDevice&);
-
-				void print_suitable_platform_and_device_info()
-				{
-					std::cout << "===== SUITABLE OpenCL PLATFORMS AND DEVICES =====" << std::endl;
-					for(std::size_t p = 0ull; p < m_available_platforms.size(); ++p)
-					{
-						std::cout << "[Platform ID: " << p << "] " << m_available_platforms[p] << std::endl;
-					}
-				}
+				// opencl callbacks
+				friend void create_context_callback(const char* errinfo, const void* private_info, std::size_t cb, void* user_data);
 
 				void read_platform_and_device_info()
 				{					
@@ -333,12 +383,62 @@ namespace ocl_template_matching
 						throw std::runtime_error("[OCL_TEMPLATE_MATCHER]: No suitable OpenCL 1.2 device found.");
 					if(device_id > m_available_platforms[platform_id].devices.size())
 						throw std::runtime_error("[OCL_TEMPLATE_MATCHER]: Device index out of range.");
+
+					// select device and platform
+					// TODO: Future me: maybe use all available devices of one platform? Would be nice to have the option...
+					m_selected_platform_index = platform_id;
+					m_selected_device_index = device_id;
+
+					std::cout << std::endl << "========== OPENCL INITIALIZATION ==========" << std::endl;
+					std::cout << "Selected platform ID: " << m_selected_platform_index << std::endl;
+					std::cout << "Selected device ID: " << m_selected_device_index << std::endl << std::endl;
+
+					// create OpenCL context
+					std::cout << "Creating OpenCL context...";
+					cl_context_properties ctprops[]{
+						CL_CONTEXT_PLATFORM,
+						reinterpret_cast<cl_context_properties>(m_available_platforms[m_selected_platform_index].id),
+						0
+					};
+					cl_int res;
+					m_context = clCreateContext(&ctprops[0],
+						1u,
+						&m_available_platforms[m_selected_platform_index].devices[m_selected_device_index].device_id,
+						&create_context_callback,
+						&m_cl_ex_holder,
+						&res
+					);
+					// if an error occured during context creation, throw an appropriate exception.
+					if(res != CL_SUCCESS)
+						throw CLException(res, __LINE__, __FILE__, m_cl_ex_holder.ex_msg);
+					std::cout << " done!" << std::endl;
+
+					// create command queue
+					std::cout << "Creating command queue...";
+					m_command_queue = clCreateCommandQueue(m_context,
+						m_available_platforms[m_selected_platform_index].devices[m_selected_device_index].device_id,
+						cl_command_queue_properties{0ull},
+						&res
+					);
+					if(res != CL_SUCCESS)
+						throw CLException(res, __LINE__, __FILE__, "Command queue creation failed.");
+					std::cout << " done!" << std::endl;
+				}
+
+				void cl_cleanup()
+				{
+					if(m_command_queue)
+						CL(clReleaseCommandQueue(m_command_queue));
+					if(m_context)
+						CL(clReleaseContext(m_context));
 				}
 			};
 
+			// global oeprators for convenience
+
 			std::ostream& operator<<(std::ostream& os, const CLState::CLPlatform& plat)
 			{
-				os	<< "===== OpenCL Platform =====" << std::endl
+				os << "===== OpenCL Platform =====" << std::endl
 					<< "Name:" << std::endl
 					<< "\t" << plat.name << std::endl
 					<< "Vendor:" << std::endl
@@ -349,13 +449,7 @@ namespace ocl_template_matching
 					<< "\t" << plat.profile << std::endl
 					<< "Extensions:" << std::endl
 					<< "\t" << plat.extensions << std::endl
-					<< std::endl
-					<< "Suitable OpenCL 1.2+ devices:" << std::endl;
-				for(std::size_t d = 0ull; d < plat.devices.size(); ++d)
-				{
-					os << std::endl;
-					os << "[Device ID: "<< d << "] " << plat.devices[d];
-				}
+					<< std::endl;
 				return os;
 			}
 
@@ -427,6 +521,13 @@ namespace ocl_template_matching
 					<< "\t" << dev.device_extensions << std::endl;
 				return os;
 			}
+		
+			// opencl callbacks
+
+			void create_context_callback(const char* errinfo, const void* private_info, std::size_t cb, void* user_data)
+			{
+				static_cast<CLState::CLExHolder *>(user_data)->ex_msg = errinfo;
+			}
 		}		
 
 		class MatcherImpl
@@ -450,7 +551,7 @@ namespace ocl_template_matching
 ocl_template_matching::impl::MatcherBase::MatcherBase(const MatchingPolicyBase& matching_policy) :
 	m_impl(std::make_unique<MatcherImpl>(matching_policy))
 {
-
+	
 }
 
 ocl_template_matching::impl::MatcherBase::MatcherBase(MatcherBase&& other) noexcept = default;

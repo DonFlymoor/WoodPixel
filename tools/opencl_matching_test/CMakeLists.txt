@@ -8,6 +8,8 @@ SET(SRC
 	ocl_template_matcher.cpp
 	ocl_error.hpp
 	ocl_error.cpp
+	ocl_wrappers.hpp
+	ocl_wrappers.cpp
 	matching_policies.hpp
 	# ${PROJECT_SOURCE_DIR}/config.h
 )

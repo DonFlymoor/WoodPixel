@@ -1,4 +1,4 @@
-#include <ocl_wrappers.hpp>
+﻿#include <ocl_wrappers.hpp>
 
 // -------------------------------------------- NAMESPACE ocl_template_matching::impl::util-----------------------------------
 
@@ -413,6 +413,15 @@ ocl_template_matching::impl::cl::CLProgram::CLProgram(const std::string& kernel_
 		}
 
 		// extract kernels and parameters
+		std::size_t num_kernels{0};
+		CL_EX(clGetProgramInfo(m_cl_program, CL_PROGRAM_NUM_KERNELS, sizeof(std::size_t), &num_kernels, nullptr));
+		std::size_t kernel_name_string_length{0};
+		CL_EX(clGetProgramInfo(m_cl_program, CL_PROGRAM_KERNEL_NAMES, 0ull, nullptr, &kernel_name_string_length));
+		std::unique_ptr<char[]> kernel_name_string{new char[kernel_name_string_length]};
+		CL_EX(clGetProgramInfo(m_cl_program, CL_PROGRAM_KERNEL_NAMES, kernel_name_string_length, kernel_name_string.get(), nullptr));
+		std::vector<std::string> kernel_names{util::string_split(std::string{kernel_name_string.get()}, ';')};
+		if(kernel_names.size() != num_kernels)
+			throw std::logic_error("Number of kernels in program does not match reported number of kernels.");
 
 		// create kernels
 	}

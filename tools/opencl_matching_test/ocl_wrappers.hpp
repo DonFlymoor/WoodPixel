@@ -7,6 +7,7 @@
 #include <iostream>
 #include <vector>
 #include <sstream>
+#include <unordered_map>
 
 namespace ocl_template_matching
 {
@@ -77,14 +78,15 @@ namespace ocl_template_matching
 
 				// ctors
 				CLState(std::size_t platform_index, std::size_t device_index);
+				~CLState();
 
 				// copy / move constructors
 				CLState(const CLState&) = delete;
-				CLState(CLState&&) = default;
+				CLState(CLState&& other) noexcept;
 
 				// copy / move assignment
 				CLState& operator=(const CLState&) = delete;
-				CLState& operator=(CLState&&) = default;
+				CLState& operator=(CLState&&) noexcept;
 
 				// accessor for context and command queue (return by value because of cl_context and cl_command_queue being pointers)
 				cl_context context() const { return m_context; }
@@ -137,7 +139,45 @@ namespace ocl_template_matching
 				// initiates OpenCL, creates context and command queue
 				void init_cl_instance(std::size_t platform_id, std::size_t device_id);
 				// frees acquired OpenCL resources
-				void cl_cleanup();
+				void cleanup();
+			};
+
+			// wrapper for opencl kernel objects.
+			// should provide:
+			//		- convenient compiling and building of kernel programs
+			//			- including meaningful compile and linking error reporting
+			//		- easy invocation of kernels with specified work group sizes etc.
+			//		- convenient passing of kernel parameters
+
+			class CLProgram
+			{
+			public:
+				CLProgram(const std::string& source, const std::string& compiler_options, const CLState* clstate);
+				~CLProgram();
+
+				// copy / move constructor
+				CLProgram(const CLProgram&) = delete;
+				CLProgram(CLProgram&&) noexcept;
+
+				// copy / move assignment
+				CLProgram& operator=(const CLProgram& other) = delete;
+				CLProgram& operator=(CLProgram&& other) noexcept;
+
+				void cleanup() noexcept;
+
+			private:
+				struct CLKernel
+				{
+					std::size_t id;
+					std::string name;
+					cl_kernel kernel;
+				};
+
+				std::string m_source;
+				std::string m_options;
+				std::unordered_map<std::string, CLKernel> m_kernels;
+				cl_program m_cl_program;
+				const CLState* m_cl_state;
 			};
 		}
 	}

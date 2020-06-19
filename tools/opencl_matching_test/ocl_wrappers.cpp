@@ -24,7 +24,7 @@ unsigned int ocl_template_matching::impl::util::get_cl_version_num(const std::st
 
 // -------------------------------------------- NAMESPACE ocl_template_matching::impl::cl -------------------------------------
 
-// CLState definitions
+// ---------------------- class CLState
 
 ocl_template_matching::impl::cl::CLState::CLState(std::size_t platform_index, std::size_t device_index) :
 	m_available_platforms{},
@@ -42,10 +42,45 @@ ocl_template_matching::impl::cl::CLState::CLState(std::size_t platform_index, st
 	}
 	catch(...)
 	{
-		cl_cleanup();
+		cleanup();
 		std::cerr << "[ERROR][OCL_TEMPLATE_MATCHER]: OpenCL initialization failed." << std::endl;
 		throw;
 	}
+}
+
+ocl_template_matching::impl::cl::CLState::~CLState()
+{
+	cleanup();
+}
+
+ocl_template_matching::impl::cl::CLState::CLState(CLState&& other) noexcept :
+	m_available_platforms(std::move(other.m_available_platforms)),
+	m_selected_platform_index{other.m_selected_platform_index},
+	m_selected_device_index{other.m_selected_device_index},
+	m_context{other.m_context},
+	m_command_queue{other.m_command_queue},
+	m_cl_ex_holder{std::move(other.m_cl_ex_holder)}
+{
+	other.m_command_queue = nullptr;
+	other.m_context = nullptr;
+	other.m_cl_ex_holder.ex_msg = nullptr;
+}
+
+ocl_template_matching::impl::cl::CLState& ocl_template_matching::impl::cl::CLState::operator=(CLState&& other) noexcept
+{
+	if(this == &other)
+		return *this;
+
+	cleanup();
+
+	m_available_platforms = std::move(other.m_available_platforms);
+	m_selected_platform_index = other.m_selected_platform_index;
+	m_selected_device_index = other.m_selected_device_index;
+	std::swap(m_context, other.m_context);
+	std::swap(m_command_queue, other.m_command_queue);
+	std::swap(m_cl_ex_holder, other.m_cl_ex_holder);
+
+	return *this;
 }
 
 void ocl_template_matching::impl::cl::CLState::print_selected_platform_info() const
@@ -318,12 +353,15 @@ void ocl_template_matching::impl::cl::CLState::init_cl_instance(std::size_t plat
 	std::cout << " done!" << std::endl;
 }
 
-void ocl_template_matching::impl::cl::CLState::cl_cleanup()
+void ocl_template_matching::impl::cl::CLState::cleanup()
 {
 	if(m_command_queue)
 		CL(clReleaseCommandQueue(m_command_queue));
+	m_command_queue = nullptr;
 	if(m_context)
 		CL(clReleaseContext(m_context));
+	m_context = nullptr;
+	m_cl_ex_holder.ex_msg = nullptr;
 }
 
 const ocl_template_matching::impl::cl::CLState::CLPlatform& ocl_template_matching::impl::cl::CLState::get_selected_platform() const
@@ -335,6 +373,102 @@ const ocl_template_matching::impl::cl::CLState::CLDevice& ocl_template_matching:
 {
 	return m_available_platforms[m_selected_platform_index].devices[m_selected_device_index];
 }
+
+// -------------------------- class CLKernel
+
+ocl_template_matching::impl::cl::CLProgram::CLProgram(const std::string& kernel_source, const std::string& compiler_options, const CLState* clstate) :
+	m_source(kernel_source),
+	m_kernels(),
+	m_cl_state(clstate),
+	m_cl_program(nullptr),
+	m_options(compiler_options)
+{
+	try
+	{
+		// create program
+		const char* source = m_source.data();
+		std::size_t source_len = m_source.size();
+		cl_int res;
+		m_cl_program = clCreateProgramWithSource(m_cl_state->context(), 1u, &source, &source_len, &res);
+		if(res != CL_SUCCESS)
+			throw CLException{res, __LINE__, __FILE__, "clCreateProgramWithSource failed."};
+		
+		// build program // TODO: Multiple devices?
+		res = clBuildProgram(m_cl_program, 1u, &m_cl_state->get_selected_device().device_id, m_options.data(), nullptr, nullptr);
+		if(res != CL_SUCCESS)
+		{
+			if(res == CL_BUILD_PROGRAM_FAILURE)
+			{
+				std::size_t log_size{0};
+				CL_EX(clGetProgramBuildInfo(m_cl_program, m_cl_state->get_selected_device().device_id, CL_PROGRAM_BUILD_LOG, 0ull, nullptr, &log_size));
+				std::unique_ptr<char[]> infostring{new char[log_size]};
+				CL_EX(clGetProgramBuildInfo(m_cl_program, m_cl_state->get_selected_device().device_id, CL_PROGRAM_BUILD_LOG, log_size, infostring.get(), nullptr));
+				std::cerr << "OpenCL program build failed:" << std::endl << infostring.get() << std::endl;
+				throw CLException{res, __LINE__, __FILE__, "OpenCL program build failed."};
+			}
+			else
+			{
+				throw CLException{res, __LINE__, __FILE__, "clBuildProgram failed."};
+			}
+		}
+
+		// extract kernels and parameters
+
+		// create kernels
+	}
+	catch(...)
+	{
+		cleanup();
+		throw;
+	}
+}
+
+ocl_template_matching::impl::cl::CLProgram::~CLProgram()
+{
+	cleanup();
+}
+
+ocl_template_matching::impl::cl::CLProgram::CLProgram(CLProgram&& other) noexcept :
+	m_source{std::move(other.m_source)},
+	m_kernels{std::move(other.m_kernels)},
+	m_cl_state{other.m_cl_state},
+	m_cl_program{other.m_cl_program},
+	m_options{std::move(other.m_options)}
+{
+	other.m_kernels.clear();
+	other.m_cl_program = nullptr;
+}
+
+ocl_template_matching::impl::cl::CLProgram& ocl_template_matching::impl::cl::CLProgram::operator=(CLProgram&& other) noexcept
+{
+	if(this == &other)
+		return *this;
+
+	cleanup();
+	m_cl_state = other.m_cl_state;
+	m_source = std::move(other.m_source);
+	m_options = std::move(other.m_options);
+	std::swap(m_kernels, other.m_kernels);
+	std::swap(m_cl_program, other.m_cl_program);
+
+	return *this;
+}
+
+void ocl_template_matching::impl::cl::CLProgram::cleanup() noexcept
+{
+	for(auto& k : m_kernels)
+	{
+		if(k.second.kernel)
+			clReleaseKernel(k.second.kernel);
+		k.second.kernel = nullptr;
+	}
+	m_kernels.clear();
+	if(m_cl_program)
+		clReleaseProgram(m_cl_program);
+	m_cl_program = nullptr;
+}
+
+
 
 // global operators
 

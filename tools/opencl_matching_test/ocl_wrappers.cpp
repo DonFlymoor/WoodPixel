@@ -424,6 +424,11 @@ ocl_template_matching::impl::cl::CLProgram::CLProgram(const std::string& kernel_
 			throw std::logic_error("Number of kernels in program does not match reported number of kernels.");
 
 		// create kernels
+		for(std::size_t i = 0; i < num_kernels; ++i)
+		{
+			cl_kernel kernel = clCreateKernel(m_cl_program, kernel_names[i].c_str(), &res); if(res != CL_SUCCESS) throw CLException{res, __LINE__, __FILE__, "clCreateKernel failed."};
+			m_kernels[kernel_names[i]] = CLKernel{i, kernel};
+		}
 	}
 	catch(...)
 	{

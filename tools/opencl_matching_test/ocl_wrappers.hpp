@@ -152,6 +152,11 @@ namespace ocl_template_matching
 			class CLProgram
 			{
 			public:
+				struct ExecParams
+				{
+
+				};
+
 				CLProgram(const std::string& source, const std::string& compiler_options, const CLState* clstate);
 				~CLProgram();
 
@@ -165,13 +170,42 @@ namespace ocl_template_matching
 
 				void cleanup() noexcept;
 
+				template <typename ... ArgTypes>
+				void operator()(const std::string& name, const ExecParams& exec_params, ArgTypes&&... args)
+				{
+					// unpack args
+					setKernelArgs<0, ArgTypes...>(std::forward<ArgTypes>(args)...);
+				}
+
+				// overload for zero arguments
+				void operator()(const std::string& name, const ExecParams& exec_params)
+				{
+					
+				}
+
 			private:
 				struct CLKernel
 				{
 					std::size_t id;
-					std::string name;
 					cl_kernel kernel;
 				};
+
+				// template parameter pack unpacking
+				template <std::size_t index, typename FirstArgType, typename ... ArgTypes>
+				void setKernelArgs(FirstArgType&& first_arg, ArgTypes&&... rest)
+				{
+					// TODO: process first_arg
+
+					// unpack next param
+					setKernelArgs<index + 1, ArgTypes...>(std::forward<ArgTypes>(rest)...);
+				}
+
+				// exit case
+				template <std::size_t index, typename FirstArgType>
+				void setKernelArgs(FirstArgType&& first_arg)
+				{
+					// TODO: process first_arg
+				}
 
 				std::string m_source;
 				std::string m_options;

@@ -374,7 +374,7 @@ const ocl_template_matching::impl::cl::CLState::CLDevice& ocl_template_matching:
 	return m_available_platforms[m_selected_platform_index].devices[m_selected_device_index];
 }
 
-// -------------------------- class CLKernel
+// -------------------------- class CLProgram
 
 ocl_template_matching::impl::cl::CLProgram::CLProgram(const std::string& kernel_source, const std::string& compiler_options, const CLState* clstate) :
 	m_source(kernel_source),
@@ -480,6 +480,48 @@ void ocl_template_matching::impl::cl::CLProgram::cleanup() noexcept
 	if(m_cl_program)
 		clReleaseProgram(m_cl_program);
 	m_cl_program = nullptr;
+}
+
+void ocl_template_matching::impl::cl::CLProgram::invoke(const std::string& name, const ExecParams& exparams)
+{
+	try
+	{
+		CL_EX(clEnqueueNDRangeKernel(
+			m_cl_state->command_queue(),
+			m_kernels.at(name).kernel,
+			exparams.work_dim,
+			exparams.work_offset,
+			exparams.global_work_size,
+			exparams.local_work_size,
+			0u,
+			nullptr,
+			nullptr
+		));
+	}
+	catch(const std::out_of_range& ex) // kernel name wasn't found
+	{
+		throw std::runtime_error("[CLProgram]: Unknown kernel name");
+	}
+	catch(...)
+	{
+		throw;
+	}
+}
+
+void ocl_template_matching::impl::cl::CLProgram::setKernelArgsImpl(const std::string& name, std::size_t index, std::size_t arg_size, const void* arg_data_ptr)
+{
+	try
+	{
+		CL_EX(clSetKernelArg(m_kernels.at(name).kernel, static_cast<cl_uint>(index), arg_size, arg_data_ptr));
+	}
+	catch(const std::out_of_range& ex) // kernel name wasn't found
+	{
+		throw std::runtime_error("[CLProgram]: Unknown kernel name");
+	}
+	catch(...)
+	{
+		throw;
+	}
 }
 
 

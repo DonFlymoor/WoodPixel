@@ -9,6 +9,9 @@
 #include <sstream>
 #include <unordered_map>
 
+// compile time definitions
+#define OCL_KERNEL_MAX_WORK_DIM 3 // maximum work dim of opencl kernels
+
 namespace ocl_template_matching
 {
 	// just some template meta programming helpers
@@ -223,7 +226,10 @@ namespace ocl_template_matching
 			public:
 				struct ExecParams
 				{
-
+					std::size_t work_dim;
+					std::size_t work_offset[OCL_KERNEL_MAX_WORK_DIM];
+					std::size_t global_work_size[OCL_KERNEL_MAX_WORK_DIM];
+					std::size_t local_work_size[OCL_KERNEL_MAX_WORK_DIM];
 				};
 
 				CLProgram(const std::string& source, const std::string& compiler_options, const CLState* clstate);
@@ -263,10 +269,9 @@ namespace ocl_template_matching
 				};
 
 				// invoke kernel
-				void invoke(const std::string& name, const ExecParams& exec_params)
-				{
-
-				}
+				void invoke(const std::string& name, const ExecParams& exec_params);
+				// set kernel params (low level, non type-safe stuff. Implementation hidden in .cpp!)
+				void setKernelArgsImpl(const std::string& name, std::size_t index, std::size_t arg_size, const void* arg_data_ptr);
 
 				// template parameter pack unpacking
 				template <std::size_t index, typename FirstArgType, typename ... ArgTypes>
@@ -282,23 +287,8 @@ namespace ocl_template_matching
 				template <std::size_t index, typename FirstArgType>
 				void setKernelArgs(const std::string& name, const FirstArgType& first_arg)
 				{
-					// process argument
-					std::size_t arg_size{CLKernelArgTraits<FirstArgType>::size()};
-					const void* arg_data_ptr{CLKernelArgTraits<FirstArgType>::arg_data()};
-
 					// set opencl kernel argument
-					try
-					{
-						CL_EX(clSetKernelArg(m_kernelsat(name), static_cast<cl_uint>(index), arg_size, arg_data_ptr));
-					}
-					catch(const std::out_of_range& ex) // kernel name wasn't found
-					{
-						throw std::runtime_error("[CLProgram]: Unknown kernel name");
-					}
-					catch(...)
-					{
-						throw;
-					}
+					setKernelArgsImpl(name, index, CLKernelArgTraits<FirstArgType>::size(), CLKernelArgTraits<FirstArgType>::arg_data());
 				}
 
 				std::string m_source;

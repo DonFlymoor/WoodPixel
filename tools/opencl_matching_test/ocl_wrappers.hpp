@@ -11,6 +11,24 @@
 
 namespace ocl_template_matching
 {
+	// just some template meta programming helpers
+	namespace meta
+	{
+		// support for void_t in case of C++11 and C++14
+	#ifdef WOODPIXELS_LANG_FEATURES_VARIADIC_USING_DECLARATIONS
+		template <typename...>
+		using void_t = void;
+	#else
+		namespace detail
+		{
+			template <typename...>
+			struct make_void { typedef void type; };
+		}
+		template <typename... T>
+		using void_t = detail::make_void<T...>::type;
+	#endif
+	}
+
 	namespace impl
 	{
 		namespace util
@@ -142,6 +160,55 @@ namespace ocl_template_matching
 				void cleanup();
 			};
 
+			// check if T has member funcions to access data pointer and size (for setting kernel params!)
+			template <typename T, typename = void>
+			struct is_cl_param : public std::false_type	{};
+
+			template <typename T>
+			struct is_cl_param < T, ocl_template_matching::meta::void_t<
+				decltype(std::size_t{std::declval<const T>().size()}), // has const size() member, returning size_t?,
+				std::enable_if<std::is_convertible<decltype(std::declval<const T>().arg_data()), const void*>::value>::type // has const arg_data() member returning something convertible to const void* ?
+			>> : std::true_type {};
+
+			// traits class for handling kernel arguments
+			template <typename T, typename = void>
+			struct CLKernelArgTraits;
+
+			// case: complex type which fulfills requirements of is_cl_param<T>
+			template <typename T>
+			struct CLKernelArgTraits <T, std::enable_if<is_cl_param<T>::value>::type>
+			{
+				static std::size_t size(const T& arg) { return arg.size(); }
+				static const void* arg_data(const T& arg) { static_cast<const void*>(return arg.arg_data()) }
+			};
+
+			// case: arithmetic type or standard layout type (poc struct, plain array...)
+			template <typename T>
+			struct CLKernelArgTraits <T, std::enable_if<std::is_arithmetic<T>::value || std::is_standard_layout<T>::value>::type>
+			{
+				static constexpr std::size_t size(const T& arg) { return sizeof(T); }
+				static const void* arg_data(const T& arg) { static_cast<const void*>(return &arg) }
+			};
+
+			// case: pointer
+			template <typename T>
+			struct CLKernelArgTraits <T*, void>
+			{
+				static std::size_t size(const T * const & arg) { return CLKernelArgTraits<T>::size(*arg) }
+				static const void* arg_data(const T * const & arg) { return CLKernelArgTraits<T>::arg_data(*arg) }
+			};
+
+			// case: nullptr
+			template <>
+			struct CLKernelArgTraits <std::nullptr_t, void>
+			{
+				static constexpr std::size_t size(const std::nullptr_t& ptr) { return std::size_t{0}; }
+				static constexpr const void* arg_data(const std::nullptr_t& ptr) { return nullptr; }
+			};
+
+			// TODO: case: smart pointers? maybe later
+
+
 			// wrapper for opencl kernel objects.
 			// should provide:
 			//		- convenient compiling and building of kernel programs
@@ -149,6 +216,8 @@ namespace ocl_template_matching
 			//		- easy invocation of kernels with specified work group sizes etc.
 			//		- convenient passing of kernel parameters
 
+			// TODO: let the invoke and call operators return a future!
+			// TODO: design execparams to hold kernel execution dimensions and stuff
 			class CLProgram
 			{
 			public:
@@ -171,16 +240,19 @@ namespace ocl_template_matching
 				void cleanup() noexcept;
 
 				template <typename ... ArgTypes>
-				void operator()(const std::string& name, const ExecParams& exec_params, ArgTypes&&... args)
+				void operator()(const std::string& name, const ExecParams& exec_params, const ArgTypes&... args)
 				{
 					// unpack args
-					setKernelArgs<0, ArgTypes...>(std::forward<ArgTypes>(args)...);
+					setKernelArgs<0, ArgTypes...>(name, args...);
+
+					// invoke kernel
+					invoke(name, exec_params);
 				}
 
 				// overload for zero arguments
 				void operator()(const std::string& name, const ExecParams& exec_params)
 				{
-					
+					invoke(name, exec_params);
 				}
 
 			private:
@@ -190,21 +262,43 @@ namespace ocl_template_matching
 					cl_kernel kernel;
 				};
 
+				// invoke kernel
+				void invoke(const std::string& name, const ExecParams& exec_params)
+				{
+
+				}
+
 				// template parameter pack unpacking
 				template <std::size_t index, typename FirstArgType, typename ... ArgTypes>
-				void setKernelArgs(FirstArgType&& first_arg, ArgTypes&&... rest)
+				void setKernelArgs(const std::string& name, const FirstArgType& first_arg, const ArgTypes&... rest)
 				{
-					// TODO: process first_arg
-
+					// process first_arg
+					setKernelArgs<index, FirstArgType>(name, first_arg);
 					// unpack next param
-					setKernelArgs<index + 1, ArgTypes...>(std::forward<ArgTypes>(rest)...);
+					setKernelArgs<index + 1, ArgTypes...>(name, rest...);
 				}
 
 				// exit case
 				template <std::size_t index, typename FirstArgType>
-				void setKernelArgs(FirstArgType&& first_arg)
+				void setKernelArgs(const std::string& name, const FirstArgType& first_arg)
 				{
-					// TODO: process first_arg
+					// process argument
+					std::size_t arg_size{CLKernelArgTraits<FirstArgType>::size()};
+					const void* arg_data_ptr{CLKernelArgTraits<FirstArgType>::arg_data()};
+
+					// set opencl kernel argument
+					try
+					{
+						CL_EX(clSetKernelArg(m_kernelsat(name), static_cast<cl_uint>(index), arg_size, arg_data_ptr));
+					}
+					catch(const std::out_of_range& ex) // kernel name wasn't found
+					{
+						throw std::runtime_error("[CLProgram]: Unknown kernel name");
+					}
+					catch(...)
+					{
+						throw;
+					}
 				}
 
 				std::string m_source;

@@ -381,7 +381,8 @@ ocl_template_matching::impl::cl::CLProgram::CLProgram(const std::string& kernel_
 	m_kernels(),
 	m_cl_state(clstate),
 	m_cl_program(nullptr),
-	m_options(compiler_options)
+	m_options(compiler_options),
+	m_event_cache()
 {
 	try
 	{
@@ -447,10 +448,12 @@ ocl_template_matching::impl::cl::CLProgram::CLProgram(CLProgram&& other) noexcep
 	m_kernels{std::move(other.m_kernels)},
 	m_cl_state{other.m_cl_state},
 	m_cl_program{other.m_cl_program},
-	m_options{std::move(other.m_options)}
+	m_options{std::move(other.m_options)},
+	m_event_cache{std::move(other.m_event_cache)}
 {
+	m_event_cache.clear();
 	other.m_kernels.clear();
-	other.m_cl_program = nullptr;
+	other.m_cl_program = nullptr;	
 }
 
 ocl_template_matching::impl::cl::CLProgram& ocl_template_matching::impl::cl::CLProgram::operator=(CLProgram&& other) noexcept
@@ -464,6 +467,9 @@ ocl_template_matching::impl::cl::CLProgram& ocl_template_matching::impl::cl::CLP
 	m_options = std::move(other.m_options);
 	std::swap(m_kernels, other.m_kernels);
 	std::swap(m_cl_program, other.m_cl_program);
+	m_event_cache.clear();
+	other.m_event_cache.clear();
+	std::swap(m_event_cache, other.m_event_cache);
 
 	return *this;
 }
@@ -474,38 +480,27 @@ void ocl_template_matching::impl::cl::CLProgram::cleanup() noexcept
 	{
 		if(k.second.kernel)
 			clReleaseKernel(k.second.kernel);
-		k.second.kernel = nullptr;
 	}
 	m_kernels.clear();
 	if(m_cl_program)
 		clReleaseProgram(m_cl_program);
-	m_cl_program = nullptr;
 }
 
-void ocl_template_matching::impl::cl::CLProgram::invoke(const std::string& name, const ExecParams& exparams)
+ocl_template_matching::impl::cl::CLProgram::CLEvent ocl_template_matching::impl::cl::CLProgram::invoke(cl_kernel kernel, const std::vector<cl_event>& dep_events, const ExecParams& exparams)
 {
-	try
-	{
-		CL_EX(clEnqueueNDRangeKernel(
-			m_cl_state->command_queue(),
-			m_kernels.at(name).kernel,
-			static_cast<cl_uint>(exparams.work_dim),
-			exparams.work_offset,
-			exparams.global_work_size,
-			exparams.local_work_size,
-			0u,
-			nullptr,
-			nullptr
-		));
-	}
-	catch(const std::out_of_range&) // kernel name wasn't found
-	{
-		throw std::runtime_error("[CLProgram]: Unknown kernel name");
-	}
-	catch(...)
-	{
-		throw;
-	}
+	cl_event ev{nullptr};
+	CL_EX(clEnqueueNDRangeKernel(
+		m_cl_state->command_queue(),
+		kernel,
+		static_cast<cl_uint>(exparams.work_dim),
+		exparams.work_offset,
+		exparams.global_work_size,
+		exparams.local_work_size,
+		static_cast<cl_uint>(dep_events.size()),
+		dep_events.size() > 0ull ? dep_events.data() : nullptr,
+		&ev
+	));
+	return CLEvent{ev};
 }
 
 void ocl_template_matching::impl::cl::CLProgram::setKernelArgsImpl(const std::string& name, std::size_t index, std::size_t arg_size, const void* arg_data_ptr)
@@ -524,7 +519,56 @@ void ocl_template_matching::impl::cl::CLProgram::setKernelArgsImpl(const std::st
 	}
 }
 
+// class CLEvent
+ocl_template_matching::impl::cl::CLProgram::CLEvent::CLEvent(cl_event ev) :
+	m_event{ev}
+{	
+}
 
+ocl_template_matching::impl::cl::CLProgram::CLEvent::~CLEvent()
+{
+	if(m_event)
+		CL_EX(clReleaseEvent(m_event));
+}
+
+ocl_template_matching::impl::cl::CLProgram::CLEvent::CLEvent(const CLEvent& other) :
+	m_event{other.m_event}
+{
+	if(m_event)
+		CL_EX(clRetainEvent(m_event));
+}
+
+ocl_template_matching::impl::cl::CLProgram::CLEvent::CLEvent(CLEvent&& other) noexcept :
+	m_event{other.m_event}
+{
+	other.m_event = nullptr;
+}
+
+ocl_template_matching::impl::cl::CLProgram::CLEvent& ocl_template_matching::impl::cl::CLProgram::CLEvent::operator=(const CLEvent& other)
+{
+	if(this == &other)
+		return *this;
+
+	m_event = other.m_event;
+	CL_EX(clRetainEvent(m_event));
+
+	return *this;
+}
+
+ocl_template_matching::impl::cl::CLProgram::CLEvent& ocl_template_matching::impl::cl::CLProgram::CLEvent::operator=(CLEvent&& other) noexcept
+{
+	if(this == &other)
+		return *this;
+
+	std::swap(m_event, other.m_event);
+
+	return *this;
+}
+
+void ocl_template_matching::impl::cl::CLProgram::CLEvent::wait() const
+{
+	CL_EX(clWaitForEvents(1, &m_event));
+}
 
 // global operators
 

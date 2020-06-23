@@ -8,6 +8,7 @@
 #include <vector>
 #include <sstream>
 #include <unordered_map>
+#include <future>
 
 // compile time definitions
 #define OCL_KERNEL_MAX_WORK_DIM 3 // maximum work dim of opencl kernels
@@ -19,17 +20,26 @@ namespace ocl_template_matching
 	{
 		// support for void_t in case of C++11 and C++14
 	#ifdef WOODPIXELS_LANG_FEATURES_VARIADIC_USING_DECLARATIONS
-		template <typename...>
+		template <typename...> // only possible with >=C++14
 		using void_t = void;
 	#else
-		namespace detail
+		namespace detail	// C++11
 		{
 			template <typename...>
 			struct make_void { typedef void type; };
 		}
 		template <typename... T>
-		using void_t = detail::make_void<T...>::type;
+		using void_t = typename detail::make_void<T...>::type;
 	#endif
+
+		// this is only available with >=C++17, so we implement that ourselves
+		// used to combine multiple boolean traits into one via conjunction
+		template <typename...>
+		struct conjunction : std::false_type {};
+		template <typename Last>
+		struct conjunction<Last> : Last {};
+		template <typename First, typename ... Rest>
+		struct conjunction<First, Rest...> : std::conditional<bool(First::value), conjunction<Rest...>, First> {};
 	}
 
 	namespace impl
@@ -168,9 +178,9 @@ namespace ocl_template_matching
 			struct is_cl_param : public std::false_type	{};
 
 			template <typename T>
-			struct is_cl_param < T, ocl_template_matching::meta::void_t<
+			struct is_cl_param <T, ocl_template_matching::meta::void_t<
 				decltype(std::size_t{std::declval<const T>().size()}), // has const size() member, returning size_t?,
-				std::enable_if<std::is_convertible<decltype(std::declval<const T>().arg_data()), const void*>::value>::type // has const arg_data() member returning something convertible to const void* ?
+				typename std::enable_if<std::is_convertible<decltype(std::declval<const T>().arg_data()), const void*>::value>::type // has const arg_data() member returning something convertible to const void* ?
 			>> : std::true_type {};
 
 			// traits class for handling kernel arguments
@@ -179,7 +189,7 @@ namespace ocl_template_matching
 
 			// case: complex type which fulfills requirements of is_cl_param<T>
 			template <typename T>
-			struct CLKernelArgTraits <T, std::enable_if<is_cl_param<T>::value>::type>
+			struct CLKernelArgTraits <T, typename std::enable_if<is_cl_param<T>::value>::type>
 			{
 				static std::size_t size(const T& arg) { return arg.size(); }
 				static const void* arg_data(const T& arg) { static_cast<const void*>(return arg.arg_data()) }
@@ -187,7 +197,7 @@ namespace ocl_template_matching
 
 			// case: arithmetic type or standard layout type (poc struct, plain array...)
 			template <typename T>
-			struct CLKernelArgTraits <T, std::enable_if<std::is_arithmetic<T>::value || std::is_standard_layout<T>::value>::type>
+			struct CLKernelArgTraits <T, typename std::enable_if<std::is_arithmetic<T>::value || std::is_standard_layout<T>::value>::type>
 			{
 				static constexpr std::size_t size(const T& arg) { return sizeof(T); }
 				static const void* arg_data(const T& arg) { static_cast<const void*>(return &arg) }
@@ -211,6 +221,15 @@ namespace ocl_template_matching
 
 			// TODO: case: smart pointers? maybe later
 
+			// general check for allowed argument types. Used to presend meaningful error message wenn invoked with wrong types.
+			template <typename T>
+			using is_valid_kernel_arg = std::conditional<
+				is_cl_param<T>::value ||
+				std::is_arithmetic<T>::value ||
+				std::is_standard_layout<T>::value ||
+				std::is_same<T, std::nullptr_t>::value ||
+				std::is_pointer<T>::value
+				, std::true_type, std::false_type>;
 
 			// wrapper for opencl kernel objects.
 			// should provide:
@@ -248,6 +267,7 @@ namespace ocl_template_matching
 				template <typename ... ArgTypes>
 				void operator()(const std::string& name, const ExecParams& exec_params, const ArgTypes&... args)
 				{
+					static_assert(ocl_template_matching::meta::conjunction<is_valid_kernel_arg<ArgTypes>...>::value, "[CLProgram]: Incompatible kernel argument type.");
 					// unpack args
 					setKernelArgs<0, ArgTypes...>(name, args...);
 

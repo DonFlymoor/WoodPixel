@@ -489,7 +489,7 @@ void ocl_template_matching::impl::cl::CLProgram::invoke(const std::string& name,
 		CL_EX(clEnqueueNDRangeKernel(
 			m_cl_state->command_queue(),
 			m_kernels.at(name).kernel,
-			exparams.work_dim,
+			static_cast<cl_uint>(exparams.work_dim),
 			exparams.work_offset,
 			exparams.global_work_size,
 			exparams.local_work_size,
@@ -498,7 +498,7 @@ void ocl_template_matching::impl::cl::CLProgram::invoke(const std::string& name,
 			nullptr
 		));
 	}
-	catch(const std::out_of_range& ex) // kernel name wasn't found
+	catch(const std::out_of_range&) // kernel name wasn't found
 	{
 		throw std::runtime_error("[CLProgram]: Unknown kernel name");
 	}
@@ -514,7 +514,7 @@ void ocl_template_matching::impl::cl::CLProgram::setKernelArgsImpl(const std::st
 	{
 		CL_EX(clSetKernelArg(m_kernels.at(name).kernel, static_cast<cl_uint>(index), arg_size, arg_data_ptr));
 	}
-	catch(const std::out_of_range& ex) // kernel name wasn't found
+	catch(const std::out_of_range&) // kernel name wasn't found
 	{
 		throw std::runtime_error("[CLProgram]: Unknown kernel name");
 	}

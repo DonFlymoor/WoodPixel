@@ -519,6 +519,18 @@ void ocl_template_matching::impl::cl::CLProgram::setKernelArgsImpl(const std::st
 	}
 }
 
+ocl_template_matching::impl::cl::CLProgram::CLKernelHandle ocl_template_matching::impl::cl::CLProgram::getKernel(const std::string& name)
+{
+	try
+	{
+		return CLKernelHandle{m_kernels.at(name).kernel};
+	}
+	catch(const std::out_of_range&)
+	{
+		throw std::runtime_error("Unknown kernel name.");
+	}
+}
+
 // class CLEvent
 ocl_template_matching::impl::cl::CLProgram::CLEvent::CLEvent(cl_event ev) :
 	m_event{ev}

@@ -49,63 +49,6 @@ namespace ocl_template_matching
 		{
 			std::vector<std::string> string_split(const std::string& s, char delimiter);
 			unsigned int get_cl_version_num(const std::string& str);
-
-			/*!
-			\brief A thread safe, lock-free implementation of a reference counter.
-			*/
-			class RefCtr
-			{
-				std::atomic<size_t> rc;
-			public:
-				//! Initializes the reference count with 1.
-				RefCtr()
-				{
-					rc.store(1, std::memory_order_relaxed);
-				}
-
-				//! Copy contructor.
-				RefCtr(const RefCtr& other) :
-					rc(other.rc.load(std::memory_order_relaxed))
-				{
-
-				}
-
-				//! Move contructor.
-				RefCtr(RefCtr&& other) noexcept :
-					rc(other.rc.load(std::memory_order_relaxed))
-				{
-
-				}
-
-				/*!
-				\brief Initializes the reference count with init.
-				\param[in] init		The value, the reference count is initialized with.
-				*/
-				RefCtr(size_t init)
-				{
-					rc.store(init, std::memory_order_relaxed);
-				}
-
-				//! Increments the reference count.
-				inline void inc()
-				{
-					rc.fetch_add(1, std::memory_order_relaxed);
-				}
-
-				/*!
-				\brief Decrements the reference count and returns true if it reached 0.
-				\returns	Returns true if the reference count has reached 0.
-				*/
-				inline bool dec()
-				{
-					if(rc.load(std::memory_order_relaxed) && rc.fetch_sub(1, std::memory_order_release) == 1)
-					{
-						std::atomic_thread_fence(std::memory_order_acquire);
-						return true;
-					}
-					return false;
-				}
-			};
 		}
 
 		namespace cl
@@ -288,7 +231,6 @@ namespace ocl_template_matching
 				std::is_pointer<T>::value
 				, std::true_type, std::false_type>;
 
-			// TODO: Add factory for some functor to avoid querying the kernel list by name.
 			class CLProgram
 			{
 			public:
@@ -314,6 +256,17 @@ namespace ocl_template_matching
 					void wait() const;
 				private:
 					cl_event m_event;
+				};
+
+				class CLKernelHandle
+				{
+					friend class CLProgram;
+					CLKernelHandle(const CLKernelHandle& other) noexcept = default;
+					CLKernelHandle& operator=(const CLKernelHandle& other) noexcept = default;
+					~CLKernelHandle() noexcept = default;
+				private:
+					CLKernelHandle(cl_kernel kernel) noexcept : m_kernel{kernel} {}
+					cl_kernel m_kernel;
 				};
 
 				CLProgram(const std::string& source, const std::string& compiler_options, const CLState* clstate);
@@ -353,6 +306,18 @@ namespace ocl_template_matching
 					}
 				}
 
+				template <typename ... ArgTypes>
+				CLEvent operator()(const CLKernelHandle& kernel, const ExecParams& exec_params, const ArgTypes&... args)
+				{
+					static_assert(ocl_template_matching::meta::conjunction<is_valid_kernel_arg<ArgTypes>...>::value, "[CLProgram]: Incompatible kernel argument type.");					
+					// unpack args
+					setKernelArgs<std::size_t{0}, ArgTypes...>(name, args...);
+
+					// invoke kernel
+					m_event_cache.clear();
+					return invoke(kernel.m_kernel, m_event_cache, exec_params);					
+				}
+
 				// overload for zero arguments (no dependencies)
 				CLEvent operator()(const std::string& name, const ExecParams& exec_params)
 				{
@@ -370,6 +335,13 @@ namespace ocl_template_matching
 					{
 						throw;
 					}
+				}
+
+				CLEvent operator()(const CLKernelHandle& kernel, const ExecParams& exec_params)
+				{					
+					// invoke kernel
+					m_event_cache.clear();
+					return invoke(kernel.m_kernel, m_event_cache, exec_params);					
 				}
 
 				// call operators with dependencies
@@ -398,6 +370,20 @@ namespace ocl_template_matching
 					}
 				}
 
+				template <typename ... ArgTypes>
+				CLEvent operator()(const CLKernelHandle& kernel, const std::vector<CLEvent>& dep_events, const ExecParams& exec_params, const ArgTypes&... args)
+				{
+					static_assert(ocl_template_matching::meta::conjunction<is_valid_kernel_arg<ArgTypes>...>::value, "[CLProgram]: Incompatible kernel argument type.");					
+					// unpack args
+					setKernelArgs < std::size_t{0}, ArgTypes... > (name, args...);
+
+					// invoke kernel
+					m_event_cache.clear();
+					for(const CLEvent& ev : dep_events)
+						m_event_cache.push_back(ev.m_event);
+					return invoke(kernel.m_kernel, m_event_cache, exec_params);					
+				}
+
 				// overload for zero arguments (with dependencies)
 				CLEvent operator()(const std::string& name, const std::vector<CLEvent>& dep_events, const ExecParams& exec_params)
 				{
@@ -418,6 +404,18 @@ namespace ocl_template_matching
 						throw;
 					}
 				}
+
+				CLEvent operator()(const CLKernelHandle& kernel, const std::vector<CLEvent>& dep_events, const ExecParams& exec_params)
+				{					
+					// invoke kernel
+					m_event_cache.clear();
+					for(const CLEvent& ev : dep_events)
+						m_event_cache.push_back(ev.m_event);
+					return invoke(kernel.m_kernel, m_event_cache, exec_params);
+				}
+
+				// retrieve kernel handle
+				CLKernelHandle getKernel(const std::string& name);
 
 			private:
 				struct CLKernel

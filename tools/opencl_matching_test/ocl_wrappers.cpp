@@ -26,6 +26,12 @@ unsigned int ocl_template_matching::impl::util::get_cl_version_num(const std::st
 
 // ---------------------- class CLState
 
+// factory function
+std::shared_ptr<ocl_template_matching::impl::cl::CLState> ocl_template_matching::impl::cl::createCLInstance(std::size_t platform_index, std::size_t device_index)
+{
+	return std::shared_ptr<CLState>(new CLState{platform_index, device_index});
+}
+
 ocl_template_matching::impl::cl::CLState::CLState(std::size_t platform_index, std::size_t device_index) :
 	m_available_platforms{},
 	m_selected_platform_index{0},
@@ -376,7 +382,7 @@ const ocl_template_matching::impl::cl::CLState::CLDevice& ocl_template_matching:
 
 // -------------------------- class CLProgram
 
-ocl_template_matching::impl::cl::CLProgram::CLProgram(const std::string& kernel_source, const std::string& compiler_options, const CLState* clstate) :
+ocl_template_matching::impl::cl::CLProgram::CLProgram(const std::string& kernel_source, const std::string& compiler_options, const std::shared_ptr<CLState>& clstate) :
 	m_source(kernel_source),
 	m_kernels(),
 	m_cl_state(clstate),
@@ -446,7 +452,7 @@ ocl_template_matching::impl::cl::CLProgram::~CLProgram()
 ocl_template_matching::impl::cl::CLProgram::CLProgram(CLProgram&& other) noexcept :
 	m_source{std::move(other.m_source)},
 	m_kernels{std::move(other.m_kernels)},
-	m_cl_state{other.m_cl_state},
+	m_cl_state{std::move(other.m_cl_state)},
 	m_cl_program{other.m_cl_program},
 	m_options{std::move(other.m_options)},
 	m_event_cache{std::move(other.m_event_cache)}
@@ -462,7 +468,7 @@ ocl_template_matching::impl::cl::CLProgram& ocl_template_matching::impl::cl::CLP
 		return *this;
 
 	cleanup();
-	m_cl_state = other.m_cl_state;
+	m_cl_state = std::move(other.m_cl_state);
 	m_source = std::move(other.m_source);
 	m_options = std::move(other.m_options);
 	std::swap(m_kernels, other.m_kernels);

@@ -12,11 +12,11 @@ namespace ocl_template_matching
 		public:
 			MatcherImpl(const MatchingPolicyBase& matching_policy);
 		private:
-			cl::CLState m_cl_state;
+			std::shared_ptr<cl::CLState> m_cl_state;
 		};
 
 		MatcherImpl::MatcherImpl(const MatchingPolicyBase& matching_policy) :
-			m_cl_state{matching_policy.platform_id(), matching_policy.device_id()}
+			m_cl_state{std::move(cl::createCLInstance(matching_policy.platform_id(), matching_policy.device_id()))}
 		{
 		}
 	}

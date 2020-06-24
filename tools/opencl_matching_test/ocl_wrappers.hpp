@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <future>
 #include <atomic>
+#include <memory>
 
 // compile time definitions
 #define OCL_KERNEL_MAX_WORK_DIM 3 // maximum work dim of opencl kernels
@@ -53,6 +54,7 @@ namespace ocl_template_matching
 
 		namespace cl
 		{
+			#pragma region context
 			// callbacks
 			void create_context_callback(const char* errinfo, const void* private_info, std::size_t cb, void* user_data);
 
@@ -109,17 +111,12 @@ namespace ocl_template_matching
 					std::vector<CLDevice> devices;
 				};
 
-				// ctors
-				CLState(std::size_t platform_index, std::size_t device_index);
+				// instead of a constructor we use a factory function which returns a shared_ptr to the CLState instance
+				// (it is a lot safer this way, because the other wrapper classes all depend on a valid CLState.)
+				friend std::shared_ptr<CLState> createCLInstance(std::size_t platform_index, std::size_t device_index);
+
+				// dtor
 				~CLState();
-
-				// copy / move constructors
-				CLState(const CLState&) = delete;
-				CLState(CLState&& other) noexcept;
-
-				// copy / move assignment
-				CLState& operator=(const CLState&) = delete;
-				CLState& operator=(CLState&&) noexcept;
 
 				// accessor for context and command queue (return by value because of cl_context and cl_command_queue being pointers)
 				cl_context context() const { return m_context; }
@@ -142,6 +139,17 @@ namespace ocl_template_matching
 				{
 					const char* ex_msg;
 				};
+
+				// ctors
+				CLState(std::size_t platform_index, std::size_t device_index);
+
+				// copy / move constructors
+				CLState(const CLState&) = delete;
+				CLState(CLState&& other) noexcept;
+
+				// copy / move assignment
+				CLState& operator=(const CLState&) = delete;
+				CLState& operator=(CLState&&) noexcept;
 
 				// --- private data members
 
@@ -175,6 +183,9 @@ namespace ocl_template_matching
 				void cleanup();
 			};
 
+			#pragma endregion
+
+			#pragma region program_and_kernels
 			// check if T has member funcions to access data pointer and size (for setting kernel params!)
 			template <typename T, typename = void>
 			struct is_cl_param : public std::false_type	{};
@@ -269,7 +280,7 @@ namespace ocl_template_matching
 					cl_kernel m_kernel;
 				};
 
-				CLProgram(const std::string& source, const std::string& compiler_options, const CLState* clstate);
+				CLProgram(const std::string& source, const std::string& compiler_options, const std::shared_ptr<CLState>& clstate);
 				~CLProgram();
 
 				// copy / move constructor
@@ -451,9 +462,22 @@ namespace ocl_template_matching
 				std::string m_options;
 				std::unordered_map<std::string, CLKernel> m_kernels;
 				cl_program m_cl_program;
-				const CLState* m_cl_state;
+				std::shared_ptr<CLState> m_cl_state;
 				std::vector<cl_event> m_event_cache;
 			};
+		#pragma endregion
+		
+			#pragma region buffers
+			class CLBuffer
+			{
+			private:
+				cl_mem m_cl_memory;
+			};
+			#pragma endregion
+
+			#pragma region images
+			
+			#pragma endregion
 		}
 	}
 }

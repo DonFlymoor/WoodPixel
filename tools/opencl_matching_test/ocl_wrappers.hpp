@@ -356,9 +356,10 @@ namespace ocl_template_matching
 				}
 
 				// call operators with dependencies
-				template <typename ... ArgTypes>
-				CLEvent operator()(const std::string& name, const std::vector<CLEvent>& dep_events, const ExecParams& exec_params, const ArgTypes&... args)
+				template <typename DependencyIterator, typename ... ArgTypes>
+				CLEvent operator()(const std::string& name, DependencyIterator start_dep_iterator, DependencyIterator end_dep_iterator, const ExecParams& exec_params, const ArgTypes&... args)
 				{
+					static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DependencyIterator>::value_type>::type>::type , CLEvent>::value , "[CLProgram]: Dependency iterators must refer to a collection of CLEvent objects.");
 					static_assert(ocl_template_matching::meta::conjunction<is_valid_kernel_arg<ArgTypes>...>::value, "[CLProgram]: Incompatible kernel argument type.");
 					try
 					{
@@ -367,8 +368,8 @@ namespace ocl_template_matching
 
 						// invoke kernel
 						m_event_cache.clear();
-						for(const CLEvent& ev : dep_events)
-							m_event_cache.push_back(ev.m_event);
+						for(StartIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
+							m_event_cache.push_back(it->m_event);
 						return invoke(m_kernels.at(name).kernel, m_event_cache, exec_params);
 					}
 					catch(const std::out_of_range&) // kernel name wasn't found
@@ -381,29 +382,32 @@ namespace ocl_template_matching
 					}
 				}
 
-				template <typename ... ArgTypes>
-				CLEvent operator()(const CLKernelHandle& kernel, const std::vector<CLEvent>& dep_events, const ExecParams& exec_params, const ArgTypes&... args)
+				template <typename DependencyIterator, typename ... ArgTypes>
+				CLEvent operator()(const CLKernelHandle& kernel, DependencyIterator start_dep_iterator, DependencyIterator end_dep_iterator, const ExecParams& exec_params, const ArgTypes&... args)
 				{
+					static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DependencyIterator>::value_type>::type>::type, CLEvent>::value, "[CLProgram]: Dependency iterators must refer to a collection of CLEvent objects.");
 					static_assert(ocl_template_matching::meta::conjunction<is_valid_kernel_arg<ArgTypes>...>::value, "[CLProgram]: Incompatible kernel argument type.");					
 					// unpack args
 					setKernelArgs < std::size_t{0}, ArgTypes... > (name, args...);
 
 					// invoke kernel
 					m_event_cache.clear();
-					for(const CLEvent& ev : dep_events)
-						m_event_cache.push_back(ev.m_event);
+					for(StartIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
+						m_event_cache.push_back(it->m_event);
 					return invoke(kernel.m_kernel, m_event_cache, exec_params);					
 				}
 
 				// overload for zero arguments (with dependencies)
-				CLEvent operator()(const std::string& name, const std::vector<CLEvent>& dep_events, const ExecParams& exec_params)
+				template <typename DependencyIterator>
+				CLEvent operator()(const std::string& name, DependencyIterator start_dep_iterator, DependencyIterator end_dep_iterator, const ExecParams& exec_params)
 				{
+					static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DependencyIterator>::value_type>::type>::type, CLEvent>::value, "[CLProgram]: Dependency iterators must refer to a collection of CLEvent objects.");
 					try
 					{
 						// invoke kernel
 						m_event_cache.clear();
-						for(const CLEvent& ev : dep_events)
-							m_event_cache.push_back(ev.m_event);
+						for(StartIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
+							m_event_cache.push_back(it->m_event);
 						return invoke(m_kernels.at(name).kernel, m_event_cache, exec_params);
 					}
 					catch(const std::out_of_range&) // kernel name wasn't found
@@ -416,12 +420,14 @@ namespace ocl_template_matching
 					}
 				}
 
-				CLEvent operator()(const CLKernelHandle& kernel, const std::vector<CLEvent>& dep_events, const ExecParams& exec_params)
-				{					
+				template <typename DependencyIterator>
+				CLEvent operator()(const CLKernelHandle& kernel, DependencyIterator start_dep_iterator, DependencyIterator end_dep_iterator, const ExecParams& exec_params)
+				{				
+					static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DependencyIterator>::value_type>::type>::type, CLEvent>::value, "[CLProgram]: Dependency iterators must refer to a collection of CLEvent objects.");
 					// invoke kernel
 					m_event_cache.clear();
-					for(const CLEvent& ev : dep_events)
-						m_event_cache.push_back(ev.m_event);
+					for(StartIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
+						m_event_cache.push_back(it->m_event);
 					return invoke(kernel.m_kernel, m_event_cache, exec_params);
 				}
 
@@ -468,15 +474,24 @@ namespace ocl_template_matching
 		#pragma endregion
 		
 			#pragma region buffers
-			class CLBuffer
-			{
-			private:
-				cl_mem m_cl_memory;
-			};
-			#pragma endregion
+			//class CLBuffer
+			//{
+			//public:
+			//	// raw byte buffer
+			//	CLBuffer(std::size_t size/* buffer creation options */);
+			//	// single data item or array thereof
+			//	template<typename data_t>
+			//	CLBuffer(std::size_t num_items);
 
-			#pragma region images
-			
+			//	~CLBuffer();
+			//	CLBuffer(const CLBuffer&) = delete;
+			//	CLBuffer(CLBuffer&& other);
+			//	CLBuffer& operator=(const CLBuffer&) = delete;
+			//	CLBuffer& operator=(CLBuffer&& other);
+			//	
+			//private:
+			//	cl_mem m_cl_memory;
+			//};
 			#pragma endregion
 		}
 	}

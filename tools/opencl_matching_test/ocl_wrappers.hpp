@@ -242,6 +242,22 @@ namespace ocl_template_matching
 				std::is_pointer<T>::value
 				, std::true_type, std::false_type>;
 
+			class CLEvent
+			{
+				friend class CLProgram;
+			public:
+				CLEvent(cl_event ev);
+				~CLEvent();
+				CLEvent(const CLEvent& other);
+				CLEvent(CLEvent&& other) noexcept;
+				CLEvent& operator=(const CLEvent& other);
+				CLEvent& operator=(CLEvent&& other) noexcept;
+
+				void wait() const;
+			private:
+				cl_event m_event;
+			};
+
 			class CLProgram
 			{
 			public:
@@ -253,21 +269,7 @@ namespace ocl_template_matching
 					std::size_t local_work_size[OCL_KERNEL_MAX_WORK_DIM];
 				};
 
-				class CLEvent
-				{
-					friend class CLProgram;
-				public:
-					CLEvent(cl_event ev);
-					~CLEvent();
-					CLEvent(const CLEvent& other);
-					CLEvent(CLEvent&& other) noexcept;
-					CLEvent& operator=(const CLEvent& other);
-					CLEvent& operator=(CLEvent&& other) noexcept;
-
-					void wait() const;
-				private:
-					cl_event m_event;
-				};
+				
 
 				class CLKernelHandle
 				{
@@ -368,7 +370,7 @@ namespace ocl_template_matching
 
 						// invoke kernel
 						m_event_cache.clear();
-						for(StartIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
+						for(DependencyIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
 							m_event_cache.push_back(it->m_event);
 						return invoke(m_kernels.at(name).kernel, m_event_cache, exec_params);
 					}
@@ -392,7 +394,7 @@ namespace ocl_template_matching
 
 					// invoke kernel
 					m_event_cache.clear();
-					for(StartIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
+					for(DependencyIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
 						m_event_cache.push_back(it->m_event);
 					return invoke(kernel.m_kernel, m_event_cache, exec_params);					
 				}
@@ -406,7 +408,7 @@ namespace ocl_template_matching
 					{
 						// invoke kernel
 						m_event_cache.clear();
-						for(StartIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
+						for(DependencyIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
 							m_event_cache.push_back(it->m_event);
 						return invoke(m_kernels.at(name).kernel, m_event_cache, exec_params);
 					}
@@ -426,7 +428,7 @@ namespace ocl_template_matching
 					static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DependencyIterator>::value_type>::type>::type, CLEvent>::value, "[CLProgram]: Dependency iterators must refer to a collection of CLEvent objects.");
 					// invoke kernel
 					m_event_cache.clear();
-					for(StartIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
+					for(DependencyIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
 						m_event_cache.push_back(it->m_event);
 					return invoke(kernel.m_kernel, m_event_cache, exec_params);
 				}
@@ -474,24 +476,142 @@ namespace ocl_template_matching
 		#pragma endregion
 		
 			#pragma region buffers
-			//class CLBuffer
-			//{
-			//public:
-			//	// raw byte buffer
-			//	CLBuffer(std::size_t size/* buffer creation options */);
-			//	// single data item or array thereof
-			//	template<typename data_t>
-			//	CLBuffer(std::size_t num_items);
 
-			//	~CLBuffer();
-			//	CLBuffer(const CLBuffer&) = delete;
-			//	CLBuffer(CLBuffer&& other);
-			//	CLBuffer& operator=(const CLBuffer&) = delete;
-			//	CLBuffer& operator=(CLBuffer&& other);
-			//	
-			//private:
-			//	cl_mem m_cl_memory;
-			//};
+			// use this as a raw byte buffer and add factories for POD types
+			class CLBuffer
+			{
+			public:
+				CLBuffer(std::size_t size, cl_mem_flags flags, const std::shared_ptr<CLState>& clstate, void* hostptr = nullptr);
+
+				~CLBuffer() noexcept;
+				CLBuffer(const CLBuffer&) = delete;
+				CLBuffer(CLBuffer&& other) noexcept;
+				CLBuffer& operator=(const CLBuffer&) = delete;
+				CLBuffer& operator=(CLBuffer&& other) noexcept;
+
+				//! Copies data pointed to by data into the OpenCL buffer.
+				/*!	
+				*	Copies data pointed to by data into the OpenCL buffer. The function returns a CLEvent which can be waited upon. It refers to the unmap command after copying.
+				*	Setting invalidate = true invalidates the written buffer region (all data that was not written is now in undefined state!) but most likely increases performance
+				*	due to less synchronization overhead in the driver.
+				*
+				*	\param[in]		data		Points to the data to be written into the buffer.
+				*	\param[in]		length		Length of the data to be written in bytes. If 0 (default), the whole buffer will be written and the offset is ignored.
+				*	\param[in]		offset		Offset into the buffer where the region to be written begins. Ignored if length is 0.
+				*	\param[in]		invalidate	If true, the written region will be invalidated which provides performance benefits in most cases.
+				*
+				*	\return			Returns a CLEvent object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
+				*	
+				*	\attention		This is a low level function. Please consider using one of the type-safe versions instead. If this function is used directly make sure that access to data*
+				*					in the region [data, data + length - 1] does not produce access violations!
+				*/
+				inline CLEvent write(const void* data, std::size_t length = 0ull, std::size_t offset = 0ull, bool invalidate = false);
+
+				//! Copies data from the OpenCL buffer into the memory region pointed to by data.
+				/*!
+				*	Copies data from the OpenCL buffer into the memory region pointed to by data. The function returns a CLEvent which can be waited upon. It refers to the unmap command after copying.
+				*
+				*	\param[out]		data		Points to the memory region the buffer should be read into.
+				*	\param[in]		length		Length of the data to be read in bytes. If 0 (default), the whole buffer will be read and the offset is ignored.
+				*	\param[in]		offset		Offset into the buffer where the region to be read begins. Ignored if length is 0.
+				*
+				*	\return			Returns a CLEvent object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
+				*
+				*	\attention		This is a low level function. Please consider using one of the type-safe versions instead. If this function is used directly make sure that access to data*
+				*					in the region [data, data + length - 1] does not produce access violations!
+				*/
+				inline CLEvent read(void* data, std::size_t length = 0ull, std::size_t offset = 0ull);
+
+				//! Copies data pointed to by data into the OpenCL buffer after waiting on a list of dependencies (CLEvent's).
+				/*!
+				*	Copies data pointed to by data into the OpenCL buffer. Before the buffer is mapped for writing, OpenCL waits for the provided CLEvent's.
+				*	The function returns a CLEvent which can be waited upon. It refers to the unmap command after copying.
+				*	Setting invalidate = true invalidates the written buffer region (all data that was not written is now in undefined state!) but most likely increases performance
+				*	due to less synchronization overhead in the driver.
+				*
+				*	\tparam			DepIterator	Input iterator to iterate over a collection of CLEvent's.
+				*
+				*	\param[in]		data		Points to the data to be written into the buffer.
+				*	\param[in]		dep_begin	Start iterator of a collection of CLEvent's.
+				*	\param[in]		dep_end		End iterator of a collection of CLEvent's.
+				*	\param[in]		length		Length of the data to be written in bytes. If 0 (default), the whole buffer will be written and the offset is ignored.
+				*	\param[in]		offset		Offset into the buffer where the region to be written begins. Ignored if length is 0.
+				*	\param[in]		invalidate	If true, the written region will be invalidated which provides performance benefits in most cases.
+				*
+				*	\return			Returns a CLEvent object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
+				*
+				*	\attention		This is a low level function. Please consider using one of the type-safe versions instead. If this function is used directly make sure that access to data*
+				*					in the region [data, data + length - 1] does not produce access violations!
+				*/
+				template <typename DepIterator>
+				inline CLEvent write(const void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length = 0ull, std::size_t offset = 0ull, bool invalidate = false);
+
+				//! Copies data from the OpenCL buffer into the memory region pointed to by data after waiting on a list of dependencies (CLEvent's).
+				/*!
+				*	Copies data from the OpenCL buffer into the memory region pointed to by data. Before the buffer is mapped for reading, OpenCL waits for the provided CLEvent's.
+				*	The function returns a CLEvent which can be waited upon. It refers to the unmap command after copying.
+				*
+				*	\tparam			DepIterator	Input iterator to iterate over a collection of CLEvent's.
+				*
+				*	\param[out]		data		Points to the memory region the buffer should be read into.
+				*	\param[in]		dep_begin	Start iterator of a collection of CLEvent's.
+				*	\param[in]		dep_end		End iterator of a collection of CLEvent's.
+				*	\param[in]		length		Length of the data to be read in bytes. If 0 (default), the whole buffer will be read and the offset is ignored.
+				*	\param[in]		offset		Offset into the buffer where the region to be read begins. Ignored if length is 0.
+				*
+				*	\return			Returns a CLEvent object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
+				*
+				*	\attention		This is a low level function. Please consider using one of the type-safe versions instead. If this function is used directly make sure that access to data*
+				*					in the region [data, data + length - 1] does not produce access violations!
+				*/
+				template <typename DepIterator>
+				inline CLEvent read(void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length = 0ull, std::size_t offset = 0ull);
+
+				//! reports allocated size
+				std::size_t size() const noexcept;
+				
+			private:
+				CLEvent buf_write(const void* data, std::size_t length = 0ull, std::size_t offset = 0ull, bool invalidate = false);
+				CLEvent buf_read(void* data, std::size_t length = 0ull, std::size_t offset = 0ull) const;
+
+				cl_mem m_cl_memory;
+				cl_mem_flags m_flags;
+				void* m_hostptr;
+				std::size_t m_size;
+				std::shared_ptr<CLState> m_cl_state;
+				std::vector<cl_event> m_event_cache;
+			};
+
+			CLEvent ocl_template_matching::impl::cl::CLBuffer::write(const void* data, std::size_t length, std::size_t offset, bool invalidate)
+			{
+				m_event_cache.clear();
+				return buf_write(data, length, offset, invalidate);
+			}
+
+			CLEvent ocl_template_matching::impl::cl::CLBuffer::read(void* data, std::size_t length, std::size_t offset)
+			{
+				m_event_cache.clear();
+				return buf_read(data, length, offset);
+			}
+
+			template<typename DepIterator>
+			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::write(const void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length, std::size_t offset, bool invalidate)
+			{
+				m_event_cache.clear();
+				for(DepIterator it{dep_begin}; it != dep_end; ++it)
+					m_event_cache.push_back(it->m_event);
+				return buf_write(data, length, offset, invalidate);
+			}
+
+			template<typename DepIterator>
+			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::read(void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length, std::size_t offset)
+			{
+				m_event_cache.clear();
+				for(DepIterator it{dep_begin}; it != dep_end; ++it)
+					m_event_cache.push_back(it->m_event);
+				return buf_read(data, length, offset);
+			}
+
 			#pragma endregion
 		}
 	}

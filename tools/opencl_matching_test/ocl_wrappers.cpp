@@ -492,7 +492,7 @@ void ocl_template_matching::impl::cl::CLProgram::cleanup() noexcept
 		clReleaseProgram(m_cl_program);
 }
 
-ocl_template_matching::impl::cl::CLProgram::CLEvent ocl_template_matching::impl::cl::CLProgram::invoke(cl_kernel kernel, const std::vector<cl_event>& dep_events, const ExecParams& exparams)
+ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLProgram::invoke(cl_kernel kernel, const std::vector<cl_event>& dep_events, const ExecParams& exparams)
 {
 	cl_event ev{nullptr};
 	CL_EX(clEnqueueNDRangeKernel(
@@ -538,31 +538,31 @@ ocl_template_matching::impl::cl::CLProgram::CLKernelHandle ocl_template_matching
 }
 
 // class CLEvent
-ocl_template_matching::impl::cl::CLProgram::CLEvent::CLEvent(cl_event ev) :
+ocl_template_matching::impl::cl::CLEvent::CLEvent(cl_event ev) :
 	m_event{ev}
 {	
 }
 
-ocl_template_matching::impl::cl::CLProgram::CLEvent::~CLEvent()
+ocl_template_matching::impl::cl::CLEvent::~CLEvent()
 {
 	if(m_event)
 		CL_EX(clReleaseEvent(m_event));
 }
 
-ocl_template_matching::impl::cl::CLProgram::CLEvent::CLEvent(const CLEvent& other) :
+ocl_template_matching::impl::cl::CLEvent::CLEvent(const CLEvent& other) :
 	m_event{other.m_event}
 {
 	if(m_event)
 		CL_EX(clRetainEvent(m_event));
 }
 
-ocl_template_matching::impl::cl::CLProgram::CLEvent::CLEvent(CLEvent&& other) noexcept :
+ocl_template_matching::impl::cl::CLEvent::CLEvent(CLEvent&& other) noexcept :
 	m_event{other.m_event}
 {
 	other.m_event = nullptr;
 }
 
-ocl_template_matching::impl::cl::CLProgram::CLEvent& ocl_template_matching::impl::cl::CLProgram::CLEvent::operator=(const CLEvent& other)
+ocl_template_matching::impl::cl::CLEvent& ocl_template_matching::impl::cl::CLEvent::operator=(const CLEvent& other)
 {
 	if(this == &other)
 		return *this;
@@ -573,7 +573,7 @@ ocl_template_matching::impl::cl::CLProgram::CLEvent& ocl_template_matching::impl
 	return *this;
 }
 
-ocl_template_matching::impl::cl::CLProgram::CLEvent& ocl_template_matching::impl::cl::CLProgram::CLEvent::operator=(CLEvent&& other) noexcept
+ocl_template_matching::impl::cl::CLEvent& ocl_template_matching::impl::cl::CLEvent::operator=(CLEvent&& other) noexcept
 {
 	if(this == &other)
 		return *this;
@@ -583,9 +583,105 @@ ocl_template_matching::impl::cl::CLProgram::CLEvent& ocl_template_matching::impl
 	return *this;
 }
 
-void ocl_template_matching::impl::cl::CLProgram::CLEvent::wait() const
+void ocl_template_matching::impl::cl::CLEvent::wait() const
 {
 	CL_EX(clWaitForEvents(1, &m_event));
+}
+
+// class CLBuffer
+
+ocl_template_matching::impl::cl::CLBuffer::CLBuffer(std::size_t size, cl_mem_flags flags, const std::shared_ptr<CLState>& clstate, void* hostptr) :
+	m_cl_memory{nullptr},
+	m_size{0ull},
+	m_cl_state{clstate},
+	m_flags{0},
+	m_hostptr{nullptr},
+	m_event_cache{}
+{	
+	cl_int err{CL_SUCCESS};
+	m_cl_memory = clCreateBuffer(m_cl_state->context(), flags, size, hostptr, &err);
+	if(err != CL_SUCCESS)
+		throw CLException(err, __LINE__, __FILE__, "[CLBuffer]: OpenCL buffer creation failed.");
+	m_size = size;
+	m_flags = flags;
+	m_hostptr = hostptr;
+}
+
+ocl_template_matching::impl::cl::CLBuffer::~CLBuffer() noexcept
+{
+	if(m_cl_memory)
+		CL(clReleaseMemObject(m_cl_memory));
+}
+
+ocl_template_matching::impl::cl::CLBuffer::CLBuffer(CLBuffer&& other) noexcept :
+	m_cl_memory{nullptr},
+	m_size{0ull},
+	m_cl_state{nullptr},
+	m_flags{0},
+	m_hostptr{nullptr},
+	m_event_cache{}
+{
+	std::swap(m_cl_memory, other.m_cl_memory);
+	std::swap(m_size, other.m_size);
+	std::swap(m_cl_state, other.m_cl_state);
+	std::swap(m_flags, other.m_flags);
+	std::swap(m_hostptr, other.m_hostptr);
+}
+
+ocl_template_matching::impl::cl::CLBuffer& ocl_template_matching::impl::cl::CLBuffer::operator=(CLBuffer&& other) noexcept
+{
+	if(this == &other)
+		return *this;
+	
+	std::swap(m_cl_memory, other.m_cl_memory);
+	std::swap(m_size, other.m_size);
+	std::swap(m_cl_state, other.m_cl_state);
+	std::swap(m_flags, other.m_flags);
+	std::swap(m_hostptr, other.m_hostptr);
+	m_event_cache.clear();
+
+	return *this;
+}
+
+ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLBuffer::buf_write(const void* data, std::size_t length, std::size_t offset, bool invalidate)
+{
+	if(offset + length > m_size)
+		throw std::out_of_range("[CLBuffer]: Buffer write failed. Input offset + length out of range.");
+	if(m_flags | CL_MEM_HOST_READ_ONLY | CL_MEM_HOST_NO_ACCESS)
+		throw std::runtime_error("[CLBuffer]: Writing to a read only buffer is not allowed.");
+	std::size_t _offset = (length > 0ull ? offset : 0ull);
+	std::size_t _length = (length > 0ull ? length : m_size);
+	cl_int err{CL_SUCCESS};
+	cl_event unmap_event{nullptr};
+	void* bufptr = clEnqueueMapBuffer(m_cl_state->command_queue(), m_cl_memory, true, (invalidate ? CL_MAP_WRITE_INVALIDATE_REGION : CL_MAP_WRITE), _offset, _length, 0u, nullptr, &unmap_event, &err);
+	if(err != CL_SUCCESS)
+		throw CLException(err, __LINE__, __FILE__, "[CLBuffer]: Write failed.");
+	std::memcpy(bufptr, data, _length);
+	CL_EX(clEnqueueUnmapMemObject(m_cl_state->command_queue(), m_cl_memory, bufptr, 0u, nullptr, &unmap_event));
+	return CLEvent{unmap_event};
+}
+
+ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLBuffer::buf_read(void* data, std::size_t length, std::size_t offset) const
+{
+	if(offset + length > m_size)
+		throw std::out_of_range("[CLBuffer]: Buffer read failed. Input offset + length out of range.");
+	if(m_flags | CL_MEM_HOST_WRITE_ONLY | CL_MEM_HOST_NO_ACCESS)
+		throw std::runtime_error("[CLBuffer]: Reading from a write only buffer is not allowed.");
+	std::size_t _offset = (length > 0ull ? offset : 0ull);
+	std::size_t _length = (length > 0ull ? length : m_size);
+	cl_int err{CL_SUCCESS};
+	cl_event unmap_event{nullptr};
+	void* bufptr = clEnqueueMapBuffer(m_cl_state->command_queue(), m_cl_memory, true, CL_MAP_READ, _offset, _length, 0u, nullptr, &unmap_event, &err);
+	if(err != CL_SUCCESS)
+		throw CLException(err, __LINE__, __FILE__, "[CLBuffer]: Read failed.");
+	std::memcpy(data, bufptr, _length);
+	CL_EX(clEnqueueUnmapMemObject(m_cl_state->command_queue(), m_cl_memory, bufptr, 0u, nullptr, &unmap_event));
+	return CLEvent{unmap_event};
+}
+
+std::size_t ocl_template_matching::impl::cl::CLBuffer::size() const noexcept
+{
+	return m_size;
 }
 
 // global operators

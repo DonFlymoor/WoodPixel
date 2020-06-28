@@ -267,9 +267,7 @@ namespace ocl_template_matching
 					std::size_t work_offset[OCL_KERNEL_MAX_WORK_DIM];
 					std::size_t global_work_size[OCL_KERNEL_MAX_WORK_DIM];
 					std::size_t local_work_size[OCL_KERNEL_MAX_WORK_DIM];
-				};
-
-				
+				};				
 
 				class CLKernelHandle
 				{
@@ -505,7 +503,7 @@ namespace ocl_template_matching
 				*	\attention		This is a low level function. Please consider using one of the type-safe versions instead. If this function is used directly make sure that access to data*
 				*					in the region [data, data + length - 1] does not produce access violations!
 				*/
-				inline CLEvent write(const void* data, std::size_t length = 0ull, std::size_t offset = 0ull, bool invalidate = false);
+				inline CLEvent write_bytes(const void* data, std::size_t length = 0ull, std::size_t offset = 0ull, bool invalidate = false);
 
 				//! Copies data from the OpenCL buffer into the memory region pointed to by data.
 				/*!
@@ -520,7 +518,7 @@ namespace ocl_template_matching
 				*	\attention		This is a low level function. Please consider using one of the type-safe versions instead. If this function is used directly make sure that access to data*
 				*					in the region [data, data + length - 1] does not produce access violations!
 				*/
-				inline CLEvent read(void* data, std::size_t length = 0ull, std::size_t offset = 0ull);
+				inline CLEvent read_bytes(void* data, std::size_t length = 0ull, std::size_t offset = 0ull);
 
 				//! Copies data pointed to by data into the OpenCL buffer after waiting on a list of dependencies (CLEvent's).
 				/*!
@@ -544,7 +542,7 @@ namespace ocl_template_matching
 				*					in the region [data, data + length - 1] does not produce access violations!
 				*/
 				template <typename DepIterator>
-				inline CLEvent write(const void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length = 0ull, std::size_t offset = 0ull, bool invalidate = false);
+				inline CLEvent write_bytes(const void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length = 0ull, std::size_t offset = 0ull, bool invalidate = false);
 
 				//! Copies data from the OpenCL buffer into the memory region pointed to by data after waiting on a list of dependencies (CLEvent's).
 				/*!
@@ -565,7 +563,21 @@ namespace ocl_template_matching
 				*					in the region [data, data + length - 1] does not produce access violations!
 				*/
 				template <typename DepIterator>
-				inline CLEvent read(void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length = 0ull, std::size_t offset = 0ull);
+				inline CLEvent read_bytes(void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length = 0ull, std::size_t offset = 0ull);
+
+				// high level read / write
+				template <typename DataIterator>
+				inline CLEvent write(DataIterator data_begin, DataIterator data_end, std::size_t offset = 0ull, bool invalidate = false);
+
+				template <typename DataIterator>
+				inline CLEvent read(DataIterator data_begin, std::size_t num_elements, std::size_t offset = 0ull);
+
+				// with dependencies
+				template <typename DataIterator, typename DepIterator>
+				inline CLEvent write(DataIterator data_begin, DataIterator data_end, DepIterator dep_begin, DepIterator dep_end, std::size_t offset = 0ull, bool invalidate = false);
+
+				template <typename DataIterator, typename DepIterator>
+				inline CLEvent read(DataIterator data_begin, std::size_t num_elements, DepIterator dep_begin, DepIterator dep_end, std::size_t offset = 0ull);
 
 				//! reports allocated size
 				std::size_t size() const noexcept;
@@ -578,6 +590,9 @@ namespace ocl_template_matching
 				CLEvent buf_write(const void* data, std::size_t length = 0ull, std::size_t offset = 0ull, bool invalidate = false);
 				CLEvent buf_read(void* data, std::size_t length = 0ull, std::size_t offset = 0ull) const;
 
+				void* map_buffer(std::size_t length, std::size_t offset, bool write, bool invalidate = false);
+				CLEvent unmap_buffer(void* bufptr);
+
 				cl_mem m_cl_memory;
 				cl_mem_flags m_flags;
 				void* m_hostptr;
@@ -586,20 +601,20 @@ namespace ocl_template_matching
 				std::vector<cl_event> m_event_cache;
 			};
 
-			CLEvent ocl_template_matching::impl::cl::CLBuffer::write(const void* data, std::size_t length, std::size_t offset, bool invalidate)
+			CLEvent ocl_template_matching::impl::cl::CLBuffer::write_bytes(const void* data, std::size_t length, std::size_t offset, bool invalidate)
 			{
 				m_event_cache.clear();
 				return buf_write(data, length, offset, invalidate);
 			}
 
-			CLEvent ocl_template_matching::impl::cl::CLBuffer::read(void* data, std::size_t length, std::size_t offset)
+			CLEvent ocl_template_matching::impl::cl::CLBuffer::read_bytes(void* data, std::size_t length, std::size_t offset)
 			{
 				m_event_cache.clear();
 				return buf_read(data, length, offset);
 			}
 
 			template<typename DepIterator>
-			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::write(const void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length, std::size_t offset, bool invalidate)
+			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::write_bytes(const void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length, std::size_t offset, bool invalidate)
 			{
 				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLBuffer]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
@@ -609,13 +624,87 @@ namespace ocl_template_matching
 			}
 
 			template<typename DepIterator>
-			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::read(void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length, std::size_t offset)
+			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::read_bytes(void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length, std::size_t offset)
 			{
 				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLBuffer]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
 					m_event_cache.push_back(it->m_event);
 				return buf_read(data, length, offset);
+			}
+
+			template<typename DataIterator>
+			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::write(DataIterator data_begin, DataIterator data_end, std::size_t offset, bool invalidate)
+			{
+				using elem_t = typename std::static_cast<typename std::iterator_traits<DataIterator>::value_type;
+				static_assert(std::is_standard_layout<elem_t>::value, "[CLBuffer]: Types read and written from and to OpenCL buffers must have standard layout.");
+				std::size_t datasize = static_cast<std::size_t>(data_end - data_begin) * sizeof(elem_t);
+				std::size_t bufoffset = offset * sizeof(elem_t);
+				if(bufoffset + datasize > m_size)
+					throw std::out_of_range("[CLBuffer]: Buffer write failed. Input offset + length out of range.");
+				m_event_cache.clear();
+				elem_t* bufptr = static_cast<elem_t*>(map_buffer(datasize, bufoffset, true, invalidate));
+				std::size_t bufidx = 0;
+				for(DataIterator it{data_begin}; it != data_end; ++it)
+					bufptr[bufidx++] = *it;
+				return unmap_buffer(static_cast<void*>(bufptr));
+			}
+
+			template<typename DataIterator>
+			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::read(DataIterator data_begin, std::size_t num_elements, std::size_t offset)
+			{
+				using elem_t = typename std::static_cast<typename std::iterator_traits<DataIterator>::value_type;
+				static_assert(std::is_standard_layout<elem_t>::value, "[CLBuffer]: Types read and written from and to OpenCL buffers must have standard layout.");
+				std::size_t datasize = num_elements * sizeof(elem_t);
+				std::size_t bufoffset = offset * sizeof(elem_t);
+				if(bufoffset + datasize > m_size)
+					throw std::out_of_range("[CLBuffer]: Buffer read failed. Input offset + length out of range.");
+				m_event_cache.clear();
+				elem_t* bufptr = static_cast<elem_t*>(map_buffer(datasize, bufoffset, false, false));
+				std::size_t bufidx = 0;
+				for(DataIterator it{data_begin}; it != data_end; ++it)
+					*it = bufptr[bufidx++];
+				return unmap_buffer(static_cast<void*>(bufptr));
+			}
+
+			template<typename DataIterator, typename DepIterator>
+			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::write(DataIterator data_begin, DataIterator data_end, DepIterator dep_begin, DepIterator dep_end, std::size_t offset, bool invalidate)
+			{
+				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLBuffer]: Dependency iterators must refer to a collection of CLEvent objects.");
+				m_event_cache.clear();
+				for(DepIterator it{dep_begin}; it != dep_end; ++it)
+					m_event_cache.push_back(it->m_event);
+				using elem_t = typename std::static_cast<typename std::iterator_traits<DataIterator>::value_type;
+				static_assert(std::is_standard_layout<elem_t>::value, "[CLBuffer]: Types read and written from and to OpenCL buffers must have standard layout.");
+				std::size_t datasize = static_cast<std::size_t>(data_end - data_begin) * sizeof(elem_t);
+				std::size_t bufoffset = offset * sizeof(elem_t);
+				if(bufoffset + datasize > m_size)
+					throw std::out_of_range("[CLBuffer]: Buffer write failed. Input offset + length out of range.");
+				elem_t* bufptr = static_cast<elem_t*>(map_buffer(datasize, bufoffset, true, invalidate));
+				std::size_t bufidx = 0;
+				for(DataIterator it{data_begin}; it != data_end; ++it)
+					bufptr[bufidx++] = *it;
+				return unmap_buffer(static_cast<void*>(bufptr));
+			}
+
+			template<typename DataIterator, typename DepIterator>
+			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::read(DataIterator data_begin, std::size_t num_elements, DepIterator dep_begin, DepIterator dep_end, std::size_t offset)
+			{
+				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLBuffer]: Dependency iterators must refer to a collection of CLEvent objects.");
+				m_event_cache.clear();
+				for(DepIterator it{dep_begin}; it != dep_end; ++it)
+					m_event_cache.push_back(it->m_event);
+				using elem_t = typename std::static_cast<typename std::iterator_traits<DataIterator>::value_type;
+				static_assert(std::is_standard_layout<elem_t>::value, "[CLBuffer]: Types read and written from and to OpenCL buffers must have standard layout.");
+				std::size_t datasize = num_elements * sizeof(elem_t);
+				std::size_t bufoffset = offset * sizeof(elem_t);
+				if(bufoffset + datasize > m_size)
+					throw std::out_of_range("[CLBuffer]: Buffer read failed. Input offset + length out of range.");
+				elem_t* bufptr = static_cast<elem_t*>(map_buffer(datasize, bufoffset, false, false));
+				std::size_t bufidx = 0;
+				for(DataIterator it{data_begin}; it != data_end; ++it)
+					*it = bufptr[bufidx++];
+				return unmap_buffer(static_cast<void*>(bufptr));
 			}
 
 			#pragma endregion

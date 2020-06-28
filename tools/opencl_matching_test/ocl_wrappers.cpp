@@ -653,7 +653,7 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLBuff
 	std::size_t _length = (length > 0ull ? length : m_size);
 	cl_int err{CL_SUCCESS};
 	cl_event unmap_event{nullptr};
-	void* bufptr = clEnqueueMapBuffer(m_cl_state->command_queue(), m_cl_memory, true, (invalidate ? CL_MAP_WRITE_INVALIDATE_REGION : CL_MAP_WRITE), _offset, _length, 0u, nullptr, &unmap_event, &err);
+	void* bufptr = clEnqueueMapBuffer(m_cl_state->command_queue(), m_cl_memory, true, (invalidate ? CL_MAP_WRITE_INVALIDATE_REGION : CL_MAP_WRITE), _offset, _length, m_event_cache.size(), m_event_cache.data(), nullptr, &err);
 	if(err != CL_SUCCESS)
 		throw CLException(err, __LINE__, __FILE__, "[CLBuffer]: Write failed.");
 	std::memcpy(bufptr, data, _length);
@@ -671,10 +671,26 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLBuff
 	std::size_t _length = (length > 0ull ? length : m_size);
 	cl_int err{CL_SUCCESS};
 	cl_event unmap_event{nullptr};
-	void* bufptr = clEnqueueMapBuffer(m_cl_state->command_queue(), m_cl_memory, true, CL_MAP_READ, _offset, _length, 0u, nullptr, &unmap_event, &err);
+	void* bufptr = clEnqueueMapBuffer(m_cl_state->command_queue(), m_cl_memory, true, CL_MAP_READ, _offset, _length, m_event_cache.size(), m_event_cache.data(), nullptr, &err);
 	if(err != CL_SUCCESS)
 		throw CLException(err, __LINE__, __FILE__, "[CLBuffer]: Read failed.");
 	std::memcpy(data, bufptr, _length);
+	CL_EX(clEnqueueUnmapMemObject(m_cl_state->command_queue(), m_cl_memory, bufptr, 0u, nullptr, &unmap_event));
+	return CLEvent{unmap_event};
+}
+
+void* ocl_template_matching::impl::cl::CLBuffer::map_buffer(std::size_t length, std::size_t offset, bool write, bool invalidate)
+{
+	cl_int err{CL_SUCCESS};
+	void* bufptr = clEnqueueMapBuffer(m_cl_state->command_queue(), m_cl_memory, true, (write ? (invalidate ? CL_MAP_WRITE_INVALIDATE_REGION : CL_MAP_WRITE) : CL_MAP_READ), offset, length, m_event_cache.size(), m_event_cache.data(), nullptr, &err);
+	if(err != CL_SUCCESS)
+		throw CLException(err, __LINE__, __FILE__, "[CLBuffer]: Mapping buffer failed.");
+	return bufptr;
+}
+
+ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLBuffer::unmap_buffer(void* bufptr)
+{
+	cl_event unmap_event{nullptr};
 	CL_EX(clEnqueueUnmapMemObject(m_cl_state->command_queue(), m_cl_memory, bufptr, 0u, nullptr, &unmap_event));
 	return CLEvent{unmap_event};
 }

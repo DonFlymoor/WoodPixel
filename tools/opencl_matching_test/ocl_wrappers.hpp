@@ -192,7 +192,7 @@ namespace ocl_template_matching
 
 			template <typename T>
 			struct is_cl_param <T, ocl_template_matching::meta::void_t<
-				decltype(std::size_t{std::declval<const T>().size()}), // has const size() member, returning size_t?,
+				decltype(std::size_t{std::declval<const T>().arg_size()}), // has const size() member, returning size_t?,
 				typename std::enable_if<std::is_convertible<decltype(std::declval<const T>().arg_data()), const void*>::value>::type // has const arg_data() member returning something convertible to const void* ?
 			>> : std::true_type {};
 
@@ -204,7 +204,7 @@ namespace ocl_template_matching
 			template <typename T>
 			struct CLKernelArgTraits <T, typename std::enable_if<is_cl_param<T>::value>::type>
 			{
-				static std::size_t size(const T& arg) { return arg.size(); }
+				static std::size_t arg_size(const T& arg) { return arg.arg_size(); }
 				static const void* arg_data(const T& arg) { static_cast<const void*>(return arg.arg_data()) }
 			};
 
@@ -212,7 +212,7 @@ namespace ocl_template_matching
 			template <typename T>
 			struct CLKernelArgTraits <T, typename std::enable_if<std::is_arithmetic<T>::value || std::is_standard_layout<T>::value>::type>
 			{
-				static constexpr std::size_t size(const T& arg) { return sizeof(T); }
+				static constexpr std::size_t arg_size(const T& arg) { return sizeof(T); }
 				static const void* arg_data(const T& arg) { static_cast<const void*>(return &arg) }
 			};
 
@@ -220,7 +220,7 @@ namespace ocl_template_matching
 			template <typename T>
 			struct CLKernelArgTraits <T*, void>
 			{
-				static std::size_t size(const T * const & arg) { return CLKernelArgTraits<T>::size(*arg) }
+				static std::size_t arg_size(const T * const & arg) { return CLKernelArgTraits<T>::arg_size(*arg) }
 				static const void* arg_data(const T * const & arg) { return CLKernelArgTraits<T>::arg_data(*arg) }
 			};
 
@@ -228,7 +228,7 @@ namespace ocl_template_matching
 			template <>
 			struct CLKernelArgTraits <std::nullptr_t, void>
 			{
-				static constexpr std::size_t size(const std::nullptr_t& ptr) { return std::size_t{0}; }
+				static constexpr std::size_t arg_size(const std::nullptr_t& ptr) { return std::size_t{0}; }
 				static constexpr const void* arg_data(const std::nullptr_t& ptr) { return nullptr; }
 			};
 
@@ -463,7 +463,7 @@ namespace ocl_template_matching
 				void setKernelArgs(const std::string& name, const FirstArgType& first_arg)
 				{
 					// set opencl kernel argument
-					setKernelArgsImpl(name, index, CLKernelArgTraits<FirstArgType>::size(), CLKernelArgTraits<FirstArgType>::arg_data());
+					setKernelArgsImpl(name, index, CLKernelArgTraits<FirstArgType>::arg_size(), CLKernelArgTraits<FirstArgType>::arg_data());
 				}
 
 				std::string m_source;
@@ -473,11 +473,11 @@ namespace ocl_template_matching
 				std::shared_ptr<CLState> m_cl_state;
 				std::vector<cl_event> m_event_cache;
 			};
-		#pragma endregion
+			#pragma endregion
 		
 			#pragma region buffers
 
-			// use this as a raw byte buffer and add factories for POD types
+			// TODO: Type-safe functions for reading and writing buffers!
 			class CLBuffer
 			{
 			public:
@@ -569,6 +569,10 @@ namespace ocl_template_matching
 
 				//! reports allocated size
 				std::size_t size() const noexcept;
+
+				//! interface used by CLProgram kernel execution
+				static constexpr std::size_t arg_size() { return sizeof(cl_mem); }
+				const void* arg_data() const { return m_cl_memory; }
 				
 			private:
 				CLEvent buf_write(const void* data, std::size_t length = 0ull, std::size_t offset = 0ull, bool invalidate = false);
@@ -597,6 +601,7 @@ namespace ocl_template_matching
 			template<typename DepIterator>
 			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::write(const void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length, std::size_t offset, bool invalidate)
 			{
+				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLBuffer]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
 					m_event_cache.push_back(it->m_event);
@@ -606,6 +611,7 @@ namespace ocl_template_matching
 			template<typename DepIterator>
 			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::read(void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length, std::size_t offset)
 			{
+				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLBuffer]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
 					m_event_cache.push_back(it->m_event);
@@ -613,6 +619,13 @@ namespace ocl_template_matching
 			}
 
 			#pragma endregion
+
+		#pragma region images
+		class CLImage
+		{
+
+		};
+		#pragma endregion
 		}
 	}
 }

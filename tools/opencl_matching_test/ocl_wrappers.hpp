@@ -475,7 +475,6 @@ namespace ocl_template_matching
 		
 			#pragma region buffers
 
-			// TODO: Type-safe functions for reading and writing buffers!
 			class CLBuffer
 			{
 			public:
@@ -712,7 +711,26 @@ namespace ocl_template_matching
 		#pragma region images
 		class CLImage
 		{
+		public:
+			CLImage(const std::shared_ptr<CLState>& clstate, const cl_mem_flags& mem_flags, const cl_image_format& image_format, const cl_image_desc& image_desc, void* hostptr = nullptr);
+			~CLImage() noexcept;
+			CLImage(const CLImage&) = delete;
+			CLImage(CLImage&& other) noexcept;
+			CLImage& operator=(const CLImage&) = delete;
+			CLImage& operator=(CLImage&& other) noexcept;
 
+			std::size_t width() const;
+			std::size_t height() const;
+			std::size_t depth() const;
+			std::size_t layers() const;
+
+		private:
+			cl_mem m_image;
+			cl_image_format m_format;
+			cl_mem_flags m_flags;
+			cl_image_desc m_image_desc;
+			void* m_hostptr;
+			std::vector<cl_event> m_event_cache;
 		};
 		#pragma endregion
 		}

@@ -1,6 +1,7 @@
 ﻿#include <ocl_wrappers.hpp>
 
 // -------------------------------------------- NAMESPACE ocl_template_matching::impl::util-----------------------------------
+#pragma region util
 
 std::vector<std::string> ocl_template_matching::impl::util::string_split(const std::string& s, char delimiter)
 {
@@ -22,10 +23,13 @@ unsigned int ocl_template_matching::impl::util::get_cl_version_num(const std::st
 	return version_major * 100u + version_minor * 10u;
 }
 
+#pragma endregion
+
 // -------------------------------------------- NAMESPACE ocl_template_matching::impl::cl -------------------------------------
 
+#pragma region cl
+#pragma region class CLState
 // ---------------------- class CLState
-
 // factory function
 std::shared_ptr<ocl_template_matching::impl::cl::CLState> ocl_template_matching::impl::cl::createCLInstance(std::size_t platform_index, std::size_t device_index)
 {
@@ -380,6 +384,102 @@ const ocl_template_matching::impl::cl::CLState::CLDevice& ocl_template_matching:
 	return m_available_platforms[m_selected_platform_index].devices[m_selected_device_index];
 }
 
+std::ostream& ocl_template_matching::impl::cl::operator<<(std::ostream& os, const ocl_template_matching::impl::cl::CLState::CLPlatform& plat)
+{
+	os << "===== OpenCL Platform =====" << std::endl
+		<< "Name:" << std::endl
+		<< "\t" << plat.name << std::endl
+		<< "Vendor:" << std::endl
+		<< "\t" << plat.vendor << std::endl
+		<< "Version:" << std::endl
+		<< "\t" << plat.version << std::endl
+		<< "Profile:" << std::endl
+		<< "\t" << plat.profile << std::endl
+		<< "Extensions:" << std::endl
+		<< "\t" << plat.extensions << std::endl
+		<< std::endl;
+	return os;
+}
+
+std::ostream& ocl_template_matching::impl::cl::operator<<(std::ostream& os, const ocl_template_matching::impl::cl::CLState::CLDevice& dev)
+{
+	os << "===== OpenCL Device =====" << std::endl
+		<< "Vendor ID:" << std::endl
+		<< "\t" << dev.vendor_id << std::endl
+		<< "Name:" << std::endl
+		<< "\t" << dev.name << std::endl
+		<< "Vendor:" << std::endl
+		<< "\t" << dev.vendor << std::endl
+		<< "Driver version:" << std::endl
+		<< "\t" << dev.driver_version << std::endl
+		<< "Device profile:" << std::endl
+		<< "\t" << dev.device_profile << std::endl
+		<< "Device version:" << std::endl
+		<< "\t" << dev.device_version << std::endl
+		<< "Max. compute units:" << std::endl
+		<< "\t" << dev.max_compute_units << std::endl
+		<< "Max. work item dimensions:" << std::endl
+		<< "\t" << dev.max_work_item_dimensions << std::endl
+		<< "Max. work item sizes:" << std::endl
+		<< "\t{ ";
+	for(const std::size_t& s : dev.max_work_item_sizes)
+		os << s << " ";
+	os << "}" << std::endl
+		<< "Max. work group size:" << std::endl
+		<< "\t" << dev.max_work_group_size << std::endl
+		<< "Max. memory allocation size:" << std::endl
+		<< "\t" << dev.max_mem_alloc_size << " bytes" << std::endl
+		<< "Image2D max. width:" << std::endl
+		<< "\t" << dev.image2d_max_width << std::endl
+		<< "Image2D max. height:" << std::endl
+		<< "\t" << dev.image2d_max_height << std::endl
+		<< "Image3D max. width:" << std::endl
+		<< "\t" << dev.image3d_max_width << std::endl
+		<< "Image3D max. height:" << std::endl
+		<< "\t" << dev.image3d_max_height << std::endl
+		<< "Image3D max. depth:" << std::endl
+		<< "\t" << dev.image3d_max_depth << std::endl
+		<< "Image max. buffer size:" << std::endl
+		<< "\t" << dev.image_max_buffer_size << std::endl
+		<< "Image max. array size:" << std::endl
+		<< "\t" << dev.image_max_array_size << std::endl
+		<< "Max. samplers:" << std::endl
+		<< "\t" << dev.max_samplers << std::endl
+		<< "Max. parameter size:" << std::endl
+		<< "\t" << dev.max_parameter_size << " bytes" << std::endl
+		<< "Memory base address alignment:" << std::endl
+		<< "\t" << dev.mem_base_addr_align << " bytes" << std::endl
+		<< "Global memory cache line size:" << std::endl
+		<< "\t" << dev.global_mem_cacheline_size << " bytes" << std::endl
+		<< "Global memory cache size:" << std::endl
+		<< "\t" << dev.global_mem_cache_size << " bytes" << std::endl
+		<< "Global memory size:" << std::endl
+		<< "\t" << dev.global_mem_size << " bytes" << std::endl
+		<< "Max. constant buffer size:" << std::endl
+		<< "\t" << dev.max_constant_buffer_size << " bytes" << std::endl
+		<< "Max. constant args:" << std::endl
+		<< "\t" << dev.max_constant_args << std::endl
+		<< "Local memory size:" << std::endl
+		<< "\t" << dev.local_mem_size << " bytes" << std::endl
+		<< "Little endian:" << std::endl
+		<< "\t" << (dev.little_endian ? "yes" : "no") << std::endl
+		<< "printf buffer size:" << std::endl
+		<< "\t" << dev.printf_buffer_size << " bytes" << std::endl
+		<< "Extensions:" << std::endl
+		<< "\t" << dev.device_extensions << std::endl;
+	return os;
+}
+
+// opencl callbacks
+
+void ocl_template_matching::impl::cl::create_context_callback(const char* errinfo, const void* private_info, std::size_t cb, void* user_data)
+{
+	static_cast<CLState::CLExHolder*>(user_data)->ex_msg = errinfo;
+}
+
+#pragma endregion
+
+#pragma region class CLProgram
 // -------------------------- class CLProgram
 
 ocl_template_matching::impl::cl::CLProgram::CLProgram(const std::string& kernel_source, const std::string& compiler_options, const std::shared_ptr<CLState>& clstate) :
@@ -537,6 +637,9 @@ ocl_template_matching::impl::cl::CLProgram::CLKernelHandle ocl_template_matching
 	}
 }
 
+#pragma endregion
+
+#pragma region class CLEvent
 // class CLEvent
 ocl_template_matching::impl::cl::CLEvent::CLEvent(cl_event ev) :
 	m_event{ev}
@@ -588,6 +691,9 @@ void ocl_template_matching::impl::cl::CLEvent::wait() const
 	CL_EX(clWaitForEvents(1, &m_event));
 }
 
+#pragma endregion
+
+#pragma region class CLBuffer
 // class CLBuffer
 
 ocl_template_matching::impl::cl::CLBuffer::CLBuffer(std::size_t size, cl_mem_flags flags, const std::shared_ptr<CLState>& clstate, void* hostptr) :
@@ -700,97 +806,72 @@ std::size_t ocl_template_matching::impl::cl::CLBuffer::size() const noexcept
 	return m_size;
 }
 
-// global operators
+#pragma endregion
 
-std::ostream& ocl_template_matching::impl::cl::operator<<(std::ostream& os, const ocl_template_matching::impl::cl::CLState::CLPlatform& plat)
+#pragma region class CLImage
+// class CLImage
+ocl_template_matching::impl::cl::CLImage::CLImage(const std::shared_ptr<CLState>& clstate, const cl_mem_flags& mem_flags, const cl_image_format& image_format, const cl_image_desc& image_desc, void* hostptr) :
+	m_image{nullptr},
+	m_format{image_format},
+	m_flags{mem_flags},
+	m_image_desc{image_desc},
+	m_hostptr{hostptr},
+	m_event_cache{}
 {
-	os << "===== OpenCL Platform =====" << std::endl
-		<< "Name:" << std::endl
-		<< "\t" << plat.name << std::endl
-		<< "Vendor:" << std::endl
-		<< "\t" << plat.vendor << std::endl
-		<< "Version:" << std::endl
-		<< "\t" << plat.version << std::endl
-		<< "Profile:" << std::endl
-		<< "\t" << plat.profile << std::endl
-		<< "Extensions:" << std::endl
-		<< "\t" << plat.extensions << std::endl
-		<< std::endl;
-	return os;
-}
-			
-std::ostream& ocl_template_matching::impl::cl::operator<<(std::ostream& os, const ocl_template_matching::impl::cl::CLState::CLDevice& dev)
-{
-	os << "===== OpenCL Device =====" << std::endl
-		<< "Vendor ID:" << std::endl
-		<< "\t" << dev.vendor_id << std::endl
-		<< "Name:" << std::endl
-		<< "\t" << dev.name << std::endl
-		<< "Vendor:" << std::endl
-		<< "\t" << dev.vendor << std::endl
-		<< "Driver version:" << std::endl
-		<< "\t" << dev.driver_version << std::endl
-		<< "Device profile:" << std::endl
-		<< "\t" << dev.device_profile << std::endl
-		<< "Device version:" << std::endl
-		<< "\t" << dev.device_version << std::endl
-		<< "Max. compute units:" << std::endl
-		<< "\t" << dev.max_compute_units << std::endl
-		<< "Max. work item dimensions:" << std::endl
-		<< "\t" << dev.max_work_item_dimensions << std::endl
-		<< "Max. work item sizes:" << std::endl
-		<< "\t{ ";
-	for(const std::size_t& s : dev.max_work_item_sizes)
-		os << s << " ";
-	os << "}" << std::endl
-		<< "Max. work group size:" << std::endl
-		<< "\t" << dev.max_work_group_size << std::endl
-		<< "Max. memory allocation size:" << std::endl
-		<< "\t" << dev.max_mem_alloc_size << " bytes" << std::endl
-		<< "Image2D max. width:" << std::endl
-		<< "\t" << dev.image2d_max_width << std::endl
-		<< "Image2D max. height:" << std::endl
-		<< "\t" << dev.image2d_max_height << std::endl
-		<< "Image3D max. width:" << std::endl
-		<< "\t" << dev.image3d_max_width << std::endl
-		<< "Image3D max. height:" << std::endl
-		<< "\t" << dev.image3d_max_height << std::endl
-		<< "Image3D max. depth:" << std::endl
-		<< "\t" << dev.image3d_max_depth << std::endl
-		<< "Image max. buffer size:" << std::endl
-		<< "\t" << dev.image_max_buffer_size << std::endl
-		<< "Image max. array size:" << std::endl
-		<< "\t" << dev.image_max_array_size << std::endl
-		<< "Max. samplers:" << std::endl
-		<< "\t" << dev.max_samplers << std::endl
-		<< "Max. parameter size:" << std::endl
-		<< "\t" << dev.max_parameter_size << " bytes" << std::endl
-		<< "Memory base address alignment:" << std::endl
-		<< "\t" << dev.mem_base_addr_align << " bytes" << std::endl
-		<< "Global memory cache line size:" << std::endl
-		<< "\t" << dev.global_mem_cacheline_size << " bytes" << std::endl
-		<< "Global memory cache size:" << std::endl
-		<< "\t" << dev.global_mem_cache_size << " bytes" << std::endl
-		<< "Global memory size:" << std::endl
-		<< "\t" << dev.global_mem_size << " bytes" << std::endl
-		<< "Max. constant buffer size:" << std::endl
-		<< "\t" << dev.max_constant_buffer_size << " bytes" << std::endl
-		<< "Max. constant args:" << std::endl
-		<< "\t" << dev.max_constant_args << std::endl
-		<< "Local memory size:" << std::endl
-		<< "\t" << dev.local_mem_size << " bytes" << std::endl
-		<< "Little endian:" << std::endl
-		<< "\t" << (dev.little_endian ? "yes" : "no") << std::endl
-		<< "printf buffer size:" << std::endl
-		<< "\t" << dev.printf_buffer_size << " bytes" << std::endl
-		<< "Extensions:" << std::endl
-		<< "\t" << dev.device_extensions << std::endl;
-	return os;
+
 }
 
-// opencl callbacks
-
-void ocl_template_matching::impl::cl::create_context_callback(const char* errinfo, const void* private_info, std::size_t cb, void* user_data)
+ocl_template_matching::impl::cl::CLImage::~CLImage() noexcept
 {
-	static_cast<CLState::CLExHolder*>(user_data)->ex_msg = errinfo;
+	if(m_image)
+		CL(clReleaseMemObject(m_image));
 }
+
+ocl_template_matching::impl::cl::CLImage::CLImage(CLImage&& other) noexcept :
+	m_image{other.m_image},
+	m_format{other.m_format},
+	m_flags{other-m_flags},
+	m_image_desc{other.m_image_desc},
+	m_hostptr{other-m_hostptr},
+	m_event_cache{}
+{
+	other.m_image = nullptr;
+	other.m_hostptr = nullptr;
+}
+
+ocl_template_matching::impl::cl::CLImage& ocl_template_matching::impl::cl::CLImage::operator=(CLImage&& other) noexcept
+{
+	if(this == &other)
+		return *this;
+
+	std::swap(m_image, other.m_image);
+	std::swap(m_format, other.m_format);
+	std::swap(m_flags, other.m_flags);
+	std::swap(m_image_desc, other.m_image_desc);
+	std::swap(m_hostptr, other.m_hostptr);
+
+	return *this;
+}
+
+std::size_t ocl_template_matching::impl::cl::CLImage::width() const
+{
+	return std::size_t{m_image_desc.image_width};
+}
+
+std::size_t ocl_template_matching::impl::cl::CLImage::height() const
+{
+	return std::size_t{m_image_desc.image_height};
+}
+
+std::size_t ocl_template_matching::impl::cl::CLImage::depth() const
+{
+	return std::size_t{m_image_desc.image_depth};
+}
+
+std::size_t ocl_template_matching::impl::cl::CLImage::layers() const
+{
+	return std::size_t{m_image_desc.image_array_size};
+}
+
+#pragma endregion
+#pragma endregion

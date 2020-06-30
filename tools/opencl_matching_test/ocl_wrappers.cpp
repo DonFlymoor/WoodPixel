@@ -810,15 +810,30 @@ std::size_t ocl_template_matching::impl::cl::CLBuffer::size() const noexcept
 
 #pragma region class CLImage
 // class CLImage
-ocl_template_matching::impl::cl::CLImage::CLImage(const std::shared_ptr<CLState>& clstate, const cl_mem_flags& mem_flags, const cl_image_format& image_format, const cl_image_desc& image_desc, void* hostptr) :
+ocl_template_matching::impl::cl::CLImage::CLImage(const std::shared_ptr<CLState>& clstate, const ImageDesc& image_desc) :
 	m_image{nullptr},
-	m_format{image_format},
-	m_flags{mem_flags},
 	m_image_desc{image_desc},
-	m_hostptr{hostptr},
-	m_event_cache{}
+	m_event_cache{},
+	m_cl_state{clstate}
 {
+	cl_image_format fmt{static_cast<cl_uint>(m_image_desc.channel_order), static_cast<cl_uint>(m_image_desc.channel_type)};
+	cl_image_desc desc{
+		static_cast<cl_mem_object_type>(m_image_desc.type),
+		m_image_desc.dimensions.width,
+		m_image_desc.dimensions.height,
+		m_image_desc.dimensions.depth,
+		m_image_desc.dimensions.depth,
+		m_image_desc.dimensions.row_pitch,
+		m_image_desc.dimensions.slice_pitch,
+		0u,
+		0u,
+		nullptr
+	};
 
+	cl_int err{CL_SUCCESS};
+	m_image = clCreateImage(m_cl_state->context(), static_cast<cl_mem_flags>(m_image_desc.access), &fmt, &desc, nullptr, &err);
+	if(err != CL_SUCCESS)
+		throw CLException(err, __LINE__, __FILE__, "[CLImage]: clCreateImage failed.");
 }
 
 ocl_template_matching::impl::cl::CLImage::~CLImage() noexcept
@@ -829,14 +844,10 @@ ocl_template_matching::impl::cl::CLImage::~CLImage() noexcept
 
 ocl_template_matching::impl::cl::CLImage::CLImage(CLImage&& other) noexcept :
 	m_image{other.m_image},
-	m_format{other.m_format},
-	m_flags{other-m_flags},
 	m_image_desc{other.m_image_desc},
-	m_hostptr{other-m_hostptr},
 	m_event_cache{}
 {
 	other.m_image = nullptr;
-	other.m_hostptr = nullptr;
 }
 
 ocl_template_matching::impl::cl::CLImage& ocl_template_matching::impl::cl::CLImage::operator=(CLImage&& other) noexcept
@@ -845,32 +856,39 @@ ocl_template_matching::impl::cl::CLImage& ocl_template_matching::impl::cl::CLIma
 		return *this;
 
 	std::swap(m_image, other.m_image);
-	std::swap(m_format, other.m_format);
-	std::swap(m_flags, other.m_flags);
 	std::swap(m_image_desc, other.m_image_desc);
-	std::swap(m_hostptr, other.m_hostptr);
 
 	return *this;
 }
 
 std::size_t ocl_template_matching::impl::cl::CLImage::width() const
 {
-	return std::size_t{m_image_desc.image_width};
+	return std::size_t{m_image_desc.dimensions.width};
 }
 
 std::size_t ocl_template_matching::impl::cl::CLImage::height() const
 {
-	return std::size_t{m_image_desc.image_height};
+	return std::size_t{m_image_desc.dimensions.height};
 }
 
 std::size_t ocl_template_matching::impl::cl::CLImage::depth() const
 {
-	return std::size_t{m_image_desc.image_depth};
+	return std::size_t{m_image_desc.dimensions.depth};
 }
 
 std::size_t ocl_template_matching::impl::cl::CLImage::layers() const
 {
-	return std::size_t{m_image_desc.image_array_size};
+	return std::size_t{m_image_desc.dimensions.depth};
+}
+
+ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImage::img_write(const HostFormat& format, const void* data_ptr, ChannelDefaultValue default_value)
+{
+	
+}
+
+ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImage::img_read(const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value)
+{
+	
 }
 
 #pragma endregion

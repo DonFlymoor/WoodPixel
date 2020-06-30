@@ -736,13 +736,13 @@ namespace ocl_template_matching
 					SNORM_INT8 = CL_SNORM_INT8,
 					SNORM_INT16 = CL_SNORM_INT16,
 					UNORM_INT8 = CL_UNORM_INT8,
-					UNORM_INT_16 = CL_UNORM_INT16,
-					INT_8 = CL_SIGNED_INT8,
-					INT_16 = CL_SIGNED_INT16,
-					INT_32 = CL_SIGNED_INT32,
-					UINT_8 = CL_UNSIGNED_INT8,
-					UINT_16 = CL_UNSIGNED_INT16,
-					UINT_32 = CL_UNSIGNED_INT32,
+					UNORM_INT16 = CL_UNORM_INT16,
+					INT8 = CL_SIGNED_INT8,
+					INT16 = CL_SIGNED_INT16,
+					INT32 = CL_SIGNED_INT32,
+					UINT8 = CL_UNSIGNED_INT8,
+					UINT16 = CL_UNSIGNED_INT16,
+					UINT32 = CL_UNSIGNED_INT32,
 					HALF = CL_HALF_FLOAT,
 					FLOAT = CL_FLOAT
 				};
@@ -756,10 +756,8 @@ namespace ocl_template_matching
 
 				struct ImageDimensions
 				{
-					ImageDimensions() noexcept: width{0ull}, height{0ull}, depth{0ull}, row_pitch{0ull}, slice_pitch{0ull} {}
-					ImageDimensions(std::size_t width = 0ull, std::size_t height = 0ull, std::size_t depth = 0ull,
-						std::size_t row_pitch = 0ull, std::size_t slice_pitch = 0ull) noexcept :
-						width{width}, height{height}, depth{depth}, row_pitch{row_pitch}, slice_pitch{slice_pitch} {}
+					ImageDimensions() noexcept: width{0ull}, height{0ull}, depth{0ull} {}
+					ImageDimensions(std::size_t width = 0ull, std::size_t height = 0ull, std::size_t depth = 1ull) noexcept : width{width}, height{height}, depth{depth} {}
 					ImageDimensions(const ImageDimensions& other) noexcept = default;
 					ImageDimensions(ImageDimensions&& other) noexcept = default;
 					ImageDimensions& operator=(const ImageDimensions& other) noexcept = default;
@@ -768,8 +766,12 @@ namespace ocl_template_matching
 					std::size_t width;
 					std::size_t height;
 					std::size_t depth;
-					std::size_t row_pitch;
-					std::size_t slice_pitch;
+				};
+
+				struct HostPitch
+				{
+					std::size_t row_pitch{0ull};
+					std::size_t slice_pitch{0ull};
 				};
 
 				struct ImageDesc
@@ -784,10 +786,10 @@ namespace ocl_template_matching
 				// for read write stuff
 				enum class HostChannel : uint8_t
 				{
-					R,
-					G,
-					B,
-					A
+					R = 0,
+					G = 1,
+					B = 2,
+					A = 3
 				};
 
 				enum class HostDataType : uint8_t
@@ -814,12 +816,26 @@ namespace ocl_template_matching
 					HostChannel channel_order[4];
 				};
 
+				struct ImageOffset
+				{
+					size_t offset_width{0ull};
+					size_t offset_height{0ull};
+					size_t offset_depth{0ull};
+				};
+
+				struct ImageRegion
+				{
+					ImageOffset offset;
+					ImageDimensions dimensions;
+					HostPitch pitch;
+				};
+
 				struct HostFormat
 				{
-					ImageDimensions dimensions;
+					ImageRegion im_region;
 					HostChannelOrder channel_order;
 					HostDataType channel_type;
-				};
+				};				
 
 				CLImage(const std::shared_ptr<CLState>& clstate, const ImageDesc& image_desc);
 				~CLImage() noexcept;
@@ -834,17 +850,18 @@ namespace ocl_template_matching
 				std::size_t layers() const;
 
 				// read / write functions
-				inline CLEvent write(const HostFormat& format, const void* data_ptr, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+				inline CLEvent write(const HostFormat& format, const void* data_ptr, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 				inline CLEvent read(const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 				// with dependencies
 				template<typename DepIterator>
-				CLEvent write(const HostFormat& format, const void* data_ptr, DepIterator dep_begin, DepIterator dep_end, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+				inline CLEvent write(const HostFormat& format, const void* data_ptr, DepIterator dep_begin, DepIterator dep_end, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 				template<typename DepIterator>
-				CLEvent read(const HostFormat& format, void* data_ptr, DepIterator dep_begin, DepIterator dep_end, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+				inline CLEvent read(const HostFormat& format, void* data_ptr, DepIterator dep_begin, DepIterator dep_end, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 
 			private:
-				CLEvent img_write(const HostFormat& format, const void* data_ptr, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+				CLEvent img_write(const HostFormat& format, const void* data_ptr, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 				CLEvent img_read(const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+				bool match_format(const HostFormat& format);
 
 				cl_mem m_image;			
 				ImageDesc m_image_desc;
@@ -852,20 +869,20 @@ namespace ocl_template_matching
 				std::shared_ptr<CLState> m_cl_state;
 			};
 
-			CLEvent ocl_template_matching::impl::cl::CLImage::write(const HostFormat& format, const void* data_ptr, ChannelDefaultValue default_value)
+			inline CLEvent ocl_template_matching::impl::cl::CLImage::write(const HostFormat& format, const void* data_ptr, bool invalidate, ChannelDefaultValue default_value)
 			{
 				m_event_cache.clear();
-				return img_write(format, data_ptr, default_value);
+				return img_write(format, data_ptr, invalidate, default_value);
 			}
 
-			CLEvent ocl_template_matching::impl::cl::CLImage::read(const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value)
+			inline CLEvent ocl_template_matching::impl::cl::CLImage::read(const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value)
 			{
 				m_event_cache.clear();
 				return img_read(format, data_ptr, default_value);
 			}
 
 			template<typename DepIterator>
-			inline CLEvent ocl_template_matching::impl::cl::CLImage::write(const HostFormat& format, const void* data_ptr, DepIterator dep_begin, DepIterator dep_end, ChannelDefaultValue default_value)
+			inline CLEvent ocl_template_matching::impl::cl::CLImage::write(const HostFormat& format, const void* data_ptr, DepIterator dep_begin, DepIterator dep_end, bool invalidate, ChannelDefaultValue default_value)
 			{
 				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLImage]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
@@ -883,6 +900,17 @@ namespace ocl_template_matching
 					m_event_cache.push_back(it->m_event);
 				return img_read(format, data_ptr, default_value);
 			}
+
+			// global operators
+			inline bool operator==(const CLImage::HostChannelOrder& rhs, const CLImage::HostChannelOrder& lhs)
+			{
+				return ((lhs.num_channels == rhs.num_channels) &&
+					(!(lhs.num_channels >= 1) || (lhs.channel_order[0] == rhs.channel_order[0])) &&
+					(!(lhs.num_channels >= 2) || (lhs.channel_order[1] == rhs.channel_order[1])) &&
+					(!(lhs.num_channels >= 3) || (lhs.channel_order[2] == rhs.channel_order[2])) &&
+					(!(lhs.num_channels >= 4) || (lhs.channel_order[3] == rhs.channel_order[3])));
+			}
+			inline bool operator!=(const CLImage::HostChannelOrder& rhs, const CLImage::HostChannelOrder& lhs) { return !(rhs == lhs); }
 		#pragma endregion
 		}
 	}

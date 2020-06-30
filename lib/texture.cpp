@@ -57,7 +57,7 @@ void Texture::load_texture(const boost::filesystem::path& filename, double scale
     throw std::runtime_error("Image file empty: " + filename.string());
   }
   file.seekg(0, std::ios::beg);
-  file.read_bytes(buffer.data(), static_cast<std::size_t>(length));
+  file.read(buffer.data(), static_cast<std::size_t>(length));
   file.close();
 
   texture = cv::imdecode(buffer, cv::IMREAD_ANYDEPTH | cv::IMREAD_COLOR);

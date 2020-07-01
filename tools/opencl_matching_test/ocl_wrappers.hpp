@@ -708,8 +708,9 @@ namespace ocl_template_matching
 			}
 
 			#pragma endregion
-
+			
 			#pragma region images
+			// TODO: Implement reading and writing with non-matching host vs. image channel order and data type
 			class CLImage
 			{
 			public:
@@ -722,29 +723,32 @@ namespace ocl_template_matching
 					Image2DArray = CL_MEM_OBJECT_IMAGE2D_ARRAY
 				};
 
-				enum class ImageChannelOrder : cl_uint
+				// some bit level hacking to encode number of channels, channel data type size and RGBA-component order.
+				// [ 32 bit CL constant | 8 bit channel count | 4 bit R index | 4 bit G index | 4 bit B index | 4 bit A index | 8 bit unused ]
+				enum class ImageChannelOrder : uint64_t
 				{
-					R = CL_R,
-					RG = CL_RG,
-					RGBA = CL_RGBA,
-					BGRA = CL_BGRA,
-					sRGBA = CL_sRGBA
+					R		= (uint64_t{CL_R} << 32)		| (uint64_t{1} << 24) | (uint64_t{0} << 20) | (uint64_t{0} << 16) | (uint64_t{0} << 12) | (uint64_t{0} << 8),
+					RG		= (uint64_t{CL_RG} << 32)		| (uint64_t{2} << 24) | (uint64_t{0} << 20) | (uint64_t{1} << 16) | (uint64_t{0} << 12) | (uint64_t{0} << 8),
+					RGBA	= (uint64_t{CL_RGBA} << 32)		| (uint64_t{4} << 24) | (uint64_t{0} << 20) | (uint64_t{1} << 16) | (uint64_t{2} << 12) | (uint64_t{3} << 8),
+					BGRA	= (uint64_t{CL_BGRA} << 32)		| (uint64_t{4} << 24) | (uint64_t{2} << 20) | (uint64_t{1} << 16) | (uint64_t{0} << 12) | (uint64_t{3} << 8),
+					sRGBA	= (uint64_t{CL_sRGBA} << 32)	| (uint64_t{4} << 24) | (uint64_t{0} << 20) | (uint64_t{1} << 16) | (uint64_t{2} << 12) | (uint64_t{3} << 8)
 				};
 
-				enum class ImageChannelType : cl_uint
+				// [ 32 bit CL constant | 32 bit size of data type in bytes ]
+				enum class ImageChannelType : uint64_t
 				{
-					SNORM_INT8 = CL_SNORM_INT8,
-					SNORM_INT16 = CL_SNORM_INT16,
-					UNORM_INT8 = CL_UNORM_INT8,
-					UNORM_INT16 = CL_UNORM_INT16,
-					INT8 = CL_SIGNED_INT8,
-					INT16 = CL_SIGNED_INT16,
-					INT32 = CL_SIGNED_INT32,
-					UINT8 = CL_UNSIGNED_INT8,
-					UINT16 = CL_UNSIGNED_INT16,
-					UINT32 = CL_UNSIGNED_INT32,
-					HALF = CL_HALF_FLOAT,
-					FLOAT = CL_FLOAT
+					SNORM_INT8		= (uint64_t{CL_SNORM_INT8} << 32)		| uint64_t{1},
+					SNORM_INT16		= (uint64_t{CL_SNORM_INT16} << 32)		| uint64_t{2},
+					UNORM_INT8		= (uint64_t{CL_UNORM_INT8} << 32)		| uint64_t{1},
+					UNORM_INT16		= (uint64_t{CL_UNORM_INT16} << 32)		| uint64_t{2},
+					INT8			= (uint64_t{CL_SIGNED_INT8} << 32)		| uint64_t{1},
+					INT16			= (uint64_t{CL_SIGNED_INT16} << 32)		| uint64_t{2},
+					INT32			= (uint64_t{CL_SIGNED_INT32} << 32)		| uint64_t{4},
+					UINT8			= (uint64_t{CL_UNSIGNED_INT8} << 32)	| uint64_t{1},
+					UINT16			= (uint64_t{CL_UNSIGNED_INT16} << 32)	| uint64_t{2},
+					UINT32			= (uint64_t{CL_UNSIGNED_INT32} << 32)	| uint64_t{4},
+					HALF			= (uint64_t{CL_HALF_FLOAT} << 32)		| uint64_t{2},
+					FLOAT			= (uint64_t{CL_FLOAT} << 32)			| uint64_t{4}
 				};
 
 				enum class ImageAccess : cl_mem_flags
@@ -792,16 +796,17 @@ namespace ocl_template_matching
 					A = 3
 				};
 
-				enum class HostDataType : uint8_t
+				// [ 8 bit type identifier | 8 bit data type size in bytes ]
+				enum class HostDataType : uint16_t
 				{
-					INT8,
-					INT16,
-					INT32,
-					UINT8,
-					UINT16,
-					UINT32,
-					HALF,
-					FLOAT
+					INT8	= (uint16_t{0} << 8) | uint16_t{1},
+					INT16	= (uint16_t{1} << 8) | uint16_t{2},
+					INT32	= (uint16_t{2} << 8) | uint16_t{4},
+					UINT8	= (uint16_t{3} << 8) | uint16_t{1},
+					UINT16	= (uint16_t{4} << 8) | uint16_t{2},
+					UINT32	= (uint16_t{5} << 8) | uint16_t{4},
+					HALF	= (uint16_t{6} << 8) | uint16_t{2},
+					FLOAT	= (uint16_t{7} << 8) | uint16_t{4}
 				};
 
 				enum class ChannelDefaultValue : uint8_t
@@ -850,6 +855,7 @@ namespace ocl_template_matching
 				std::size_t layers() const;
 
 				// read / write functions
+				// TODO: Support different host channel orders and data types and do automatic conversion.
 				inline CLEvent write(const HostFormat& format, const void* data_ptr, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 				inline CLEvent read(const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 				// with dependencies

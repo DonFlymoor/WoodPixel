@@ -625,6 +625,11 @@ void ocl_template_matching::impl::cl::CLProgram::setKernelArgsImpl(const std::st
 	}
 }
 
+void ocl_template_matching::impl::cl::CLProgram::setKernelArgsImpl(cl_kernel kernel, std::size_t index, std::size_t arg_size, const void* arg_data_ptr)
+{	
+	CL_EX(clSetKernelArg(kernel, static_cast<cl_uint>(index), arg_size, arg_data_ptr));
+}
+
 ocl_template_matching::impl::cl::CLProgram::CLKernelHandle ocl_template_matching::impl::cl::CLProgram::getKernel(const std::string& name)
 {
 	try

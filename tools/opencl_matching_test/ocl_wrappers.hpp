@@ -1,4 +1,15 @@
-﻿#ifndef _OCL_WRAPPERS_HPP_
+﻿/** \file ocl_wrappers.h
+*	\author Fabian Friederichs
+*
+*	\brief Provides a minimal set of C++ wrappers for basic OpenCL 1.2 facilities like programs, kernels, buffers and images.
+*
+*	The classes CLState, CLProgram, CLBuffer and CLImage are declared in this header. CLState abstracts the creation of an OpenCL context, command queue and so on.
+*	CLProgram is able to compile OpenCL-C sources and extract all kernel functions which can then be invoked via a type-safe interface.
+*	CLBuffer and CLImage allow for simplified creation of buffers and images as well as reading and writing from/to them.
+*	CLEvent objects are returned and can be used to synchronize between kernel invokes, write and read operations.
+*/
+
+#ifndef _OCL_WRAPPERS_HPP_
 #define _OCL_WRAPPERS_HPP_
 
 #include <CL/cl.h>
@@ -13,184 +24,324 @@
 #include <memory>
 #include <cstdint>
 
-// compile time definitions
+/// Maximum work dim of OpenCL kernels
 #define OCL_KERNEL_MAX_WORK_DIM 3 // maximum work dim of opencl kernels
 
+/**
+*	\namespace ocl_template_matching
+*	\brief Contains all the OpenCL template matching functionality.*
+*/
 namespace ocl_template_matching
 {
-	// just some template meta programming helpers
+	/**
+	*	\namespace ocl_template_matching::meta
+	*	\brief Some template meta programming helpers used e.g. for kernel invocation.
+	*/
 	namespace meta
 	{
-		// support for void_t in case of C++11 and C++14
+	/// enables support for void_t in case of C++11 and C++14
 	#ifdef WOODPIXELS_LANG_FEATURES_VARIADIC_USING_DECLARATIONS
+		/**
+		*	\typedef void_t
+		*	\brief Maps an arbitrary set of types to void.
+		*	\tparam ...	An arbitrary list of types.
+		*/
 		template <typename...> // only possible with >=C++14
 		using void_t = void;
 	#else
+		/**
+		*	\namespace ocl_template_matching::meta::detail
+		*	\brief Encapsulates some implementation detail of the ocl_template_matching::meta namespace
+		*/
 		namespace detail	// C++11
 		{
+			/**
+			*	\brief Maps an arbitrary set of types to void.
+			*	\tparam ...	An arbitrary list of types.
+			*/
 			template <typename...>
-			struct make_void { typedef void type; };
+			struct make_void
+			{
+				typedef void type; ///< void typedef, can be used in template meta programming expressions.
+			};
 		}
+		/**
+		*	\typedef void_t
+		*	\brief Maps an arbitrary set of types to void.
+		*	\tparam ...T	An arbitrary list of types.
+		*/
 		template <typename... T>
 		using void_t = typename detail::make_void<T...>::type;
 	#endif
 
-		// this is only available with >=C++17, so we implement that ourselves
-		// used to combine multiple boolean traits into one via conjunction
+		/**
+		*	\brief Conjunction of boolean predicates.
+		*	
+		*	Exposes a boolean member value. True if all predicates are true, false otherwise.
+		*	(std::conjunction is part of the STL since C++17 which would be a pretty restrictive to the users of this library).
+		*	\tparam ...	List of predicates.
+		*/
 		template <typename...>
 		struct conjunction : std::false_type {};
+		/**
+		*	\brief Conjunction of boolean predicates.
+		*
+		*	Exposes a boolean member value. True if all predicates are true, false otherwise.
+		*	(std::conjunction is part of the STL since C++17 which would be a pretty restrictive to the users of this library).
+		*	\tparam Last	Last predicate.
+		*/
 		template <typename Last>
 		struct conjunction<Last> : Last {};
+		/**
+		*	\brief Conjunction of boolean predicates.
+		*
+		*	Exposes a boolean member value. True if all predicates are true, false otherwise.
+		*	(std::conjunction is part of the STL since C++17 which would be a pretty restrictive to the users of this library).
+		*	\tparam First	First predicate.
+		*	\tparam ...Rest	List of predicates (tail).
+		*/
 		template <typename First, typename ... Rest>
 		struct conjunction<First, Rest...> : std::conditional<bool(First::value), conjunction<Rest...>, First> {};
 	}
 
+	/**
+	*	\namespace ocl_template_matching::detail
+	*	\brief Implementation detail of the ocl_template_matching namespace.
+	*/
 	namespace impl
 	{
+		/**
+		*	\namespace ocl_template_matching::detail::util
+		*	\brief Some utility functions used in this section.
+		*/
 		namespace util
 		{
+			/**
+			 * \brief	Splits a string around a given delimiter.
+			 * \param s String to split.
+			 * \param delimiter	Delimiter at which to split the string.
+			 * \return Returns a vector of string segments.
+			*/
 			std::vector<std::string> string_split(const std::string& s, char delimiter);
+			/**
+			 * \brief Parses an OpenCL version string and returns a numeric expression.
+			 * 
+			 * E.g. OpenCL 1.2 => 120; OpenCL 2.0 => 200; OpenCL 2.1 => 210...
+			 * \param str OpenCL version string to parse.
+			 * \return Returns numeric expression. (See examples above)
+			*/
 			unsigned int get_cl_version_num(const std::string& str);
 		}
 
+		/**
+		*	\namespace ocl_template_matching::detail::cl
+		*	\brief Encapsulates implementation of OpenCL wrappers.
+		*/
 		namespace cl
 		{
 			#pragma region context
-			// callbacks
+			/// Callback function used during OpenCL context creation.
 			void create_context_callback(const char* errinfo, const void* private_info, std::size_t cb, void* user_data);
 
-			// wrapper around most important OpenCL State
+			/**
+			 *	\brief Creates and manages OpenCL platform, device, context and command queue
+			 *
+			 *	This class creates the basic OpenCL state needed to run kernels and create buffers and images.
+			 *	The constructor is deleted. Please use the factory function createCLInstance(...) instead to retrieve a std::shared_ptr<CLState> to an instance of this class.
+			 *	This way the lifetime of the CLState object is ensured to outlive the consuming classes CLBuffer, CLImage and so on.
+			*/
 			class CLState
 			{
 			public:
-				// public types
+				/**
+				 *	\struct	CLDevice
+				 *	\brief	Holds information about a device. 
+				*/
 				struct CLDevice
 				{
-					cl_device_id device_id;
-					cl_uint vendor_id;
-					cl_uint max_compute_units;
-					cl_uint max_work_item_dimensions;
-					std::vector<std::size_t> max_work_item_sizes;
-					std::size_t max_work_group_size;
-					cl_ulong max_mem_alloc_size;
-					std::size_t image2d_max_width;
-					std::size_t image2d_max_height;
-					std::size_t image3d_max_width;
-					std::size_t image3d_max_height;
-					std::size_t image3d_max_depth;
-					std::size_t image_max_buffer_size;
-					std::size_t image_max_array_size;
-					cl_uint max_samplers;
-					std::size_t max_parameter_size;
-					cl_uint mem_base_addr_align;
-					cl_uint global_mem_cacheline_size;
-					cl_ulong global_mem_cache_size;
-					cl_ulong global_mem_size;
-					cl_ulong max_constant_buffer_size;
-					cl_uint max_constant_args;
-					cl_ulong local_mem_size;
-					bool little_endian;
-					std::string name;
-					std::string vendor;
-					std::string driver_version;
-					std::string device_profile;
-					std::string device_version;
-					unsigned int device_version_num;
-					std::string device_extensions;
-					std::size_t printf_buffer_size;
+					cl_device_id device_id;							///< OpenCL device id.
+					cl_uint vendor_id;								///< Vendor id.
+					cl_uint max_compute_units;						///< Maximum number of compute units on this device.
+					cl_uint max_work_item_dimensions;				///< Maximum dimensions of work items. OpenCL compliant GPU's have to provide at least 3.
+					std::vector<std::size_t> max_work_item_sizes;	///< Maximum number of work-items that can be specified in each dimension of the work-group.
+					std::size_t max_work_group_size;				///< Maximum number of work items per work group executable on a single compute unit.
+					cl_ulong max_mem_alloc_size;					///< Maximum number of bytes that can be allocated in a single memory allocation.
+					std::size_t image2d_max_width;					///< Maximum width of 2D images.
+					std::size_t image2d_max_height;					///< Maximum height of 2D images.
+					std::size_t image3d_max_width;					///< Maximum width of 3D images.
+					std::size_t image3d_max_height;					///< Maximum height of 3D images.
+					std::size_t image3d_max_depth;					///< Maximum depth of 3D images.
+					std::size_t image_max_buffer_size;				///< Maximum buffer size for buffer images.
+					std::size_t image_max_array_size;				///< Maximum number of array elements for 1D and 2D array images.
+					cl_uint max_samplers;							///< Maximum number of samplers that can be used simultaneously in a kernel.
+					std::size_t max_parameter_size;					///< Maximum size of parameters (in bytes) assignable to a kernel.
+					cl_uint mem_base_addr_align;					///< Alignment requirement (in bits) for sub-buffer offsets. Minimum value is the size of the largest built-in data type supported by the device.
+					cl_uint global_mem_cacheline_size;				///< Cache line size of global memory in bytes.
+					cl_ulong global_mem_cache_size;					///< Size of global memory cache in bytes.
+					cl_ulong global_mem_size;						///< Size of global memory on the device in bytes.
+					cl_ulong max_constant_buffer_size;				///< Maximum memory available for constant buffers in bytes.
+					cl_uint max_constant_args;						///< Maximum number of __constant arguments for kernels.
+					cl_ulong local_mem_size;						///< Size of local memory (per compute unit) on the device in bytes.
+					bool little_endian;								///< True if the device is little endian, false otherwise.
+					std::string name;								///< Name of the device.
+					std::string vendor;								///< Device vendor.
+					std::string driver_version;						///< Driver version string.
+					std::string device_profile;						///< Device profile. Can be either FULL_PROFILE or EMBEDDED_PROFILE.
+					std::string device_version;						///< OpenCL version supported by the device.
+					unsigned int device_version_num;				///< Parsed version of the above. 120 => OpenCL 1.2, 200 => OpenCL 2.0...
+					std::string device_extensions;					///< Comma-separated list of available extensions supported by this device.
+					std::size_t printf_buffer_size;					///< Maximum number of characters printable from a kernel.
 				};
-
+				
+				/**
+				 *	\struct	CLPlatform
+				 *	\brief	Holds information about a platform.
+				*/
 				struct CLPlatform
 				{
-					cl_platform_id id;
-					std::string profile;
-					std::string version;
-					unsigned int version_num;
-					std::string name;
-					std::string vendor;
-					std::string extensions;
-					std::vector<CLDevice> devices;
+					cl_platform_id id;					///< OpenCL platform id.
+					std::string profile;				///< Supported profile. Can be either FULL_PROFILE or EMBEDDED_PROFILE.
+					std::string version;				///< OpenCL version string.
+					unsigned int version_num;			///< Parsed version of the above. 120 => OpenCL 1.2, 200 => OpenCL 2.0...
+					std::string name;					///< Name of the platform.
+					std::string vendor;					///< Platform vendor.
+					std::string extensions;				///< Comma-separated list of available extensions supported by this platform.
+					std::vector<CLDevice> devices;		///< List of available OpenCL 1.2+ devices on this platform.
 				};
 
-				// instead of a constructor we use a factory function which returns a shared_ptr to the CLState instance
-				// (it is a lot safer this way, because the other wrapper classes all depend on a valid CLState.)
+				/**
+				 * \brief This factory function creates a new instance of CLState and returns a std::shared_ptr<CLState> to this instance.
+				 *
+				 *	Use this function to create an instance of CLState. The other classes all depend on a valid instance. To ensure the instance outlives
+				 *	created CLProgram, CLBuffer and CLImage objects, shared pointers are distributed to these instances.
+				 * 
+				 *	\param platform_index	Index of the platform to create the context from.
+				 *	\param device_index		Index of the device in the selected platform to create the context for.
+				 *	\return					A shared pointer to the newly created CLState instance. Use this for instantiating the other wrapper classes.
+				*/
 				friend std::shared_ptr<CLState> createCLInstance(std::size_t platform_index, std::size_t device_index);
 
-				// dtor
+				/// Destructor.
 				~CLState();
 
-				// accessor for context and command queue (return by value because of cl_context and cl_command_queue being pointers)
+				/**
+				 * \brief	Returns the native OpenCL handle to the context.
+				 * \return	Returns the native OpenCL handle to the context.
+				*/
 				cl_context context() const { return m_context; }
+				/**
+				 * \brief	Returns the native OpenCL handle to the command queue.
+				 * \return  Returns the native OpenCL handle to the command queue.
+				*/
 				cl_command_queue command_queue() const { return m_command_queue; }
 
-				// for getting device and platform parameters
+				/**
+				 * @brief	Returns the CLPlatform info struct for the selected platform.
+				 * @return  Returns the CLDevice info struct for the selected device.
+				*/
 				const CLPlatform& get_selected_platform() const;
 				const CLDevice& get_selected_device() const;
 
-				// print selected platform and device info
+				/**
+				 * @brief	Prints detailed information about the selected platform.
+				*/
 				void print_selected_platform_info() const;
+				/**
+				 * @brief	Prints detailed infomation about the selected device.
+				*/
 				void print_selected_device_info() const;
-				// print available platform and device info
+				/**
+				 * @brief	Prints detailed information about all suitable (OpenCL 1.2+) platforms and devices available on the system.
+				*/
 				void print_suitable_platform_and_device_info() const;		
 
 			private:
-				// --- private types
-
+				/**
+				 * \brief Used to retrieve exception information from native OpenCL callbacks.
+				*/
 				struct CLExHolder
 				{
 					const char* ex_msg;
 				};
 
-				// ctors
+				/**
+				 * \brief	Constructs context and command queue for the given platform and device index.
+				 * \param platform_index	Selected platform index.
+				 * \param device_index		Selected device index.
+				*/
 				CLState(std::size_t platform_index, std::size_t device_index);
 
-				// copy / move constructors
+				/// No copies are allowed.
 				CLState(const CLState&) = delete;
+				/// Move the entire state to a new instance.
 				CLState(CLState&& other) noexcept;
 
-				// copy / move assignment
+				/// No copies are allowed.
 				CLState& operator=(const CLState&) = delete;
+				/// Moves the entire state from one instance to another.
 				CLState& operator=(CLState&&) noexcept;
 
-				// --- private data members
-
+				/// List of available platforms which contain suitable (OpenCL 1.2+) devices.
 				std::vector<CLPlatform> m_available_platforms;
 
 				// ID's and handles for current OpenCL instance
-				std::size_t m_selected_platform_index;
-				std::size_t m_selected_device_index;
-				cl_context m_context;
-				cl_command_queue m_command_queue;
+				std::size_t m_selected_platform_index;	///< Selected platform index for this instance.
+				std::size_t m_selected_device_index;	///< Selected device index for this instance.
+				cl_context m_context;					///< OpenCL context handle.
+				cl_command_queue m_command_queue;		///< OpenCL command queue handle.
 
-				// If cl error occurs which is supposed to be handled by a callback, we can't throw an exception there.
-				// Instead pass a pointer to this member via the "user_data" parameter of the corresponding OpenCL
-				// API function.
+				/**
+				* If cl error occurs which is supposed to be handled by a callback, we can't throw an exception there.
+				* Instead pass a pointer to this member via the "user_data" parameter of the corresponding OpenCL
+				* API function.
+				*/
 				CLExHolder m_cl_ex_holder;
 
 				// --- private member functions
 
 				// friends
 				// global operators
+				/// Prints detailed information about the platform.
 				friend std::ostream& operator<<(std::ostream&, const CLState::CLPlatform&);
+				/// Prints detailed information about the device.
 				friend std::ostream& operator<<(std::ostream&, const CLState::CLDevice&);
 				// opencl callbacks
+				/// Callback used while creating the context.
 				friend void create_context_callback(const char* errinfo, const void* private_info, std::size_t cb, void* user_data);
 
-				// searches for available platforms and devices
+				/**
+				 * \brief Searches for available platforms and devices and stores suitable ones (OpenCL 1.2+) in the platforms list member. 
+				*/
 				void read_platform_and_device_info();
-				// initiates OpenCL, creates context and command queue
+				/**
+				 * \brief Initializes OpenCL context and command queue.
+				 * \param platform_id Selected platform index.
+				 * \param device_id Selected device index.
+				*/
 				void init_cl_instance(std::size_t platform_id, std::size_t device_id);
-				// frees acquired OpenCL resources
+				/**
+				 * \brief Frees acquired OpenCL resources.
+				*/
 				void cleanup();
 			};
 
 			#pragma endregion
 
 			#pragma region program_and_kernels
-			// check if T has member funcions to access data pointer and size (for setting kernel params!)
+			// check if a complex type T has member funcions to access data pointer and size (for setting kernel params!)
+			/**
+			*	\brief Checks if a complex type T is usable as parameter for CLProgram. Negative case.
+			*/
 			template <typename T, typename = void>
 			struct is_cl_param : public std::false_type	{};
 
+			/**
+			*	\brief Checks if a complex type T is usable as parameter for CLProgram. Positive case.
+			*
+			*	Requirements:
+			*	1.	The type has to expose a member std::size_t arg_size() (possibly const) which returns the size in bytes of the param.
+			*	2.	The type has to expose a member const void* arg_data() (possibly const) which returns a pointer to arg_size() bytes of data to pass to the kernel as argument.
+			*/
 			template <typename T>
 			struct is_cl_param <T, ocl_template_matching::meta::void_t<
 				decltype(std::size_t{std::declval<const T>().arg_size()}), // has const size() member, returning size_t?,
@@ -198,10 +349,17 @@ namespace ocl_template_matching
 			>> : std::true_type {};
 
 			// traits class for handling kernel arguments
+			/**
+			*	\brief Traits class for convenient processing of kernel arguments. Base template.
+			*/
 			template <typename T, typename = void>
 			struct CLKernelArgTraits;
 
 			// case: complex type which fulfills requirements of is_cl_param<T>
+			/**
+			*	\brief Traits class for convenient processing of kernel arguments. T fulfills requirements of is_cl_param<T>.
+			*	\tparam T type to check for suitability as a kernel argument.
+			*/
 			template <typename T>
 			struct CLKernelArgTraits <T, typename std::enable_if<is_cl_param<T>::value>::type>
 			{
@@ -210,6 +368,10 @@ namespace ocl_template_matching
 			};
 
 			// case: arithmetic type or standard layout type (poc struct, plain array...)
+			/**
+			*	\brief Traits class for convenient processing of kernel arguments. T is arithmetic type or has standard layout (POC object!).
+			*	\tparam T type to check for suitability as a kernel argument.
+			*/
 			template <typename T>
 			struct CLKernelArgTraits <T, typename std::enable_if<std::is_arithmetic<T>::value || std::is_standard_layout<T>::value>::type>
 			{
@@ -218,6 +380,10 @@ namespace ocl_template_matching
 			};
 
 			// case: pointer
+			/**
+			*	\brief Traits class for convenient processing of kernel arguments. Pointer to some argument type.
+			*	\tparam T type to check for suitability as a kernel argument.
+			*/
 			template <typename T>
 			struct CLKernelArgTraits <T*, void>
 			{
@@ -227,13 +393,19 @@ namespace ocl_template_matching
 
 			// case: nullptr
 			template <>
+			/**
+			*	\brief Traits class for convenient processing of kernel arguments. Case: nullptr.
+			*/
 			struct CLKernelArgTraits <std::nullptr_t, void>
 			{
 				static constexpr std::size_t arg_size(const std::nullptr_t& ptr) { return std::size_t{0}; }
 				static constexpr const void* arg_data(const std::nullptr_t& ptr) { return nullptr; }
 			};
 
-			// general check for allowed argument types. Used to presend meaningful error message wenn invoked with wrong types.
+			// general check for allowed argument types. Used to present meaningful error message wenn invoked with wrong types.
+			/**
+			*	\brief General check for allowed argument types. Used to present meaningful error message wenn invoked with wrong types.
+			*/
 			template <typename T>
 			using is_valid_kernel_arg = std::conditional<
 				is_cl_param<T>::value ||
@@ -243,33 +415,56 @@ namespace ocl_template_matching
 				std::is_pointer<T>::value
 				, std::true_type, std::false_type>;
 
+			/**
+			 * \brief Handle to some OpenCL event. Can be used to synchronize OpenCL operations.
+			*/
 			class CLEvent
 			{
 				friend class CLProgram;
 			public:
+				/**
+				 * \brief Constructs a new handle.
+				 * \param ev OpenCL event to encapsulate.
+				*/
 				CLEvent(cl_event ev);
+				/// Destructor. Internally decreases reference count to the cl_event object.
 				~CLEvent();
+				/// Copy constructor. Internally increases reference count to the cl_event object.
 				CLEvent(const CLEvent& other);
+				/// Move constructor.
 				CLEvent(CLEvent&& other) noexcept;
+				/// Copy assignment. Internally increases reference count to the cl_event object.
 				CLEvent& operator=(const CLEvent& other);
+				/// Moce assignment.
 				CLEvent& operator=(CLEvent&& other) noexcept;
 
+				/**
+				 * \brief Blocks until the corresponding OpenCL command submitted to the command queue finished execution.
+				*/
 				void wait() const;
 			private:
-				cl_event m_event;
+				cl_event m_event; ///< Handled cl_event object.
 			};
 
+			/**
+			 * \brief Compiles OpenCL-C source code and extracts kernel functions from this source. Found kernels can then be conveniently invoked using the call operator.
+			*/
 			class CLProgram
 			{
 			public:
+				/// Defines the global and local dimensions of the kernel invocation in terms of dimensions (up to 3) and work items.
 				struct ExecParams
 				{
-					std::size_t work_dim;
-					std::size_t work_offset[OCL_KERNEL_MAX_WORK_DIM];
-					std::size_t global_work_size[OCL_KERNEL_MAX_WORK_DIM];
-					std::size_t local_work_size[OCL_KERNEL_MAX_WORK_DIM];
+					std::size_t work_dim; ///< Dimension of the work groups and the global work volume. Can be 1, 2 or 3.
+					std::size_t work_offset[OCL_KERNEL_MAX_WORK_DIM]; ///< Global offset from the origin.
+					std::size_t global_work_size[OCL_KERNEL_MAX_WORK_DIM]; ///< Global work volume dimensions.
+					std::size_t local_work_size[OCL_KERNEL_MAX_WORK_DIM]; ///< Local work group dimensions.
 				};				
 
+				/**
+				 * \brief Handle to an OpenCL kernel in this program. Useful to circumvent kernel name lookup to improve performance of invokes.
+				 * \attention This is a non owning handle which becomes invalid if the creating CLProgram instance dies.
+				*/
 				class CLKernelHandle
 				{
 					friend class CLProgram;
@@ -281,20 +476,42 @@ namespace ocl_template_matching
 					cl_kernel m_kernel;
 				};
 
+				/**
+				 * \brief	Compiles OpenCL-C source code, creates a cl_program object and extracts all the available kernel functions.
+				 * \param source String containing the entire source code.
+				 * \param compiler_options String containing compiler options.
+				 * \param clstate A valid CLState intance used to interface with OpenCL.
+				*/
 				CLProgram(const std::string& source, const std::string& compiler_options, const std::shared_ptr<CLState>& clstate);
+				/// Destructor. Frees created cl_program and cl_kernel objects.
 				~CLProgram();
 
 				// copy / move constructor
+				/// Copy construction is not allowed.
 				CLProgram(const CLProgram&) = delete;
+				/// Moves the entire state into a new instance.
 				CLProgram(CLProgram&&) noexcept;
 
 				// copy / move assignment
+				/// Copy assignment is not allowed.
 				CLProgram& operator=(const CLProgram& other) = delete;
+				/// Moves the entire state into another instance.
 				CLProgram& operator=(CLProgram&& other) noexcept;
 
-				void cleanup() noexcept;
-
 				// no dependencies
+				/**
+				*	\brief Invokes the kernel 'name' with execution parameters 'exec_params' and passes an arbitrary list of arguments.
+				*
+				*	All argument types have to satisfy is_valid_kernel_arg<T>.
+				*	After submitting the kernel invocation onto the command queue, a CLEvent is returned which can be waited on to achieve blocking behaviour
+				*	or passed to other OpenCL wrapper operations to accomplish synchronization with the following operation.
+				*
+				*	\tparam ...Argtypes	List of argument types.
+				*	\param name Name of the kernel function to invoke.
+				*	\param exec_params	Defines execution dimensions of global work volume and local work groups for this invocation.
+				*	\param args	List of arguments to pass to the kernel.
+				*	\return CLEvent object. Calling wait() on this object blocks until the kernel has finished execution.
+				*/
 				template <typename ... ArgTypes>
 				CLEvent operator()(const std::string& name, const ExecParams& exec_params, const ArgTypes&... args)
 				{
@@ -318,12 +535,26 @@ namespace ocl_template_matching
 					}
 				}
 
+				/**
+				*	\brief Invokes the kernel 'kernel' with execution parameters 'exec_params' and passes an arbitrary list of arguments.
+				*
+				*	This overload bypasses the kernel name lookup which can be beneficial in terms of invocation overhead.
+				*	All argument types have to satisfy is_valid_kernel_arg<T>.
+				*	After submitting the kernel invocation onto the command queue, a CLEvent is returned which can be waited on to achieve blocking behaviour
+				*	or passed to other OpenCL wrapper operations to accomplish synchronization with the following operation.
+				*
+				*	\tparam ...Argtypes	List of argument types.
+				*	\param kernel Handle of the kernel function to invoke.
+				*	\param exec_params	Defines execution dimensions of global work volume and local work groups for this invocation.
+				*	\param args	List of arguments to pass to the kernel.
+				*	\return CLEvent object. Calling wait() on this object blocks until the kernel has finished execution.
+				*/
 				template <typename ... ArgTypes>
 				CLEvent operator()(const CLKernelHandle& kernel, const ExecParams& exec_params, const ArgTypes&... args)
 				{
 					static_assert(ocl_template_matching::meta::conjunction<is_valid_kernel_arg<ArgTypes>...>::value, "[CLProgram]: Incompatible kernel argument type.");					
 					// unpack args
-					setKernelArgs<std::size_t{0}, ArgTypes...>(name, args...);
+					setKernelArgs<std::size_t{0}, ArgTypes...>(kernel.m_kernel, args...);
 
 					// invoke kernel
 					m_event_cache.clear();
@@ -331,6 +562,17 @@ namespace ocl_template_matching
 				}
 
 				// overload for zero arguments (no dependencies)
+				/**
+				*	\brief Invokes the kernel 'name' with execution parameters 'exec_params'.
+				*
+				*	No arguments are passed with this overload.
+				*	After submitting the kernel invocation onto the command queue, a CLEvent is returned which can be waited on to achieve blocking behaviour
+				*	or passed to other OpenCL wrapper operations to accomplish synchronization with the following operation.
+				*
+				*	\param name Name of the kernel function to invoke.
+				*	\param exec_params	Defines execution dimensions of global work volume and local work groups for this invocation.
+				*	\return CLEvent object. Calling wait() on this object blocks until the kernel has finished execution.
+				*/
 				CLEvent operator()(const std::string& name, const ExecParams& exec_params)
 				{
 					try
@@ -349,6 +591,18 @@ namespace ocl_template_matching
 					}
 				}
 
+				/**
+				*	\brief Invokes the kernel 'kernel' with execution parameters 'exec_params'.
+				*
+				*	This overload bypasses the kernel name lookup which can be beneficial in terms of invocation overhead.
+				*	No arguments are passed with this overload.
+				*	After submitting the kernel invocation onto the command queue, a CLEvent is returned which can be waited on to achieve blocking behaviour
+				*	or passed to other OpenCL wrapper operations to accomplish synchronization with the following operation.
+				*
+				*	\param kernel Handle of the kernel function to invoke.
+				*	\param exec_params	Defines execution dimensions of global work volume and local work groups for this invocation.
+				*	\return CLEvent object. Calling wait() on this object blocks until the kernel has finished execution.
+				*/
 				CLEvent operator()(const CLKernelHandle& kernel, const ExecParams& exec_params)
 				{					
 					// invoke kernel
@@ -357,6 +611,23 @@ namespace ocl_template_matching
 				}
 
 				// call operators with dependencies
+				/**
+				*	\brief Invokes the kernel 'name' with execution parameters 'exec_params' and passes an arbitrary list of arguments after waiting for a collection of CLEvents.
+				*
+				*	All argument types have to satisfy is_valid_kernel_arg<T>.
+				*	The kernel waits for finalization of the passed events before it proceeds with its own execution.
+				*	After submitting the kernel invocation onto the command queue, a CLEvent is returned which can be waited on to achieve blocking behaviour
+				*	or passed to other OpenCL wrapper operations to accomplish synchronization with the following operation.
+				*
+				*	\tparam ...Argtypes	List of argument types.
+				*	\tparam DependencyIterator Iterator which refers to a collection of CLEvent's.
+				*	\param name Name of the kernel function to invoke.
+				*	\param start_dep_iterator Start iterator of the event collection.
+				*	\param end_dep_iterator End iterator of the event collection.
+				*	\param exec_params	Defines execution dimensions of global work volume and local work groups for this invocation.
+				*	\param args	List of arguments to pass to the kernel.
+				*	\return CLEvent object. Calling wait() on this object blocks until the kernel has finished execution.
+				*/
 				template <typename DependencyIterator, typename ... ArgTypes>
 				CLEvent operator()(const std::string& name, DependencyIterator start_dep_iterator, DependencyIterator end_dep_iterator, const ExecParams& exec_params, const ArgTypes&... args)
 				{
@@ -383,13 +654,31 @@ namespace ocl_template_matching
 					}
 				}
 
+				/**
+				*	\brief Invokes the kernel 'kernel' with execution parameters 'exec_params' and passes an arbitrary list of arguments after waiting for a collection of CLEvents.
+				*
+				*	This overload bypasses the kernel name lookup which can be beneficial in terms of invocation overhead.
+				*	All argument types have to satisfy is_valid_kernel_arg<T>.
+				*	The kernel waits for finalization of the passed events before it proceeds with its own execution.
+				*	After submitting the kernel invocation onto the command queue, a CLEvent is returned which can be waited on to achieve blocking behaviour
+				*	or passed to other OpenCL wrapper operations to accomplish synchronization with the following operation.
+				*
+				*	\tparam ...Argtypes	List of argument types.
+				*	\tparam DependencyIterator Iterator which refers to a collection of CLEvent's.
+				*	\param kernel Handle of the kernel function to invoke.
+				*	\param start_dep_iterator Start iterator of the event collection.
+				*	\param end_dep_iterator End iterator of the event collection.
+				*	\param exec_params	Defines execution dimensions of global work volume and local work groups for this invocation.
+				*	\param args	List of arguments to pass to the kernel.
+				*	\return CLEvent object. Calling wait() on this object blocks until the kernel has finished execution.
+				*/
 				template <typename DependencyIterator, typename ... ArgTypes>
 				CLEvent operator()(const CLKernelHandle& kernel, DependencyIterator start_dep_iterator, DependencyIterator end_dep_iterator, const ExecParams& exec_params, const ArgTypes&... args)
 				{
 					static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DependencyIterator>::value_type>::type>::type, CLEvent>::value, "[CLProgram]: Dependency iterators must refer to a collection of CLEvent objects.");
 					static_assert(ocl_template_matching::meta::conjunction<is_valid_kernel_arg<ArgTypes>...>::value, "[CLProgram]: Incompatible kernel argument type.");					
 					// unpack args
-					setKernelArgs < std::size_t{0}, ArgTypes... > (name, args...);
+					setKernelArgs < std::size_t{0}, ArgTypes... > (kernel.m_kernel, args...);
 
 					// invoke kernel
 					m_event_cache.clear();
@@ -399,6 +688,20 @@ namespace ocl_template_matching
 				}
 
 				// overload for zero arguments (with dependencies)
+				/**
+				*	\brief Invokes the kernel 'name' with execution parameters 'exec_params' after waiting for a collection of CLEvents.
+				*
+				*	The kernel waits for finalization of the passed events before it proceeds with its own execution.
+				*	After submitting the kernel invocation onto the command queue, a CLEvent is returned which can be waited on to achieve blocking behaviour
+				*	or passed to other OpenCL wrapper operations to accomplish synchronization with the following operation.
+				*
+				*	\tparam DependencyIterator Iterator which refers to a collection of CLEvent's.
+				*	\param name Name of the kernel function to invoke.
+				*	\param start_dep_iterator Start iterator of the event collection.
+				*	\param end_dep_iterator End iterator of the event collection.
+				*	\param exec_params	Defines execution dimensions of global work volume and local work groups for this invocation.
+				*	\return CLEvent object. Calling wait() on this object blocks until the kernel has finished execution.
+				*/
 				template <typename DependencyIterator>
 				CLEvent operator()(const std::string& name, DependencyIterator start_dep_iterator, DependencyIterator end_dep_iterator, const ExecParams& exec_params)
 				{
@@ -421,6 +724,21 @@ namespace ocl_template_matching
 					}
 				}
 
+				/**
+				*	\brief Invokes the kernel 'kernel' with execution parameters 'exec_params' after waiting for a collection of CLEvents.
+				*
+				*	This overload bypasses the kernel name lookup which can be beneficial in terms of invocation overhead.
+				*	The kernel waits for finalization of the passed events before it proceeds with its own execution.
+				*	After submitting the kernel invocation onto the command queue, a CLEvent is returned which can be waited on to achieve blocking behaviour
+				*	or passed to other OpenCL wrapper operations to accomplish synchronization with the following operation.
+				*
+				*	\tparam DependencyIterator Iterator which refers to a collection of CLEvent's.
+				*	\param kernel Handle of the kernel function to invoke.
+				*	\param start_dep_iterator Start iterator of the event collection.
+				*	\param end_dep_iterator End iterator of the event collection.
+				*	\param exec_params	Defines execution dimensions of global work volume and local work groups for this invocation.
+				*	\return CLEvent object. Calling wait() on this object blocks until the kernel has finished execution.
+				*/
 				template <typename DependencyIterator>
 				CLEvent operator()(const CLKernelHandle& kernel, DependencyIterator start_dep_iterator, DependencyIterator end_dep_iterator, const ExecParams& exec_params)
 				{				
@@ -433,21 +751,57 @@ namespace ocl_template_matching
 				}
 
 				// retrieve kernel handle
+				/**
+				*	\brief Returns a kernel handle to the kernel with name name.
+				*	\param name	Name of the kernel to create a handle of.
+				*/
 				CLKernelHandle getKernel(const std::string& name);
 
 			private:
+				/// Cleans up internal state.
+				void cleanup() noexcept;
+
+				/**
+				 * \brief Holds running id and OpenCL kernel object handle.
+				*/
 				struct CLKernel
 				{
-					std::size_t id;
-					cl_kernel kernel;
+					std::size_t id;		///< Running id
+					cl_kernel kernel;	///< OpenCL kernel object handle
 				};
 
 				// invoke kernel
+				/**
+				*	\brief invokes the kernel.
+				*	\param kernel	OpenCL kernel object handle
+				*	\param dep_events	Vector of events to wait for. (std::vector because we need them in contiguous memory for the API call)
+				*	\param exec_params	Execution dimensions.
+				*/
 				CLEvent invoke(cl_kernel kernel, const std::vector<cl_event>& dep_events, const ExecParams& exec_params);
 				// set kernel params (low level, non type-safe stuff. Implementation hidden in .cpp!)
+				/**
+				*	\brief Sets kernel arguments in a low-level fashion.
+				*	\attention This function is not type safe. Use the high level functions above instead!
+				*	\param name Name of the kernel.
+				*/
 				void setKernelArgsImpl(const std::string& name, std::size_t index, std::size_t arg_size, const void* arg_data_ptr);
+				/**
+				*	\brief Sets kernel arguments in a low-level fashion.
+				*	\attention This function is not type safe. Use the high level functions above instead!
+				*	\param kernel	OpenCL kernel object handle.
+				*/
+				void setKernelArgsImpl(cl_kernel kernel, std::size_t index, std::size_t arg_size, const void* arg_data_ptr);
 
 				// template parameter pack unpacking
+				/**
+				*	\brief	Unpacks and sets an arbitrary kernel argument list.
+				*	\tparam index	Index of the first argument of the list.
+				*	\tparam FirstArgType Type of the first argument.
+				*	\tparam ...ArgTypes	List of kernel argument types (tail).
+				*	\param name	Name of the kernel.
+				*	\param first_arg First argument.
+				*	\param rest	Rest of arguments (tail).
+				*/
 				template <std::size_t index, typename FirstArgType, typename ... ArgTypes>
 				void setKernelArgs(const std::string& name, const FirstArgType& first_arg, const ArgTypes&... rest)
 				{
@@ -458,6 +812,13 @@ namespace ocl_template_matching
 				}
 
 				// exit case
+				/**
+				*	\brief	Unpacks and sets a single kernel argument.
+				*	\tparam index Index of the kernel argument.
+				*	\tparam FirstArgType Type of the argument.
+				*	\param name	Name of the kernel.
+				*	\param first_arg Argument.
+				*/
 				template <std::size_t index, typename FirstArgType>
 				void setKernelArgs(const std::string& name, const FirstArgType& first_arg)
 				{
@@ -465,17 +826,54 @@ namespace ocl_template_matching
 					setKernelArgsImpl(name, index, CLKernelArgTraits<FirstArgType>::arg_size(), CLKernelArgTraits<FirstArgType>::arg_data());
 				}
 
-				std::string m_source;
-				std::string m_options;
-				std::unordered_map<std::string, CLKernel> m_kernels;
-				cl_program m_cl_program;
-				std::shared_ptr<CLState> m_cl_state;
-				std::vector<cl_event> m_event_cache;
+				// template parameter pack unpacking
+				/**
+				*	\brief	Unpacks and sets an arbitrary kernel argument list.
+				*	\tparam index Index of the first argument of the list.
+				*	\tparam FirstArgType Type of the first argument.
+				*	\tparam ...ArgTypes	List of kernel argument types (tail).
+				*	\param kernel OpenCL kernel object handle.
+				*	\param first_arg First argument.
+				*	\param rest	Rest of arguments (tail).
+				*/
+				template <std::size_t index, typename FirstArgType, typename ... ArgTypes>
+				void setKernelArgs(cl_kernel kernel, const FirstArgType& first_arg, const ArgTypes&... rest)
+				{
+					// process first_arg
+					setKernelArgs<index, FirstArgType>(kernel, first_arg);
+					// unpack next param
+					setKernelArgs<index + 1, ArgTypes...>(kernel, rest...);
+				}
+
+				// exit case
+				/**
+				*	\brief	Unpacks and sets a single kernel argument.
+				*	\tparam index Index of the kernel argument.
+				*	\tparam FirstArgType Type of the argument.
+				*	\param kernel OpenCL kernel object handle.
+				*	\param first_arg Argument.
+				*/
+				template <std::size_t index, typename FirstArgType>
+				void setKernelArgs(cl_kernel kernel, const FirstArgType& first_arg)
+				{
+					// set opencl kernel argument
+					setKernelArgsImpl(kernel, index, CLKernelArgTraits<FirstArgType>::arg_size(), CLKernelArgTraits<FirstArgType>::arg_data());
+				}
+
+				std::string m_source;	///< OpenCL program source code.
+				std::string m_options;	///< OpenCL-C compiler options string.
+				std::unordered_map<std::string, CLKernel> m_kernels;	///< Map of kernels found in the program, keyed by kernel name.
+				cl_program m_cl_program;	///< OpenCL program object handle
+				std::shared_ptr<CLState> m_cl_state;	///< Shared pointer to some valid CLState instance.
+				std::vector<cl_event> m_event_cache;	///< Used for caching lists of events in contiguous memory.
 			};
 			#pragma endregion
 		
 			#pragma region buffers
 
+			/**
+			 * \brief Encapsulates creation and read / write operations on OpenCL buffer objects.
+			*/
 			class CLBuffer
 			{
 			public:
@@ -487,8 +885,9 @@ namespace ocl_template_matching
 				CLBuffer& operator=(const CLBuffer&) = delete;
 				CLBuffer& operator=(CLBuffer&& other) noexcept;
 
-				//! Copies data pointed to by data into the OpenCL buffer.
-				/*!	
+				/** 
+				*	\brief Copies data pointed to by data into the OpenCL buffer.
+				*	
 				*	Copies data pointed to by data into the OpenCL buffer. The function returns a CLEvent which can be waited upon. It refers to the unmap command after copying.
 				*	Setting invalidate = true invalidates the written buffer region (all data that was not written is now in undefined state!) but most likely increases performance
 				*	due to less synchronization overhead in the driver.
@@ -505,8 +904,9 @@ namespace ocl_template_matching
 				*/
 				inline CLEvent write_bytes(const void* data, std::size_t length = 0ull, std::size_t offset = 0ull, bool invalidate = false);
 
-				//! Copies data from the OpenCL buffer into the memory region pointed to by data.
-				/*!
+				/**
+				*	Copies data from the OpenCL buffer into the memory region pointed to by data.
+				*
 				*	Copies data from the OpenCL buffer into the memory region pointed to by data. The function returns a CLEvent which can be waited upon. It refers to the unmap command after copying.
 				*
 				*	\param[out]		data		Points to the memory region the buffer should be read into.
@@ -520,8 +920,9 @@ namespace ocl_template_matching
 				*/
 				inline CLEvent read_bytes(void* data, std::size_t length = 0ull, std::size_t offset = 0ull);
 
-				//! Copies data pointed to by data into the OpenCL buffer after waiting on a list of dependencies (CLEvent's).
-				/*!
+				/** 
+				*	Copies data pointed to by data into the OpenCL buffer after waiting on a list of dependencies (CLEvent's).
+				*
 				*	Copies data pointed to by data into the OpenCL buffer. Before the buffer is mapped for writing, OpenCL waits for the provided CLEvent's.
 				*	The function returns a CLEvent which can be waited upon. It refers to the unmap command after copying.
 				*	Setting invalidate = true invalidates the written buffer region (all data that was not written is now in undefined state!) but most likely increases performance
@@ -544,8 +945,9 @@ namespace ocl_template_matching
 				template <typename DepIterator>
 				inline CLEvent write_bytes(const void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length = 0ull, std::size_t offset = 0ull, bool invalidate = false);
 
-				//! Copies data from the OpenCL buffer into the memory region pointed to by data after waiting on a list of dependencies (CLEvent's).
-				/*!
+				/**
+				*	Copies data from the OpenCL buffer into the memory region pointed to by data after waiting on a list of dependencies (CLEvent's).
+				*
 				*	Copies data from the OpenCL buffer into the memory region pointed to by data. Before the buffer is mapped for reading, OpenCL waits for the provided CLEvent's.
 				*	The function returns a CLEvent which can be waited upon. It refers to the unmap command after copying.
 				*
@@ -566,6 +968,9 @@ namespace ocl_template_matching
 				inline CLEvent read_bytes(void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length = 0ull, std::size_t offset = 0ull);
 
 				// high level read / write
+				/**
+				*	\brief Writes some collection of 
+				*/
 				template <typename DataIterator>
 				inline CLEvent write(DataIterator data_begin, DataIterator data_end, std::size_t offset = 0ull, bool invalidate = false);
 

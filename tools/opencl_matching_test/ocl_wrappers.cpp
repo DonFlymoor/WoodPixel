@@ -817,56 +817,6 @@ std::size_t ocl_template_matching::impl::cl::CLBuffer::size() const noexcept
 #pragma region class CLImage
 // class CLImage
 
-// predefined channel orders for the opencl order types
-static constexpr ocl_template_matching::impl::cl::CLImage::HostChannelOrder HOST_CHANNEL_ORDER_R
-{
-	1ull,
-	{
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::R,
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::R,
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::R,
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::R
-	}
-};
-
-static constexpr ocl_template_matching::impl::cl::CLImage::HostChannelOrder HOST_CHANNEL_ORDER_RG
-{
-	1ull,
-	{
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::R,
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::G,
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::R,
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::R
-	}
-};
-
-
-static constexpr ocl_template_matching::impl::cl::CLImage::HostChannelOrder HOST_CHANNEL_ORDER_RGBA
-{
-	1ull,
-	{
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::R,
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::G,
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::B,
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::A
-	}
-};
-
-
-static constexpr ocl_template_matching::impl::cl::CLImage::HostChannelOrder HOST_CHANNEL_ORDER_BGRA
-{
-	1ull,
-	{
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::B,
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::G,
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::R,
-		ocl_template_matching::impl::cl::CLImage::ColorChannel::A
-	}
-};
-
-// retrieve data type size of channel types
-
-
 ocl_template_matching::impl::cl::CLImage::CLImage(const std::shared_ptr<CLState>& clstate, const ImageDesc& image_desc) :
 	m_image{nullptr},
 	m_image_desc{image_desc},

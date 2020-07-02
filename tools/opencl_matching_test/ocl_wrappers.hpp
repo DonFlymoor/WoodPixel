@@ -23,9 +23,8 @@
 #include <atomic>
 #include <memory>
 #include <cstdint>
-
-/// Maximum work dim of OpenCL kernels
-#define OCL_KERNEL_MAX_WORK_DIM 3 // maximum work dim of opencl kernels
+#include <cassert>
+#include <array>
 
 /**
 *	\namespace ocl_template_matching
@@ -102,6 +101,74 @@ namespace ocl_template_matching
 		*/
 		template <typename First, typename ... Rest>
 		struct conjunction<First, Rest...> : std::conditional<bool(First::value), conjunction<Rest...>, First> {};
+
+		/**
+			 *	\brief		Evaluates the maximum size of a list of types at compile time.
+			 *	\tparam ...  Arbitrary list of types.
+			*/
+		template <typename ...>
+		struct max_size_of;
+
+		/**
+		 *	\brief		Evaluates the maximum size of a list of types at compile time.
+		 *	\tparam T1  Last type.
+		*/
+		template <typename T1>
+		struct max_size_of<T1>
+		{
+			static constexpr std::size_t value{sizeof(T1)}; ///<	Maximum size of all types in the type list.
+		};
+
+		/**
+		 *	\brief		Evaluates the maximum size of a list of types at compile time.
+		 *	\tparam	T1	First type.
+		 *	\tparam ... Arbitrary list of types.
+		*/
+		template <typename T1, typename ... T>
+		struct max_size_of<T1, T...>
+		{
+			static constexpr std::size_t value{
+				std::conditional<
+					(sizeof(T1) > max_size_of<T...>::value),
+						std::integral_constant<std::size_t, sizeof(T1)>,
+						std::integral_constant<std::size_t, max_size_of<T...>::value>
+				>::type::value
+			};  ///<	Maximum size of all types in the type list.
+		};
+
+		/**
+		 *	\brief		Evaluates the maximum alignment of a list of types at compile time.
+		 *	\tparam ...  Arbitrary list of types.
+		*/
+		template <typename ...>
+		struct max_align_of;
+
+		/**
+		 *	\brief		Evaluates the maximum alignment of a list of types at compile time.
+		 *	\tparam T1  Last type.
+		*/
+		template <typename T1>
+		struct max_align_of<T1>
+		{
+			static constexpr std::size_t value{alignof(T1)}; ///<	Maximum alignment of all types in the type list.
+		};
+
+		/**
+		 *	\brief		Evaluates the maximum alignment of a list of types at compile time.
+		 *	\tparam	T1	First type.
+		 *	\tparam ... Arbitrary list of types.
+		*/
+		template <typename T1, typename ... T>
+		struct max_align_of<T1, T...>
+		{
+			static constexpr std::size_t value{
+				std::conditional<
+					(alignof(T1) > max_align_of<T...>::value),
+						std::integral_constant<std::size_t, alignof(T1)>,
+						std::integral_constant<std::size_t, max_align_of<T...>::value>
+				>::type::value
+			}; ///<	Maximum alignment of all types in the type list.
+		};
 	}
 
 	/**
@@ -131,6 +198,57 @@ namespace ocl_template_matching
 			 * \return Returns numeric expression. (See examples above)
 			*/
 			unsigned int get_cl_version_num(const std::string& str);
+
+			// memory alignment stuff
+			/**
+			*	\brief Returns a size greater than or equal to 'size' which is a multiple of 'alignment'.
+			*	\tparam	alignment	Desired alignment. Must be a power of 2.
+			*	\param	size		Input size.
+			*	\return				Size >= 'size' which is a multiple of 'alignment'.		
+			*/
+			template <std::size_t alignment>
+			constexpr size_t calc_aligned_size(std::size_t size)
+			{
+				return size + ((alignment - (size & (alignment - 1))) & (alignment - 1));
+			}
+
+			/**
+			*	\brief Returns a size greater than or equal to 'size' which is a multiple of 'alignment'.
+			*	\param	alignment	Desired alignment. Must be a power of 2.
+			*	\param	size		Input size.
+			*	\return				Size >= 'size' which is a multiple of 'alignment'.
+			*/
+			constexpr std::size_t calc_aligned_size(std::size_t size, std::size_t alignment)
+			{
+				return size + ((alignment - (size & (alignment - 1))) & (alignment - 1));
+			}
+
+			/**
+			 *	\brief		Returns true if n is a power of 2.
+			 *	\param n	n
+			 *	\return		true if n is a power of 2, false otherwise.
+			*/
+			constexpr bool is_power_of_two(std::size_t n)
+			{
+				return n && (n & (n - 1)) == 0;
+			}
+
+			/**
+			 *	\brief		Rounds up n to the nearest power of 2.
+			 *	\param n	n
+			 *	\return		Nearest power of 2 >= n.
+			*/
+			inline std::size_t next_power_of_two(std::size_t n)
+			{
+				if(is_power_of_two(n)) return n;
+				std::size_t ct{0};
+				while(n != 0)
+				{
+					n = n >> 1;
+					++ct;
+				}
+				return std::size_t{1ull >> (ct + 1)};
+			}
 		}
 
 		/**
@@ -139,6 +257,16 @@ namespace ocl_template_matching
 		*/
 		namespace cl
 		{
+			namespace constants
+			{
+				/// Maximum work dim of OpenCL kernels
+				constexpr std::size_t OCL_KERNEL_MAX_WORK_DIM{3}; // maximum work dim of opencl kernels
+				/// Maximum size of an RGBA fill color
+				constexpr std::size_t OCL_MAX_FILL_COLOR_BYTES{4 * sizeof(float)};
+				/// Invalid color channel index
+				constexpr std::size_t INVALID_COLOR_CHANNEL_INDEX{0xDEADBEEF};
+			}
+
 			#pragma region context
 			/// Callback function used during OpenCL context creation.
 			void create_context_callback(const char* errinfo, const void* private_info, std::size_t cb, void* user_data);
@@ -460,7 +588,7 @@ namespace ocl_template_matching
 				 * \brief Constructs a new handle.
 				 * \param ev OpenCL event to encapsulate.
 				*/
-				CLEvent(cl_event ev);
+				explicit CLEvent(cl_event ev);
 				/// Destructor. Internally decreases reference count to the cl_event object.
 				~CLEvent();
 				/// Copy constructor. Internally increases reference count to the cl_event object.
@@ -490,9 +618,9 @@ namespace ocl_template_matching
 				struct ExecParams
 				{
 					std::size_t work_dim; ///< Dimension of the work groups and the global work volume. Can be 1, 2 or 3.
-					std::size_t work_offset[OCL_KERNEL_MAX_WORK_DIM]; ///< Global offset from the origin.
-					std::size_t global_work_size[OCL_KERNEL_MAX_WORK_DIM]; ///< Global work volume dimensions.
-					std::size_t local_work_size[OCL_KERNEL_MAX_WORK_DIM]; ///< Local work group dimensions.
+					std::size_t work_offset[constants::OCL_KERNEL_MAX_WORK_DIM]; ///< Global offset from the origin.
+					std::size_t global_work_size[constants::OCL_KERNEL_MAX_WORK_DIM]; ///< Global work volume dimensions.
+					std::size_t local_work_size[constants::OCL_KERNEL_MAX_WORK_DIM]; ///< Local work group dimensions.
 				};				
 
 				/**
@@ -506,7 +634,7 @@ namespace ocl_template_matching
 					CLKernelHandle& operator=(const CLKernelHandle& other) noexcept = default;
 					~CLKernelHandle() noexcept = default;
 				private:
-					CLKernelHandle(cl_kernel kernel) noexcept : m_kernel{kernel} {}
+					explicit CLKernelHandle(cl_kernel kernel) noexcept : m_kernel{kernel} {}
 					cl_kernel m_kernel;
 				};
 
@@ -1309,22 +1437,22 @@ namespace ocl_template_matching
 				*	These 12 data types are the minimal set of required data types for OpenCL 1.2 compliant devices.
 				*	For allowed combinations with different channel orders please see https://www.khronos.org/registry/OpenCL/specs/2.2/html/OpenCL_API.html#image-format-descriptor.
 				*	\note	This enum additionally encodes the size in bytes of the data type and the type category in the less significant bits:
-				*			[ 32 bit CL constant | 16 bit data type size in bytes | 16 bit base type identifier ]
+				*			[ 32 bit CL constant | 16 bit data type size in bytes | 8 bit base type identifier | 8 bit normalized flag (in case of SNORM or UNORM types!) ]
 				*/
 				enum class ImageChannelType : uint64_t
 				{
-					SNORM_INT8		= (uint64_t{CL_SNORM_INT8} << 32)		| (uint64_t{1} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::Int)),
-					SNORM_INT16		= (uint64_t{CL_SNORM_INT16} << 32)		| (uint64_t{2} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::Int)),
-					UNORM_INT8		= (uint64_t{CL_UNORM_INT8} << 32)		| (uint64_t{1} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt)),
-					UNORM_INT16		= (uint64_t{CL_UNORM_INT16} << 32)		| (uint64_t{2} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt)),
-					INT8			= (uint64_t{CL_SIGNED_INT8} << 32)		| (uint64_t{1} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::Int)),
-					INT16			= (uint64_t{CL_SIGNED_INT16} << 32)		| (uint64_t{2} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::Int)),
-					INT32			= (uint64_t{CL_SIGNED_INT32} << 32)		| (uint64_t{4} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::Int)),
-					UINT8			= (uint64_t{CL_UNSIGNED_INT8} << 32)	| (uint64_t{1} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt)),
-					UINT16			= (uint64_t{CL_UNSIGNED_INT16} << 32)	| (uint64_t{2} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt)),
-					UINT32			= (uint64_t{CL_UNSIGNED_INT32} << 32)	| (uint64_t{4} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt)),
-					HALF			= (uint64_t{CL_HALF_FLOAT} << 32)		| (uint64_t{2} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::Float)),
-					FLOAT			= (uint64_t{CL_FLOAT} << 32)			| (uint64_t{4} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::Float))
+					SNORM_INT8		= (uint64_t{CL_SNORM_INT8} << 32)		| (uint64_t{1} << 16) | (uint64_t(static_cast<uint8_t>(ChannelBaseType::Int))	<< 8) | uint64_t{1},
+					SNORM_INT16		= (uint64_t{CL_SNORM_INT16} << 32)		| (uint64_t{2} << 16) | (uint64_t(static_cast<uint8_t>(ChannelBaseType::Int))	<< 8) | uint64_t{1},
+					UNORM_INT8		= (uint64_t{CL_UNORM_INT8} << 32)		| (uint64_t{1} << 16) | (uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt))	<< 8) | uint64_t{1},
+					UNORM_INT16		= (uint64_t{CL_UNORM_INT16} << 32)		| (uint64_t{2} << 16) | (uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt))	<< 8) | uint64_t{1},
+					INT8			= (uint64_t{CL_SIGNED_INT8} << 32)		| (uint64_t{1} << 16) | (uint64_t(static_cast<uint8_t>(ChannelBaseType::Int))	<< 8) | uint64_t{0},
+					INT16			= (uint64_t{CL_SIGNED_INT16} << 32)		| (uint64_t{2} << 16) | (uint64_t(static_cast<uint8_t>(ChannelBaseType::Int))	<< 8) | uint64_t{0},
+					INT32			= (uint64_t{CL_SIGNED_INT32} << 32)		| (uint64_t{4} << 16) | (uint64_t(static_cast<uint8_t>(ChannelBaseType::Int))	<< 8) | uint64_t{0},
+					UINT8			= (uint64_t{CL_UNSIGNED_INT8} << 32)	| (uint64_t{1} << 16) | (uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt))	<< 8) | uint64_t{0},
+					UINT16			= (uint64_t{CL_UNSIGNED_INT16} << 32)	| (uint64_t{2} << 16) | (uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt))	<< 8) | uint64_t{0},
+					UINT32			= (uint64_t{CL_UNSIGNED_INT32} << 32)	| (uint64_t{4} << 16) | (uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt))	<< 8) | uint64_t{0},
+					HALF			= (uint64_t{CL_HALF_FLOAT} << 32)		| (uint64_t{2} << 16) | (uint64_t(static_cast<uint8_t>(ChannelBaseType::Float))	<< 8) | uint64_t{0},
+					FLOAT			= (uint64_t{CL_FLOAT} << 32)			| (uint64_t{4} << 16) | (uint64_t(static_cast<uint8_t>(ChannelBaseType::Float))	<< 8) | uint64_t{0}
 				};
 
 				/**
@@ -1440,11 +1568,11 @@ namespace ocl_template_matching
 				};
 
 				/// Returns image channel data type size in bytes.
-				static inline std::size_t get_image_channel_type_size(const ImageChannelType& type);
+				static inline std::size_t get_image_channel_type_size(const ImageChannelType type);
 				/// Returns host channel data type size in bytes.
-				static inline std::size_t get_host_channel_type_size(const HostDataType& type);
+				static inline std::size_t get_host_channel_type_size(const HostDataType type);
 				/// Returns number of channels in an ImageChanneOrder.
-				static inline std::size_t get_num_image_pixel_components(const ImageChannelOrder& channel_order);
+				static inline std::size_t get_num_image_pixel_components(const ImageChannelOrder channel_order);
 				/// Returns number of channels in an HostChannelOrder.
 				static inline std::size_t get_num_host_pixel_components(const HostChannelOrder& channel_order);
 				/// Returns the corresponding OpenCL constant for the specified channel order.
@@ -1457,6 +1585,10 @@ namespace ocl_template_matching
 				static inline ChannelBaseType get_host_channel_base_type(const HostDataType channel_type);
 				/// Returns the channel identifier (R, G, B or A) of the image color channel with index 'index'.
 				static inline ColorChannel get_image_color_channel(const ImageChannelOrder channel_order, std::size_t index);
+				/// Returns if the image channel data type is a normalized integer type
+				static inline bool is_image_channel_format_normalized_integer(const ImageChannelType channel_type);
+				/// Returns the component index of the color channel. If the desired channel cannot be found, 3 is returned.
+				static inline std::size_t get_image_color_channel_index(const ImageChannelOrder channel_order, const ColorChannel channel);
 
 				/**
 				 *	\brief	Creates a new OpenCL image.
@@ -1577,12 +1709,71 @@ namespace ocl_template_matching
 				template<typename DepIterator>
 				inline CLEvent read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, DepIterator dep_begin, DepIterator dep_end, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 
+				/**
+				*	\brief Represents a color value for e.g. filling an image with a constant color.
+				*
+				*	Color values are given as float 4-tupel.
+				*/
+				class FillColor
+				{
+				public:
+					FillColor(float r = 0.f, float g = 0.f, float b = 0.f, float a = 0.f) : values{r, g, b, a} {}
+					~FillColor() noexcept = default;
+					FillColor(const FillColor&) noexcept = default;
+					FillColor(FillColor&&) noexcept = default;
+					FillColor& operator=(const FillColor&) noexcept = default;
+					FillColor& operator=(FillColor&&) noexcept = default;
+
+					float r() const { return values[0]; }
+					float g() const { return values[1]; }
+					float b() const { return values[2]; }
+					float a() const { return values[3]; }
+
+					float get(std::size_t channel_index) const
+					{
+						return values[channel_index];
+					}
+
+				private:
+					std::array<float, 4> values;
+				};
+
+				/**
+				 *	\brief				Fills the specified image region with a constant color.
+				 *	\param color		Constant fill color.
+				 *	\param img_region	Region to fill within the image.
+				 *	\return				Returns a CLEvent object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
+				*/
+				inline CLEvent fill(const FillColor& color, const ImageRegion& img_region);
+
+				/**
+				 *	\brief				Fills the specified image region with a constant color after waiting on a list of CLEvent's.
+				 *	\tparam	DepIterator	Some iterator type fulfilling the LegacyInputIterator named requirement and referring to CLEvent objects.
+				 *	\param color		Constant fill color.
+				 *	\param img_region	Region to fill within the image.
+				 *	\return				Returns a CLEvent object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
+				*/
+				template<typename DepIterator>
+				inline CLEvent fill(const FillColor& color, const ImageRegion& img_region, DepIterator dep_begin, DepIterator dep_end);
+
+				/**
+				*	\brief Used for interfacing with CLProgram (this class can be used as kernel argument)
+				*	\return	Returns size of a cl_mem handle.
+				*/
+				static constexpr std::size_t arg_size() { return sizeof(cl_mem); }
+				/**
+				*	\brief Used for interfacing with CLProgram (this class can be used as kernel argument)
+				*	\return	Returns pointer to the cl_mem handle.
+				*/
+				const void* arg_data() const { return m_image; }
 			private:
 				/// Implementation of image write operations.
 				CLEvent img_write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 				///	Implementation of image read operations.
 				CLEvent img_read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
-				
+				/// Implementation of image fill operation.
+				CLEvent img_fill(const FillColor& color, const ImageRegion& img_region);
+
 				/// Checks whether the host format matches the image format.
 				bool match_format(const HostFormat& format);
 				
@@ -1624,17 +1815,17 @@ namespace ocl_template_matching
 				return img_read(img_region, format, data_ptr, default_value);
 			}
 
-			inline std::size_t CLImage::get_image_channel_type_size(const CLImage::ImageChannelType& type)
+			inline std::size_t CLImage::get_image_channel_type_size(const CLImage::ImageChannelType type)
 			{
 				return std::size_t((static_cast<uint64_t>(type) >> 16) & uint64_t { 0x000000000000FFFF });
 			}
 
-			inline std::size_t CLImage::get_host_channel_type_size(const CLImage::HostDataType& type)
+			inline std::size_t CLImage::get_host_channel_type_size(const CLImage::HostDataType type)
 			{
 				return std::size_t((static_cast<uint16_t>(type) >> 4) & uint16_t { 0x000F });
 			}
 
-			inline std::size_t CLImage::get_num_image_pixel_components(const CLImage::ImageChannelOrder& channel_order)
+			inline std::size_t CLImage::get_num_image_pixel_components(const CLImage::ImageChannelOrder channel_order)
 			{
 				return std::size_t((static_cast<uint64_t>(channel_order) >> 24) & uint64_t { 0x00000000000000FF });
 			}
@@ -1656,7 +1847,7 @@ namespace ocl_template_matching
 
 			inline CLImage::ChannelBaseType CLImage::get_image_channel_base_type(const CLImage::ImageChannelType channel_type)
 			{
-				return static_cast<CLImage::ChannelBaseType>(static_cast<uint64_t>(channel_type) & uint64_t { 0x000000000000FFFF });
+				return static_cast<CLImage::ChannelBaseType>((static_cast<uint64_t>(channel_type) >> 8) & uint64_t { 0x00000000000000FF });
 			}
 
 			inline CLImage::ChannelBaseType CLImage::get_host_channel_base_type(const CLImage::HostDataType channel_type)
@@ -1667,6 +1858,35 @@ namespace ocl_template_matching
 			inline CLImage::ColorChannel CLImage::get_image_color_channel(const CLImage::ImageChannelOrder channel_order, std::size_t index)
 			{
 				return static_cast<CLImage::ColorChannel>((static_cast<uint64_t>(channel_order) >> (20 - index * 4)) & 0x000000000000000F);
+			}
+
+			inline bool CLImage::is_image_channel_format_normalized_integer(const CLImage::ImageChannelType channel_type)
+			{
+				return static_cast<bool>(static_cast<uint64_t>(channel_type) & uint64_t { 0x00000000000000FF });
+			}
+
+			inline std::size_t CLImage::get_image_color_channel_index(const ImageChannelOrder channel_order, const ColorChannel channel)
+			{
+				std::size_t num_channels = get_num_image_pixel_components(channel_order);
+				for(std::size_t i{0ull}; i < num_channels; ++i)
+					if(get_image_color_channel(channel_order, i) == channel)
+						return i;
+				return constants::INVALID_COLOR_CHANNEL_INDEX;
+			}
+
+			inline CLEvent CLImage::fill(const CLImage::FillColor& color, const CLImage::ImageRegion& img_region)
+			{
+				m_event_cache.clear();
+				return img_fill(color, img_region);
+			}
+
+			template<typename DepIterator>
+			inline CLEvent CLImage::fill(const CLImage::FillColor& color, const CLImage::ImageRegion& img_region, DepIterator dep_begin, DepIterator dep_end)
+			{
+				m_event_cache.clear();
+				for(DepIterator it{dep_begin}; it != dep_end; ++it)
+					m_event_cache.push_back(it->m_event);
+				return img_fill(color, img_region);
 			}
 
 			// global operators

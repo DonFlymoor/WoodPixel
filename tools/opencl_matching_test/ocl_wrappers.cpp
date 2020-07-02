@@ -1016,7 +1016,7 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 
 	// unmap image and return event
 	CL_EX(clEnqueueUnmapMemObject(m_cl_state->command_queue(), m_image, img_ptr, 0ull, nullptr, &map_event));
-	return map_event;
+	return CLEvent{map_event};
 }
 
 ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImage::img_read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value)
@@ -1129,7 +1129,114 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 
 	// unmap image and return event
 	CL_EX(clEnqueueUnmapMemObject(m_cl_state->command_queue(), m_image, img_ptr, 0ull, nullptr, &map_event));
-	return map_event;
+	return CLEvent{map_event};
+}
+
+ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImage::img_fill(const FillColor& color, const ImageRegion& img_region)
+{
+	if(m_image_desc.flags.host_access == HostAccess::NoAccess || m_image_desc.flags.host_access == HostAccess::ReadOnly)
+		throw std::runtime_error("[CLImage]: Host is not allowed to fill this image.");
+	if(!(img_region.dimensions.width && img_region.dimensions.height && img_region.dimensions.depth))
+		throw std::runtime_error("[CLImage]: Fill failed, region is empty.");
+	if((img_region.offset.offset_width + img_region.dimensions.width > m_image_desc.dimensions.width) ||
+		(img_region.offset.offset_height + img_region.dimensions.height > m_image_desc.dimensions.height) ||
+		(img_region.offset.offset_depth + img_region.dimensions.depth > m_image_desc.dimensions.depth))
+		throw std::runtime_error("[CLImage]: Fill failed. Input region exceeds image dimensions.");
+
+	// --- prepare color data
+	// largest possible fill color: 4x4 bytes
+	alignas(meta::max_align_of<float, uint32_t, int32_t>::value) uint8_t color_buffer[meta::max_size_of<float, uint32_t, int32_t>::value * 4ull];
+	// Three cases: float, int, normalized int
+	ChannelBaseType base_type{get_image_channel_base_type(m_image_desc.channel_type)};
+	std::size_t	type_size{get_image_channel_type_size(m_image_desc.channel_type)};
+	bool normalized_int{is_image_channel_format_normalized_integer(m_image_desc.channel_type)};
+
+	std::size_t channel_indices[]{
+		std::size_t(static_cast<uint8_t>(get_image_color_channel(m_image_desc.channel_order, 0ull))),
+		std::size_t(static_cast<uint8_t>(get_image_color_channel(m_image_desc.channel_order, 1ull))),
+		std::size_t(static_cast<uint8_t>(get_image_color_channel(m_image_desc.channel_order, 2ull))),
+		std::size_t(static_cast<uint8_t>(get_image_color_channel(m_image_desc.channel_order, 3ull))),
+	};
+	
+	if(base_type == ChannelBaseType::Float || normalized_int) // In case of floating point format or normalized integer format, create array of floats.
+	{
+		static_cast<float*>(static_cast<void*>(&color_buffer[0]))[0] = color.get(channel_indices[0]);
+		static_cast<float*>(static_cast<void*>(&color_buffer[0]))[1] = color.get(channel_indices[1]);
+		static_cast<float*>(static_cast<void*>(&color_buffer[0]))[2] = color.get(channel_indices[2]);
+		static_cast<float*>(static_cast<void*>(&color_buffer[0]))[3] = color.get(channel_indices[3]);
+	}
+	else if(base_type == ChannelBaseType::Int) // Signed integers
+	{
+		switch(type_size)
+		{
+			case 1ull:
+				static_cast<int8_t*>(static_cast<void*>(&color_buffer[0]))[0] = static_cast<int8_t>(color.get(channel_indices[0]));
+				static_cast<int8_t*>(static_cast<void*>(&color_buffer[0]))[1] = static_cast<int8_t>(color.get(channel_indices[1]));
+				static_cast<int8_t*>(static_cast<void*>(&color_buffer[0]))[2] = static_cast<int8_t>(color.get(channel_indices[2]));
+				static_cast<int8_t*>(static_cast<void*>(&color_buffer[0]))[3] = static_cast<int8_t>(color.get(channel_indices[3]));
+				break;
+			case 2ull:
+				static_cast<int16_t*>(static_cast<void*>(&color_buffer[0]))[0] = static_cast<int16_t>(color.get(channel_indices[0]));
+				static_cast<int16_t*>(static_cast<void*>(&color_buffer[0]))[1] = static_cast<int16_t>(color.get(channel_indices[1]));
+				static_cast<int16_t*>(static_cast<void*>(&color_buffer[0]))[2] = static_cast<int16_t>(color.get(channel_indices[2]));
+				static_cast<int16_t*>(static_cast<void*>(&color_buffer[0]))[3] = static_cast<int16_t>(color.get(channel_indices[3]));
+				break;
+			case 4ull:
+				static_cast<int32_t*>(static_cast<void*>(&color_buffer[0]))[0] = static_cast<int32_t>(color.get(channel_indices[0]));
+				static_cast<int32_t*>(static_cast<void*>(&color_buffer[0]))[1] = static_cast<int32_t>(color.get(channel_indices[1]));
+				static_cast<int32_t*>(static_cast<void*>(&color_buffer[0]))[2] = static_cast<int32_t>(color.get(channel_indices[2]));
+				static_cast<int32_t*>(static_cast<void*>(&color_buffer[0]))[3] = static_cast<int32_t>(color.get(channel_indices[3]));
+				break;
+			default:
+				throw std::runtime_error("[CLImage]: Fill failed. Invalid channel type size");
+				break;
+		}
+	}
+	else // Unsigned integers
+	{
+		switch(type_size)
+		{
+			case 1ull:
+				static_cast<uint8_t*>(static_cast<void*>(&color_buffer[0]))[0] = static_cast<uint8_t>(color.get(channel_indices[0]));
+				static_cast<uint8_t*>(static_cast<void*>(&color_buffer[0]))[1] = static_cast<uint8_t>(color.get(channel_indices[1]));
+				static_cast<uint8_t*>(static_cast<void*>(&color_buffer[0]))[2] = static_cast<uint8_t>(color.get(channel_indices[2]));
+				static_cast<uint8_t*>(static_cast<void*>(&color_buffer[0]))[3] = static_cast<uint8_t>(color.get(channel_indices[3]));
+				break;
+			case 2ull:
+				static_cast<uint16_t*>(static_cast<void*>(&color_buffer[0]))[0] = static_cast<uint16_t>(color.get(channel_indices[0]));
+				static_cast<uint16_t*>(static_cast<void*>(&color_buffer[0]))[1] = static_cast<uint16_t>(color.get(channel_indices[1]));
+				static_cast<uint16_t*>(static_cast<void*>(&color_buffer[0]))[2] = static_cast<uint16_t>(color.get(channel_indices[2]));
+				static_cast<uint16_t*>(static_cast<void*>(&color_buffer[0]))[3] = static_cast<uint16_t>(color.get(channel_indices[3]));
+				break;
+			case 4ull:
+				static_cast<uint32_t*>(static_cast<void*>(&color_buffer[0]))[0] = static_cast<uint32_t>(color.get(channel_indices[0]));
+				static_cast<uint32_t*>(static_cast<void*>(&color_buffer[0]))[1] = static_cast<uint32_t>(color.get(channel_indices[1]));
+				static_cast<uint32_t*>(static_cast<void*>(&color_buffer[0]))[2] = static_cast<uint32_t>(color.get(channel_indices[2]));
+				static_cast<uint32_t*>(static_cast<void*>(&color_buffer[0]))[3] = static_cast<uint32_t>(color.get(channel_indices[3]));
+				break;
+			default:
+				throw std::runtime_error("[CLImage]: Fill failed. Invalid channel type size");
+				break;
+		}
+	}
+	
+	// image region
+	std::size_t origin[]{img_region.offset.offset_width, img_region.offset.offset_height, img_region.offset.offset_depth};
+	std::size_t region[]{img_region.dimensions.width, img_region.dimensions.height, img_region.dimensions.depth};
+
+	// API call
+	cl_event fill_event{nullptr};
+	CL_EX(clEnqueueFillImage(
+		m_cl_state->command_queue(),
+		m_image,
+		static_cast<const void*>(&color_buffer[0]),
+		&origin[0],
+		&region[0],
+		static_cast<cl_uint>(m_event_cache.size()),
+		(m_event_cache.size() > 0ull ? m_event_cache.data() : nullptr),
+		&fill_event)
+	);
+	return CLEvent{fill_event};
 }
 
 #pragma endregion

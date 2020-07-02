@@ -327,6 +327,40 @@ namespace ocl_template_matching
 
 			#pragma endregion
 
+			#pragma region common
+			/**
+			 * \brief	Specifies whether the kernel can read, write or both. Used for creation of CLBuffer and CLImage instances.
+			*/
+			enum class DeviceAccess : cl_mem_flags
+			{
+				ReadOnly = CL_MEM_READ_ONLY,		///< Kernel may only read from the created memory object.
+				WriteOnly = CL_MEM_WRITE_ONLY,		///< Kernel may only write to the created memory object.
+				ReadWrite = CL_MEM_READ_WRITE		///< Kernel may read or write from/to the created memory object.
+			};
+
+			/**
+			 * \brief	Specifies whether the host can read, write or both. Used for creation of CLBuffer and CLImage instances.
+			*/
+			enum class HostAccess : cl_mem_flags
+			{
+				NoAccess = CL_MEM_HOST_NO_ACCESS,	///< Host cannot read or write the created memory object.
+				ReadOnly = CL_MEM_HOST_READ_ONLY,	///< Host may only read from the created memory object.
+				WriteOnly = CL_MEM_HOST_WRITE_ONLY,	///< Host may only write to the created memory object.
+				ReadWrite = cl_mem_flags{0ull}		///< Host may read or write from/to the created memory object.
+			};
+
+			/**
+			 * \brief	Specifies advanced options regarding usage of a host pointer to initialize or store buffer or image data.
+			*/
+			enum class HostPointerOption : cl_mem_flags
+			{
+				None = cl_mem_flags{0ull},				///< Host pointer is ignored.
+				AllocHostPtr = CL_MEM_ALLOC_HOST_PTR,	///< Memory for the memory object is allocated in host memory space. Passed host pointer is ignored.
+				CopyHostPtr = CL_MEM_COPY_HOST_PTR,		///< Copies data from the given host pointer into the newly created buffer.
+				UseHostPtr = CL_MEM_USE_HOST_PTR		///< Memory (pointed to by host pointer) for the buffer was already allocated by the host and is used by OpenCL as data storage.
+			};
+			#pragma endregion
+
 			#pragma region program_and_kernels
 			// check if a complex type T has member funcions to access data pointer and size (for setting kernel params!)
 			/**
@@ -870,6 +904,15 @@ namespace ocl_template_matching
 			#pragma endregion
 		
 			#pragma region buffers
+			/**
+			 * \brief	Packages all memory creation options for instantiating a CLBuffer or CLImage object.
+			*/
+			struct MemoryFlags
+			{
+				DeviceAccess device_access;				///< Device access option.
+				HostAccess host_access;					///< Host access option.
+				HostPointerOption host_pointer_option;	///< Host pointer option.
+			};
 
 			/**
 			 * \brief Encapsulates creation and read / write operations on OpenCL buffer objects.
@@ -877,7 +920,16 @@ namespace ocl_template_matching
 			class CLBuffer
 			{
 			public:
-				CLBuffer(std::size_t size, cl_mem_flags flags, const std::shared_ptr<CLState>& clstate, void* hostptr = nullptr);
+
+				/**
+				 *	\brief			Creates a new CLBuffer instance and allocates an OpenCL buffer.
+				 *	\param size		Size of the buffer to be allocated in bytes.
+				 *	\param flags	OpenCL flags for buffer creation.
+				 *	\param clstate 
+				 *	\param hostptr 
+				 *	\return 
+				*/
+				CLBuffer(std::size_t size, const MemoryFlags& flags, const std::shared_ptr<CLState>& clstate, void* hostptr = nullptr);
 
 				~CLBuffer() noexcept;
 				CLBuffer(const CLBuffer&) = delete;
@@ -969,41 +1021,116 @@ namespace ocl_template_matching
 
 				// high level read / write
 				/**
-				*	\brief Writes some collection of 
+				*	\brief Writes some collection of POC data into the buffer, starting at some byte offset.
+				*	\tparam		DataIterator	Some iterator type fulfilling the LegacyInputIterator named requirement and referring to POC data (std::is_standard_layout<T>).
+				*	\param		data_begin		Begin iterator of data.
+				*	\param		data_end		End iterator of data.
+				*	\param		offset			Offset into the OpenCL buffer: offset * sizeof(std::iterator_traits<DataIterator>::value_type) bytes.
+				*	\param		invalidate		When true, invalidates the whole mapped memory region. This increases transfer performance in most cases.
+				*	\return		Returns a CLEvent object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
 				*/
 				template <typename DataIterator>
 				inline CLEvent write(DataIterator data_begin, DataIterator data_end, std::size_t offset = 0ull, bool invalidate = false);
 
+				/**
+				*	\brief Reads some collection of POC data from the buffer, starting at some byte offset.
+				*	\tparam		DataIterator	Some iterator type fulfilling the LegacyOutputIterator named requirement and referring to POC data (std::is_standard_layout<T>).
+				*	\param		data_begin		Begin iterator of data.
+				*	\param		num_elements	Number of elements to read from the OpenCL buffer.
+				*	\param		offset			Offset into the OpenCL buffer: offset * sizeof(std::iterator_traits<DataIterator>::value_type) bytes.
+				*	\return		Returns a CLEvent object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
+				*/
 				template <typename DataIterator>
 				inline CLEvent read(DataIterator data_begin, std::size_t num_elements, std::size_t offset = 0ull);
 
 				// with dependencies
+				/**
+				*	\brief Writes some collection of POC data into the buffer, starting at some byte offset, after waiting on a list of CLEvent's.
+				*	\tparam		DataIterator	Some iterator type fulfilling the LegacyInputIterator named requirement and referring to POC data (std::is_standard_layout<T>).
+				*	\tparam		DepIterator		Some iterator type fulfilling the LegacyInputIterator named requirement and referring to CLEvent objects.
+				*	\param		data_begin		Begin iterator of data.
+				*	\param		data_end		End iterator of data.
+				*	\param		dep_begin		Begin iterator of CLEvent collection.
+				*	\param		dep_end			End iterator of CLEvent collection.
+				*	\param		offset			Offset into the OpenCL buffer: offset * sizeof(std::iterator_traits<DataIterator>::value_type) bytes.
+				*	\param		invalidate		When true, invalidates the whole mapped memory region. This increases transfer performance in most cases.
+				*	\return		Returns a CLEvent object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
+				*/
 				template <typename DataIterator, typename DepIterator>
 				inline CLEvent write(DataIterator data_begin, DataIterator data_end, DepIterator dep_begin, DepIterator dep_end, std::size_t offset = 0ull, bool invalidate = false);
 
+				/**
+				*	\brief Reads some collection of POC data from the buffer, starting at some byte offset, after waiting on a list of CLEvent's.
+				*	\tparam		DataIterator	Some iterator type fulfilling the LegacyOutputIterator named requirement and referring to POC data (std::is_standard_layout<T>).
+				*	\tparam		DepIterator		Some iterator type fulfilling the LegacyInputIterator named requirement and referring to CLEvent objects.
+				*	\param		data_begin		Begin iterator of data.
+				*	\param		num_elements	Number of elements to read from the OpenCL buffer.
+				*	\param		dep_begin		Begin iterator of CLEvent collection.
+				*	\param		dep_end			End iterator of CLEvent collection.
+				*	\param		offset			Offset into the OpenCL buffer: offset * sizeof(std::iterator_traits<DataIterator>::value_type) bytes.
+				*	\return		Returns a CLEvent object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
+				*/
 				template <typename DataIterator, typename DepIterator>
 				inline CLEvent read(DataIterator data_begin, std::size_t num_elements, DepIterator dep_begin, DepIterator dep_end, std::size_t offset = 0ull);
 
-				//! reports allocated size
+				/// Reports size of allocated device memory in bytes.
 				std::size_t size() const noexcept;
 
-				//! interface used by CLProgram kernel execution
+				/** 
+				*	\brief Used for interfacing with CLProgram (this class can be used as kernel argument)
+				*	\return	Returns size of a cl_mem handle.
+				*/
 				static constexpr std::size_t arg_size() { return sizeof(cl_mem); }
+				/**
+				*	\brief Used for interfacing with CLProgram (this class can be used as kernel argument)
+				*	\return	Returns pointer to the cl_mem handle.
+				*/
 				const void* arg_data() const { return m_cl_memory; }
 				
 			private:
+				
+				/**
+				 *	\brief	Writes some raw data into the OpenCL buffer.
+				 *	\param data			Data pointer.
+				 *	\param length		Length of data in bytes.
+				 *	\param offset		Offset into the buffer in bytes.
+				 *	\param invalidate	If true, the mapped region is invalidated before writing.
+				 *	\return	Returns a CLEvent of the unmap operation.
+				*/
 				CLEvent buf_write(const void* data, std::size_t length = 0ull, std::size_t offset = 0ull, bool invalidate = false);
+				
+				/**
+				 *	\brief	Reads some raw data from the OpenCL buffer.
+				 *	\param[out] data			Data pointer.
+				 *	\param length				Length of data to read in bytes.
+				 *	\param offset				Offset into the buffer in bytes.
+				 *	\return						Returns a CLEvent of the unmap operation.
+				*/
 				CLEvent buf_read(void* data, std::size_t length = 0ull, std::size_t offset = 0ull) const;
 
+				/**
+				 *	\brief	Maps the memory region specified by length and offset into the host's address space.
+				 *	\param length		Length of the region to be mapped in bytes.
+				 *	\param offset		Offset into the buffer in bytes.
+				 *	\param write		If true, the region is mapped for write access.
+				 *	\param invalidate	Invalidates the buffer region in case of write access. Ignored if write is false.
+				 *	\return				Returns a pointer to the mapped memory region. Reading from that region is undefined if write is true, writing is undefined otherwise.
+				*/
 				void* map_buffer(std::size_t length, std::size_t offset, bool write, bool invalidate = false);
+
+				/**
+				 *	\brief	Unmaps a buffer region mapped previously.
+				 *	\param bufptr	Pointer to the beginning (!) of the memory region to be unmapped.
+				 *	\return			CLEvent of the unmap operation. Blocking behaviour can be achieved if wait is called immediately, e.g.: unmap_buffer(ptr).wait();
+				*/
 				CLEvent unmap_buffer(void* bufptr);
 
-				cl_mem m_cl_memory;
-				cl_mem_flags m_flags;
-				void* m_hostptr;
-				std::size_t m_size;
-				std::shared_ptr<CLState> m_cl_state;
-				std::vector<cl_event> m_event_cache;
+				cl_mem m_cl_memory;						///< Handle to allocated OpenCL buffer.
+				MemoryFlags m_flags;					///< Memory flags used to create the buffer.
+				void* m_hostptr;						///< Host pointer used to create the buffer.
+				std::size_t m_size;						///< Size in bytes of the allocated buffer memory.
+				std::shared_ptr<CLState> m_cl_state;	///< Shared pointer to a valid CLState instance.
+				std::vector<cl_event> m_event_cache;	///< Used for caching cl_event's in contiguous memory before calling the OpenCL API functions.
 			};
 
 			CLEvent ocl_template_matching::impl::cl::CLBuffer::write_bytes(const void* data, std::size_t length, std::size_t offset, bool invalidate)
@@ -1041,9 +1168,9 @@ namespace ocl_template_matching
 			template<typename DataIterator>
 			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::write(DataIterator data_begin, DataIterator data_end, std::size_t offset, bool invalidate)
 			{
-				using elem_t = typename std::static_cast<typename std::iterator_traits<DataIterator>::value_type;
+				using elem_t = typename std::iterator_traits<DataIterator>::value_type;
 				static_assert(std::is_standard_layout<elem_t>::value, "[CLBuffer]: Types read and written from and to OpenCL buffers must have standard layout.");
-				std::size_t datasize = static_cast<std::size_t>(data_end - data_begin) * sizeof(elem_t);
+				std::size_t datasize = static_cast<std::size_t>(std::distance(data_begin, data_end)) * sizeof(elem_t);
 				std::size_t bufoffset = offset * sizeof(elem_t);
 				if(bufoffset + datasize > m_size)
 					throw std::out_of_range("[CLBuffer]: Buffer write failed. Input offset + length out of range.");
@@ -1058,7 +1185,7 @@ namespace ocl_template_matching
 			template<typename DataIterator>
 			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::read(DataIterator data_begin, std::size_t num_elements, std::size_t offset)
 			{
-				using elem_t = typename std::static_cast<typename std::iterator_traits<DataIterator>::value_type;
+				using elem_t = typename std::iterator_traits<DataIterator>::value_type;
 				static_assert(std::is_standard_layout<elem_t>::value, "[CLBuffer]: Types read and written from and to OpenCL buffers must have standard layout.");
 				std::size_t datasize = num_elements * sizeof(elem_t);
 				std::size_t bufoffset = offset * sizeof(elem_t);
@@ -1066,9 +1193,9 @@ namespace ocl_template_matching
 					throw std::out_of_range("[CLBuffer]: Buffer read failed. Input offset + length out of range.");
 				m_event_cache.clear();
 				elem_t* bufptr = static_cast<elem_t*>(map_buffer(datasize, bufoffset, false, false));
-				std::size_t bufidx = 0;
-				for(DataIterator it{data_begin}; it != data_end; ++it)
-					*it = bufptr[bufidx++];
+				DataIterator it = data_begin;
+				for(std::size_t i{0ull}; i < num_elements; ++i)
+					*(it++) = bufptr[i];
 				return unmap_buffer(static_cast<void*>(bufptr));
 			}
 
@@ -1079,9 +1206,9 @@ namespace ocl_template_matching
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
 					m_event_cache.push_back(it->m_event);
-				using elem_t = typename std::static_cast<typename std::iterator_traits<DataIterator>::value_type;
+				using elem_t = typename std::iterator_traits<DataIterator>::value_type;
 				static_assert(std::is_standard_layout<elem_t>::value, "[CLBuffer]: Types read and written from and to OpenCL buffers must have standard layout.");
-				std::size_t datasize = static_cast<std::size_t>(data_end - data_begin) * sizeof(elem_t);
+				std::size_t datasize = static_cast<std::size_t>(std::distance(data_begin, data_end)) * sizeof(elem_t);
 				std::size_t bufoffset = offset * sizeof(elem_t);
 				if(bufoffset + datasize > m_size)
 					throw std::out_of_range("[CLBuffer]: Buffer write failed. Input offset + length out of range.");
@@ -1099,133 +1226,193 @@ namespace ocl_template_matching
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
 					m_event_cache.push_back(it->m_event);
-				using elem_t = typename std::static_cast<typename std::iterator_traits<DataIterator>::value_type;
+				using elem_t = typename std::iterator_traits<DataIterator>::value_type;
 				static_assert(std::is_standard_layout<elem_t>::value, "[CLBuffer]: Types read and written from and to OpenCL buffers must have standard layout.");
 				std::size_t datasize = num_elements * sizeof(elem_t);
 				std::size_t bufoffset = offset * sizeof(elem_t);
 				if(bufoffset + datasize > m_size)
 					throw std::out_of_range("[CLBuffer]: Buffer read failed. Input offset + length out of range.");
 				elem_t* bufptr = static_cast<elem_t*>(map_buffer(datasize, bufoffset, false, false));
-				std::size_t bufidx = 0;
-				for(DataIterator it{data_begin}; it != data_end; ++it)
-					*it = bufptr[bufidx++];
+				DataIterator it = data_begin;
+				for(std::size_t i{0ull}; i < num_elements; ++i)
+					*(it++) = bufptr[i];
 				return unmap_buffer(static_cast<void*>(bufptr));
 			}
 
 			#pragma endregion
 			
 			#pragma region images
+
 			// TODO: Implement reading and writing with non-matching host vs. image channel order and data type
+			/**
+			*	\brief	Creates and manages OpenCL image objects and provides basic read and write access.
+			*	\todo	Implement reading and writing with non-matching host vs. image channel order and data types.
+			*/
 			class CLImage
 			{
 			public:
+				/**
+				 *	\brief Specifies base type category of channel content. 
+				*/
+				enum class ChannelBaseType : uint8_t
+				{
+					Int = uint8_t{0},
+					UInt = uint8_t{1},
+					Float = uint8_t{2}
+				};
+
+				/**
+				*	\brief Identifies a color channel.
+				*/
+				enum class ColorChannel : uint8_t
+				{
+					R = uint8_t{0},
+					G = uint8_t{1},
+					B = uint8_t{2},
+					A = uint8_t{3}
+				};
+
+				/**
+				 *	\brief	Specifies the type of image object being created. Buffer images are not
+				 *	\note	Buffer images are not supported yet.
+				*/
 				enum class ImageType : cl_mem_object_type
 				{
-					Image1D = CL_MEM_OBJECT_IMAGE1D,
-					Image2D = CL_MEM_OBJECT_IMAGE2D,
-					Image3D = CL_MEM_OBJECT_IMAGE3D,
-					Image1DArray = CL_MEM_OBJECT_IMAGE1D_ARRAY,
-					Image2DArray = CL_MEM_OBJECT_IMAGE2D_ARRAY
+					Image1D = CL_MEM_OBJECT_IMAGE1D,			///< 1D image
+					Image2D = CL_MEM_OBJECT_IMAGE2D,			///< 2D image
+					Image3D = CL_MEM_OBJECT_IMAGE3D,			///< 3D image
+					Image1DArray = CL_MEM_OBJECT_IMAGE1D_ARRAY,	///< 1D image array
+					Image2DArray = CL_MEM_OBJECT_IMAGE2D_ARRAY	///< 2D image array
 				};
 
-				// some bit level hacking to encode number of channels, channel data type size and RGBA-component order.
-				// [ 32 bit CL constant | 8 bit channel count | 4 bit R index | 4 bit G index | 4 bit B index | 4 bit A index | 8 bit unused ]
+				/**
+				*	\brief Specifies the number and order of components of the image.
+				*
+				*	These five formats are the minimal set of required formats for OpenCL 1.2 compliant devices.
+				*
+				*	\note	This enum encodes additional information in the less significant bits:
+				*			[ 32 bits CL constant | 8 bits channel count | 4 bits first channel | 4 bits second channel | 4 bits third channel | 4 bits fourth channel | 8 bits unused ]
+				*			This way we can avoid some bulky switch-cases in the implementation.
+				*/
 				enum class ImageChannelOrder : uint64_t
 				{
-					R		= (uint64_t{CL_R} << 32)		| (uint64_t{1} << 24) | (uint64_t{0} << 20) | (uint64_t{0} << 16) | (uint64_t{0} << 12) | (uint64_t{0} << 8),
-					RG		= (uint64_t{CL_RG} << 32)		| (uint64_t{2} << 24) | (uint64_t{0} << 20) | (uint64_t{1} << 16) | (uint64_t{0} << 12) | (uint64_t{0} << 8),
-					RGBA	= (uint64_t{CL_RGBA} << 32)		| (uint64_t{4} << 24) | (uint64_t{0} << 20) | (uint64_t{1} << 16) | (uint64_t{2} << 12) | (uint64_t{3} << 8),
-					BGRA	= (uint64_t{CL_BGRA} << 32)		| (uint64_t{4} << 24) | (uint64_t{2} << 20) | (uint64_t{1} << 16) | (uint64_t{0} << 12) | (uint64_t{3} << 8),
-					sRGBA	= (uint64_t{CL_sRGBA} << 32)	| (uint64_t{4} << 24) | (uint64_t{0} << 20) | (uint64_t{1} << 16) | (uint64_t{2} << 12) | (uint64_t{3} << 8)
+					R		= (uint64_t{CL_R} << 32)		| (uint64_t{1} << 24) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 20) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 16) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 12) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 8),
+					RG		= (uint64_t{CL_RG} << 32)		| (uint64_t{2} << 24) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 20) | (uint64_t(static_cast<uint8_t>(ColorChannel::G)) << 16) | (uint64_t(static_cast<uint8_t>(ColorChannel::G)) << 12) | (uint64_t(static_cast<uint8_t>(ColorChannel::G)) << 8),
+					RGBA	= (uint64_t{CL_RGBA} << 32)		| (uint64_t{4} << 24) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 20) | (uint64_t(static_cast<uint8_t>(ColorChannel::G)) << 16) | (uint64_t(static_cast<uint8_t>(ColorChannel::B)) << 12) | (uint64_t(static_cast<uint8_t>(ColorChannel::A)) << 8),
+					BGRA	= (uint64_t{CL_BGRA} << 32)		| (uint64_t{4} << 24) | (uint64_t(static_cast<uint8_t>(ColorChannel::B)) << 20) | (uint64_t(static_cast<uint8_t>(ColorChannel::G)) << 16) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 12) | (uint64_t(static_cast<uint8_t>(ColorChannel::A)) << 8),
+					sRGBA	= (uint64_t{CL_sRGBA} << 32)	| (uint64_t{4} << 24) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 20) | (uint64_t(static_cast<uint8_t>(ColorChannel::G)) << 16) | (uint64_t(static_cast<uint8_t>(ColorChannel::B)) << 12) | (uint64_t(static_cast<uint8_t>(ColorChannel::A)) << 8)
 				};
 
-				// [ 32 bit CL constant | 32 bit size of data type in bytes ]
+				/**
+				*	\brief	Specifies the channel data type of the image.
+				*
+				*	These 12 data types are the minimal set of required data types for OpenCL 1.2 compliant devices.
+				*	For allowed combinations with different channel orders please see https://www.khronos.org/registry/OpenCL/specs/2.2/html/OpenCL_API.html#image-format-descriptor.
+				*	\note	This enum additionally encodes the size in bytes of the data type and the type category in the less significant bits:
+				*			[ 32 bit CL constant | 16 bit data type size in bytes | 16 bit base type identifier ]
+				*/
 				enum class ImageChannelType : uint64_t
 				{
-					SNORM_INT8		= (uint64_t{CL_SNORM_INT8} << 32)		| uint64_t{1},
-					SNORM_INT16		= (uint64_t{CL_SNORM_INT16} << 32)		| uint64_t{2},
-					UNORM_INT8		= (uint64_t{CL_UNORM_INT8} << 32)		| uint64_t{1},
-					UNORM_INT16		= (uint64_t{CL_UNORM_INT16} << 32)		| uint64_t{2},
-					INT8			= (uint64_t{CL_SIGNED_INT8} << 32)		| uint64_t{1},
-					INT16			= (uint64_t{CL_SIGNED_INT16} << 32)		| uint64_t{2},
-					INT32			= (uint64_t{CL_SIGNED_INT32} << 32)		| uint64_t{4},
-					UINT8			= (uint64_t{CL_UNSIGNED_INT8} << 32)	| uint64_t{1},
-					UINT16			= (uint64_t{CL_UNSIGNED_INT16} << 32)	| uint64_t{2},
-					UINT32			= (uint64_t{CL_UNSIGNED_INT32} << 32)	| uint64_t{4},
-					HALF			= (uint64_t{CL_HALF_FLOAT} << 32)		| uint64_t{2},
-					FLOAT			= (uint64_t{CL_FLOAT} << 32)			| uint64_t{4}
+					SNORM_INT8		= (uint64_t{CL_SNORM_INT8} << 32)		| (uint64_t{1} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::Int)),
+					SNORM_INT16		= (uint64_t{CL_SNORM_INT16} << 32)		| (uint64_t{2} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::Int)),
+					UNORM_INT8		= (uint64_t{CL_UNORM_INT8} << 32)		| (uint64_t{1} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt)),
+					UNORM_INT16		= (uint64_t{CL_UNORM_INT16} << 32)		| (uint64_t{2} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt)),
+					INT8			= (uint64_t{CL_SIGNED_INT8} << 32)		| (uint64_t{1} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::Int)),
+					INT16			= (uint64_t{CL_SIGNED_INT16} << 32)		| (uint64_t{2} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::Int)),
+					INT32			= (uint64_t{CL_SIGNED_INT32} << 32)		| (uint64_t{4} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::Int)),
+					UINT8			= (uint64_t{CL_UNSIGNED_INT8} << 32)	| (uint64_t{1} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt)),
+					UINT16			= (uint64_t{CL_UNSIGNED_INT16} << 32)	| (uint64_t{2} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt)),
+					UINT32			= (uint64_t{CL_UNSIGNED_INT32} << 32)	| (uint64_t{4} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::UInt)),
+					HALF			= (uint64_t{CL_HALF_FLOAT} << 32)		| (uint64_t{2} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::Float)),
+					FLOAT			= (uint64_t{CL_FLOAT} << 32)			| (uint64_t{4} << 16) | uint64_t(static_cast<uint8_t>(ChannelBaseType::Float))
 				};
 
-				enum class ImageAccess : cl_mem_flags
-				{
-					Read = CL_MEM_READ_ONLY,
-					Write = CL_MEM_WRITE_ONLY ,
-					ReadWrite = CL_MEM_READ_WRITE
-				};
-
+				/**
+				 *	\brief	Specifies dimensions of an image.
+				 *
+				 *	1D images: width = width, height = 1, depth = 1
+				 *	2D images: width = width, height = height, depth = 1
+				 *	3D images: width = width, height = height, depth = depth
+				 *	1D image arrays: width = width, height = #layers, depth = 1
+				 *	2D image arrays: width = width, height = height, depth = #layers
+				*/
 				struct ImageDimensions
 				{
 					ImageDimensions() noexcept: width{0ull}, height{0ull}, depth{0ull} {}
-					ImageDimensions(std::size_t width = 0ull, std::size_t height = 0ull, std::size_t depth = 1ull) noexcept : width{width}, height{height}, depth{depth} {}
+					ImageDimensions(std::size_t width = 0ull, std::size_t height = 1ull, std::size_t depth = 1ull) noexcept : width{width}, height{height}, depth{depth} {}
 					ImageDimensions(const ImageDimensions& other) noexcept = default;
 					ImageDimensions(ImageDimensions&& other) noexcept = default;
 					ImageDimensions& operator=(const ImageDimensions& other) noexcept = default;
 					ImageDimensions& operator=(ImageDimensions&& other) noexcept = default;
 
-					std::size_t width;
-					std::size_t height;
-					std::size_t depth;
+					std::size_t width;	///< Image width
+					std::size_t height;	///< Image height
+					std::size_t depth;	///< Image depth
 				};
 
+				/**
+				 * \brief	Specifies the pitch in bytes of rows and slices of the host image (for reading from or writing to).
+				*/
 				struct HostPitch
 				{
-					std::size_t row_pitch{0ull};
-					std::size_t slice_pitch{0ull};
+					std::size_t row_pitch{0ull};	///< Pitch (length) of one row of the host image, may be larger than its pixel width.
+					std::size_t slice_pitch{0ull};	///< Pitch (length) of one slice (or layer in case of an image array) of the host image, may be larger than height * row_pitch.
 				};
 
+				/**
+				 *	\brief	Specifies all information for the creation of a new image.
+				*/
 				struct ImageDesc
 				{
-					ImageType type;
-					ImageDimensions dimensions;
-					ImageChannelOrder channel_order;
-					ImageChannelType channel_type;
-					ImageAccess access;
+					ImageType type;						///< Type of the image, e.g. 1D, 2D, 3D, 1D array or 2D array.
+					ImageDimensions dimensions;			///< Dimensions of the image.
+					ImageChannelOrder channel_order;	///< Channel order of the image.
+					ImageChannelType channel_type;		///< Channel data type.
+					MemoryFlags flags;					///< Flags for image creation. Specifies kernel and host access permissions as well as the usage of a host pointer.
+					HostPitch pitch;					///< If the host pointer is used for initializing or storing the image, specifies pitch values of the pointed to data.
+					void* host_ptr;						///< Pointer to existing host memory for storing an image or initializing the new image. Ignored if MemoryFlags is not one of MemoryFlags::UseHostPtr or MemoryFlags::CopyHostPtr.
 				};
 
-				// for read write stuff
-				enum class HostChannel : uint8_t
-				{
-					R = 0,
-					G = 1,
-					B = 2,
-					A = 3
-				};
-
-				// [ 8 bit type identifier | 8 bit data type size in bytes ]
+				/**
+				*	\brief Specifies the data type of a host image.
+				*
+				*	\note	This enum additionally encodes the size in bytes of the data type and the type category in the less significant bits:
+				*			[ 8 bit type identifier | 4 bit data type size in bytes | 4 bit base type identifier ]
+				*/
 				enum class HostDataType : uint16_t
 				{
-					INT8	= (uint16_t{0} << 8) | uint16_t{1},
-					INT16	= (uint16_t{1} << 8) | uint16_t{2},
-					INT32	= (uint16_t{2} << 8) | uint16_t{4},
-					UINT8	= (uint16_t{3} << 8) | uint16_t{1},
-					UINT16	= (uint16_t{4} << 8) | uint16_t{2},
-					UINT32	= (uint16_t{5} << 8) | uint16_t{4},
-					HALF	= (uint16_t{6} << 8) | uint16_t{2},
-					FLOAT	= (uint16_t{7} << 8) | uint16_t{4}
+					INT8	= (uint16_t{0} << 8) | (uint16_t{1} << 4) | (uint16_t(static_cast<uint8_t>(ChannelBaseType::Int))),
+					INT16	= (uint16_t{1} << 8) | (uint16_t{2} << 4) | (uint16_t(static_cast<uint8_t>(ChannelBaseType::Int))),
+					INT32	= (uint16_t{2} << 8) | (uint16_t{4} << 4) | (uint16_t(static_cast<uint8_t>(ChannelBaseType::Int))),
+					UINT8	= (uint16_t{3} << 8) | (uint16_t{1} << 4) | (uint16_t(static_cast<uint8_t>(ChannelBaseType::UInt))),
+					UINT16	= (uint16_t{4} << 8) | (uint16_t{2} << 4) | (uint16_t(static_cast<uint8_t>(ChannelBaseType::UInt))),
+					UINT32	= (uint16_t{5} << 8) | (uint16_t{4} << 4) | (uint16_t(static_cast<uint8_t>(ChannelBaseType::UInt))),
+					HALF	= (uint16_t{6} << 8) | (uint16_t{2} << 4) | (uint16_t(static_cast<uint8_t>(ChannelBaseType::Float))),
+					FLOAT	= (uint16_t{7} << 8) | (uint16_t{4} << 4) | (uint16_t(static_cast<uint8_t>(ChannelBaseType::Float)))
 				};
 
+				/**
+				 *	\brief	Specifies the default value read or written if the channel order does not match between host and device.
+				 *	\note	This is currently ignored until the auto conversion feature is implemented.
+				*/
 				enum class ChannelDefaultValue : uint8_t
 				{
 					Zeros,
 					Ones
 				};
 
+				/**
+				 *	\brief	Defines the number and order of color channels of a host image. 
+				*/
 				struct HostChannelOrder
 				{
 					std::size_t num_channels;
-					HostChannel channel_order[4];
+					ColorChannel channels[4];
 				};
 
+				/**
+				 *	\brief	Specifies an offset into the image. Default offsets are 0.
+				*/
 				struct ImageOffset
 				{
 					size_t offset_width{0ull};
@@ -1233,94 +1420,266 @@ namespace ocl_template_matching
 					size_t offset_depth{0ull};
 				};
 
+				/**
+				 *	\brief Specifies an image region for reading or writing. A region consists of an offset and the dimensions of the desired region.
+				*/
 				struct ImageRegion
 				{
-					ImageOffset offset;
-					ImageDimensions dimensions;
-					HostPitch pitch;
+					ImageOffset offset;			///< Offset the region into the image.
+					ImageDimensions dimensions;	///< Dimensions of the region.					
 				};
 
+				/**
+				 *	\brief Specifies the format of a host image. 
+				*/
 				struct HostFormat
 				{
-					ImageRegion im_region;
-					HostChannelOrder channel_order;
-					HostDataType channel_type;
-				};				
+					HostChannelOrder channel_order;	///< Channel count and order of the host image.
+					HostDataType channel_type;		///< Data type of the host image channels.
+					HostPitch pitch;				///< Row and slice pitch of the host image.
+				};
 
+				/// Returns image channel data type size in bytes.
+				static inline std::size_t get_image_channel_type_size(const ImageChannelType& type);
+				/// Returns host channel data type size in bytes.
+				static inline std::size_t get_host_channel_type_size(const HostDataType& type);
+				/// Returns number of channels in an ImageChanneOrder.
+				static inline std::size_t get_num_image_pixel_components(const ImageChannelOrder& channel_order);
+				/// Returns number of channels in an HostChannelOrder.
+				static inline std::size_t get_num_host_pixel_components(const HostChannelOrder& channel_order);
+				/// Returns the corresponding OpenCL constant for the specified channel order.
+				static inline cl_uint get_image_channel_order_specifier(const ImageChannelOrder channel_order);
+				/// Returns the corresponding OpenCL constant for the specified channel data type.
+				static inline cl_uint get_image_channel_type_specifier(const ImageChannelType channel_type);
+				/// Returns the image channel data type's base type (Int, Uint or Float).
+				static inline ChannelBaseType get_image_channel_base_type(const ImageChannelType channel_type);
+				/// Returns the host channel data type's base type (Int, Uint or Float).
+				static inline ChannelBaseType get_host_channel_base_type(const HostDataType channel_type);
+				/// Returns the channel identifier (R, G, B or A) of the image color channel with index 'index'.
+				static inline ColorChannel get_image_color_channel(const ImageChannelOrder channel_order, std::size_t index);
+
+				/**
+				 *	\brief	Creates a new OpenCL image.
+				 *	\param clstate		Shared pointer to some valid CLState instance.
+				 *	\param image_desc	Description of image format, access permissions and so on.
+				*/
 				CLImage(const std::shared_ptr<CLState>& clstate, const ImageDesc& image_desc);
+				/// Frees acquired OpenCL resources.
 				~CLImage() noexcept;
+				/// Copies are not allowed.
 				CLImage(const CLImage&) = delete;
+				/// Moves the entire state to a new instance (and invalidates other).
 				CLImage(CLImage&& other) noexcept;
+				/// Copy assignment is not allowed.
 				CLImage& operator=(const CLImage&) = delete;
+				/// Moves the entire state to another instance (and invalidates other).
 				CLImage& operator=(CLImage&& other) noexcept;
 
+				/**
+				 *	\brief	Reports the width of the image in pixels.
+				 *	\return Width of the image in pixels.
+				*/
 				std::size_t width() const;
+				/**
+				 *	\brief	Reports the height of the image in pixels.
+				 *	\return Height of the image in pixels.
+				*/
 				std::size_t height() const;
+				/**
+				 *	\brief	Reports the depth of the image in pixels.
+				 *	\return Depth of the image in pixels.
+				*/
 				std::size_t depth() const;
+				/**
+				 *	\brief	Reports number of layers of the image in the case the image is of type 1D array or 2D array.
+				 *	\return Number of layers.
+				*/
 				std::size_t layers() const;
 
 				// read / write functions
-				// TODO: Support different host channel orders and data types and do automatic conversion.
-				inline CLEvent write(const HostFormat& format, const void* data_ptr, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
-				inline CLEvent read(const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
-				// with dependencies
+				/**
+				*	\brief	Writes data into the image.
+				*
+				*	Writes image data from data_ptr into the image region defined by img_region. Currently channel base data type (bitness and type (uint, int or float)) and channel order of host and image
+				*	must match, otherwise an exception is thrown.
+				*	
+				*	\param	img_region		Image region (offset and dimensions) of the target image to be written.
+				*	\param	format			Host channel data type, channel order and pitch of the host memory region wher the data is read from.
+				*	\param	data_ptr		Pointer to imagedata that shall be written into the specified image region.
+				*	\param	invalidate		If true, the whole image region is invalidated which can improve write performance.
+				*	\param	default_value	Currently ignored.
+				*
+				*	\return					Returns a CLEvent object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
+				*
+				*	\note default_value is currently ignored until the automatic conversion feature is implemented.
+				*/
+				inline CLEvent write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+
+				/**
+				*	\brief	Reads data from the image.
+				*
+				*	Reads image data from the image region defined by img_region and stores it into the the memory region pointed by data_ptr.
+				*	Currently channel base data type (bitness and type (uint, int or float)) and channel order of host and image
+				*	must match, otherwise an exception is thrown.
+				*
+				*	\param		img_region		Image region (offset and dimensions) of the target image to be read.
+				*	\param		format			Host channel data type, channel order and pitch of the host memory region where the data should be written to.
+				*	\param[out]	data_ptr		Pointer to imagedata that shall be written.
+				*	\param		default_value	Currently ignored.
+				*
+				*	\return					Returns a CLEvent object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
+				*
+				*	\note default_value is currently ignored until the automatic conversion feature is implemented.
+				*/
+				inline CLEvent read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+				
+				/**
+				*	\brief	Writes data into the image after waiting on a list of CLEvent's.
+				*
+				*	Writes image data from data_ptr into the image region defined by img_region. Currently channel base data type (bitness and type (uint, int or float)) and channel order of host and image
+				*	must match, otherwise an exception is thrown.
+				*
+				*	\tparam	DepIterator		Some iterator type fulfilling the LegacyInputIterator named requirement and referring to CLEvent objects.
+				*	\param	img_region		Image region (offset and dimensions) of the target image to be written.
+				*	\param	format			Host channel data type, channel order and pitch of the host memory region wher the data is read from.
+				*	\param	data_ptr		Pointer to imagedata that shall be written into the specified image region.
+				*	\param	dep_begin		Begin iterator of CLEvent collection.
+				*	\param	dep_end			End iterator of CLEvent collection.
+				*	\param	invalidate		If true, the whole image region is invalidated which can improve write performance.
+				*	\param	default_value	Currently ignored.
+				*
+				*	\return					Returns a CLEvent object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
+				*
+				*	\note default_value is currently ignored until the automatic conversion feature is implemented.
+				*/
 				template<typename DepIterator>
-				inline CLEvent write(const HostFormat& format, const void* data_ptr, DepIterator dep_begin, DepIterator dep_end, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+				inline CLEvent write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, DepIterator dep_begin, DepIterator dep_end, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+				
+				/**
+				*	\brief	Reads data from the image after waiting on a list of CLEvent's.
+				*
+				*	Reads image data from the image region defined by img_region and stores it into the the memory region pointed by data_ptr.
+				*	Currently channel base data type (bitness and type (uint, int or float)) and channel order of host and image
+				*	must match, otherwise an exception is thrown.
+				*
+				*	\tparam	DepIterator			Some iterator type fulfilling the LegacyInputIterator named requirement and referring to CLEvent objects.
+				*	\param		img_region		Image region (offset and dimensions) of the target image to be read.
+				*	\param		format			Host channel data type, channel order and pitch of the host memory region where the data should be written to.
+				*	\param[out]	data_ptr		Pointer to imagedata that shall be written.
+				*	\param		dep_begin		Begin iterator of CLEvent collection.
+				*	\param		dep_end			End iterator of CLEvent collection.
+				*	\param		default_value	Currently ignored.
+				*
+				*	\return						Returns a CLEvent object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
+				*
+				*	\note default_value is currently ignored until the automatic conversion feature is implemented.
+				*/
 				template<typename DepIterator>
-				inline CLEvent read(const HostFormat& format, void* data_ptr, DepIterator dep_begin, DepIterator dep_end, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+				inline CLEvent read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, DepIterator dep_begin, DepIterator dep_end, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 
 			private:
-				CLEvent img_write(const HostFormat& format, const void* data_ptr, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
-				CLEvent img_read(const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+				/// Implementation of image write operations.
+				CLEvent img_write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+				///	Implementation of image read operations.
+				CLEvent img_read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+				
+				/// Checks whether the host format matches the image format.
 				bool match_format(const HostFormat& format);
-
-				cl_mem m_image;			
-				ImageDesc m_image_desc;
-				std::vector<cl_event> m_event_cache;
-				std::shared_ptr<CLState> m_cl_state;
+				
+				cl_mem m_image;							///< Stores the OpenCL image object handle.
+				ImageDesc m_image_desc;					///< Image description as passed to the constructor.
+				std::vector<cl_event> m_event_cache;	///< Used to cache cl_event's in contiguous memory before calling the API functions.
+				std::shared_ptr<CLState> m_cl_state;	///< Shared pointer to a valid instance of CLState.
 			};
 
-			inline CLEvent ocl_template_matching::impl::cl::CLImage::write(const HostFormat& format, const void* data_ptr, bool invalidate, ChannelDefaultValue default_value)
+			inline CLEvent ocl_template_matching::impl::cl::CLImage::write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool invalidate, ChannelDefaultValue default_value)
 			{
 				m_event_cache.clear();
-				return img_write(format, data_ptr, invalidate, default_value);
+				return img_write(img_region, format, data_ptr, invalidate, default_value);
 			}
 
-			inline CLEvent ocl_template_matching::impl::cl::CLImage::read(const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value)
+			inline CLEvent ocl_template_matching::impl::cl::CLImage::read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value)
 			{
 				m_event_cache.clear();
-				return img_read(format, data_ptr, default_value);
+				return img_read(img_region, format, data_ptr, default_value);
 			}
 
 			template<typename DepIterator>
-			inline CLEvent ocl_template_matching::impl::cl::CLImage::write(const HostFormat& format, const void* data_ptr, DepIterator dep_begin, DepIterator dep_end, bool invalidate, ChannelDefaultValue default_value)
+			inline CLEvent ocl_template_matching::impl::cl::CLImage::write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, DepIterator dep_begin, DepIterator dep_end, bool invalidate, ChannelDefaultValue default_value)
 			{
 				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLImage]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
 					m_event_cache.push_back(it->m_event);
-				return img_write(format, data_ptr, default_value);
+				return img_write(img_region, format, data_ptr, default_value);
 			}
 
 			template<typename DepIterator>
-			inline CLEvent ocl_template_matching::impl::cl::CLImage::read(const HostFormat& format, void* data_ptr, DepIterator dep_begin, DepIterator dep_end, ChannelDefaultValue default_value)
+			inline CLEvent ocl_template_matching::impl::cl::CLImage::read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, DepIterator dep_begin, DepIterator dep_end, ChannelDefaultValue default_value)
 			{
 				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLImage]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
 					m_event_cache.push_back(it->m_event);
-				return img_read(format, data_ptr, default_value);
+				return img_read(img_region, format, data_ptr, default_value);
+			}
+
+			inline std::size_t CLImage::get_image_channel_type_size(const CLImage::ImageChannelType& type)
+			{
+				return std::size_t((static_cast<uint64_t>(type) >> 16) & uint64_t { 0x000000000000FFFF });
+			}
+
+			inline std::size_t CLImage::get_host_channel_type_size(const CLImage::HostDataType& type)
+			{
+				return std::size_t((static_cast<uint16_t>(type) >> 4) & uint16_t { 0x000F });
+			}
+
+			inline std::size_t CLImage::get_num_image_pixel_components(const CLImage::ImageChannelOrder& channel_order)
+			{
+				return std::size_t((static_cast<uint64_t>(channel_order) >> 24) & uint64_t { 0x00000000000000FF });
+			}
+
+			inline std::size_t CLImage::get_num_host_pixel_components(const CLImage::HostChannelOrder& channel_order)
+			{
+				return channel_order.num_channels;
+			}
+
+			inline cl_uint CLImage::get_image_channel_order_specifier(const CLImage::ImageChannelOrder channel_order)
+			{
+				return static_cast<cl_uint>((static_cast<uint64_t>(channel_order) >> 32) & uint64_t { 0x00000000FFFFFFFF });
+			}
+
+			inline cl_uint CLImage::get_image_channel_type_specifier(const CLImage::ImageChannelType channel_type)
+			{
+				return static_cast<cl_uint>((static_cast<uint64_t>(channel_type) >> 32) & uint64_t { 0x00000000FFFFFFFF });
+			}
+
+			inline CLImage::ChannelBaseType CLImage::get_image_channel_base_type(const CLImage::ImageChannelType channel_type)
+			{
+				return static_cast<CLImage::ChannelBaseType>(static_cast<uint64_t>(channel_type) & uint64_t { 0x000000000000FFFF });
+			}
+
+			inline CLImage::ChannelBaseType CLImage::get_host_channel_base_type(const CLImage::HostDataType channel_type)
+			{
+				return static_cast<CLImage::ChannelBaseType>(static_cast<uint16_t>(channel_type) & uint16_t { 0x000F });
+			}
+
+			inline CLImage::ColorChannel CLImage::get_image_color_channel(const CLImage::ImageChannelOrder channel_order, std::size_t index)
+			{
+				return static_cast<CLImage::ColorChannel>((static_cast<uint64_t>(channel_order) >> (20 - index * 4)) & 0x000000000000000F);
 			}
 
 			// global operators
+			/// Returns true if two host channel orders match.
 			inline bool operator==(const CLImage::HostChannelOrder& rhs, const CLImage::HostChannelOrder& lhs)
 			{
 				return ((lhs.num_channels == rhs.num_channels) &&
-					(!(lhs.num_channels >= 1) || (lhs.channel_order[0] == rhs.channel_order[0])) &&
-					(!(lhs.num_channels >= 2) || (lhs.channel_order[1] == rhs.channel_order[1])) &&
-					(!(lhs.num_channels >= 3) || (lhs.channel_order[2] == rhs.channel_order[2])) &&
-					(!(lhs.num_channels >= 4) || (lhs.channel_order[3] == rhs.channel_order[3])));
+					(!(lhs.num_channels >= 1) || (lhs.channels[0] == rhs.channels[0])) &&
+					(!(lhs.num_channels >= 2) || (lhs.channels[1] == rhs.channels[1])) &&
+					(!(lhs.num_channels >= 3) || (lhs.channels[2] == rhs.channels[2])) &&
+					(!(lhs.num_channels >= 4) || (lhs.channels[3] == rhs.channels[3])));
 			}
+			/// Returns true if two host channel orders don't match.
 			inline bool operator!=(const CLImage::HostChannelOrder& rhs, const CLImage::HostChannelOrder& lhs) { return !(rhs == lhs); }
 		#pragma endregion
 		}

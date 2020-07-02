@@ -701,21 +701,22 @@ void ocl_template_matching::impl::cl::CLEvent::wait() const
 #pragma region class CLBuffer
 // class CLBuffer
 
-ocl_template_matching::impl::cl::CLBuffer::CLBuffer(std::size_t size, cl_mem_flags flags, const std::shared_ptr<CLState>& clstate, void* hostptr) :
+ocl_template_matching::impl::cl::CLBuffer::CLBuffer(std::size_t size, const MemoryFlags& flags, const std::shared_ptr<CLState>& clstate, void* hostptr) :
 	m_cl_memory{nullptr},
 	m_size{0ull},
 	m_cl_state{clstate},
-	m_flags{0},
+	m_flags{flags},
 	m_hostptr{nullptr},
 	m_event_cache{}
 {	
 	cl_int err{CL_SUCCESS};
-	m_cl_memory = clCreateBuffer(m_cl_state->context(), flags, size, hostptr, &err);
+	cl_mem_flags clflags{static_cast<cl_mem_flags>(flags.device_access) | static_cast<cl_mem_flags>(flags.host_access) | static_cast<cl_mem_flags>(flags.host_pointer_option)};
+	m_cl_memory = clCreateBuffer(m_cl_state->context(), clflags, size, (flags.host_pointer_option == HostPointerOption::UseHostPtr || flags.host_pointer_option == HostPointerOption::CopyHostPtr) ? hostptr : nullptr, &err);
 	if(err != CL_SUCCESS)
 		throw CLException(err, __LINE__, __FILE__, "[CLBuffer]: OpenCL buffer creation failed.");
 	m_size = size;
 	m_flags = flags;
-	m_hostptr = hostptr;
+	m_hostptr = (flags.host_pointer_option == HostPointerOption::UseHostPtr || flags.host_pointer_option == HostPointerOption::CopyHostPtr) ? hostptr : nullptr;
 }
 
 ocl_template_matching::impl::cl::CLBuffer::~CLBuffer() noexcept
@@ -728,7 +729,7 @@ ocl_template_matching::impl::cl::CLBuffer::CLBuffer(CLBuffer&& other) noexcept :
 	m_cl_memory{nullptr},
 	m_size{0ull},
 	m_cl_state{nullptr},
-	m_flags{0},
+	m_flags{},
 	m_hostptr{nullptr},
 	m_event_cache{}
 {
@@ -758,7 +759,7 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLBuff
 {
 	if(offset + length > m_size)
 		throw std::out_of_range("[CLBuffer]: Buffer write failed. Input offset + length out of range.");
-	if(m_flags | CL_MEM_HOST_READ_ONLY | CL_MEM_HOST_NO_ACCESS)
+	if(static_cast<cl_mem_flags>(m_flags.host_access) | CL_MEM_HOST_READ_ONLY | CL_MEM_HOST_NO_ACCESS)
 		throw std::runtime_error("[CLBuffer]: Writing to a read only buffer is not allowed.");
 	std::size_t _offset = (length > 0ull ? offset : 0ull);
 	std::size_t _length = (length > 0ull ? length : m_size);
@@ -776,7 +777,7 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLBuff
 {
 	if(offset + length > m_size)
 		throw std::out_of_range("[CLBuffer]: Buffer read failed. Input offset + length out of range.");
-	if(m_flags | CL_MEM_HOST_WRITE_ONLY | CL_MEM_HOST_NO_ACCESS)
+	if(static_cast<cl_mem_flags>(m_flags.host_access) | CL_MEM_HOST_WRITE_ONLY | CL_MEM_HOST_NO_ACCESS)
 		throw std::runtime_error("[CLBuffer]: Reading from a write only buffer is not allowed.");
 	std::size_t _offset = (length > 0ull ? offset : 0ull);
 	std::size_t _length = (length > 0ull ? length : m_size);
@@ -821,10 +822,10 @@ static constexpr ocl_template_matching::impl::cl::CLImage::HostChannelOrder HOST
 {
 	1ull,
 	{
-		ocl_template_matching::impl::cl::CLImage::HostChannel::R,
-		ocl_template_matching::impl::cl::CLImage::HostChannel::R,
-		ocl_template_matching::impl::cl::CLImage::HostChannel::R,
-		ocl_template_matching::impl::cl::CLImage::HostChannel::R
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::R,
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::R,
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::R,
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::R
 	}
 };
 
@@ -832,10 +833,10 @@ static constexpr ocl_template_matching::impl::cl::CLImage::HostChannelOrder HOST
 {
 	1ull,
 	{
-		ocl_template_matching::impl::cl::CLImage::HostChannel::R,
-		ocl_template_matching::impl::cl::CLImage::HostChannel::G,
-		ocl_template_matching::impl::cl::CLImage::HostChannel::R,
-		ocl_template_matching::impl::cl::CLImage::HostChannel::R
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::R,
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::G,
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::R,
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::R
 	}
 };
 
@@ -844,10 +845,10 @@ static constexpr ocl_template_matching::impl::cl::CLImage::HostChannelOrder HOST
 {
 	1ull,
 	{
-		ocl_template_matching::impl::cl::CLImage::HostChannel::R,
-		ocl_template_matching::impl::cl::CLImage::HostChannel::G,
-		ocl_template_matching::impl::cl::CLImage::HostChannel::B,
-		ocl_template_matching::impl::cl::CLImage::HostChannel::A
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::R,
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::G,
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::B,
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::A
 	}
 };
 
@@ -856,43 +857,15 @@ static constexpr ocl_template_matching::impl::cl::CLImage::HostChannelOrder HOST
 {
 	1ull,
 	{
-		ocl_template_matching::impl::cl::CLImage::HostChannel::B,
-		ocl_template_matching::impl::cl::CLImage::HostChannel::G,
-		ocl_template_matching::impl::cl::CLImage::HostChannel::R,
-		ocl_template_matching::impl::cl::CLImage::HostChannel::A
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::B,
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::G,
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::R,
+		ocl_template_matching::impl::cl::CLImage::ColorChannel::A
 	}
 };
 
 // retrieve data type size of channel types
-static std::size_t get_image_channel_type_size(const ocl_template_matching::impl::cl::CLImage::ImageChannelType& type)
-{
-	return std::size_t(static_cast<uint64_t>(type) & uint64_t { 0x00000000FFFFFFFF });
-}
 
-static std::size_t get_host_channel_type_size(const ocl_template_matching::impl::cl::CLImage::HostDataType& type)
-{
-	return std::size_t(static_cast<uint16_t>(type) & uint16_t { 0x00FF });
-}
-
-static std::size_t get_num_image_pixel_components(const ocl_template_matching::impl::cl::CLImage::ImageChannelOrder& channel_order)
-{
-	return std::size_t((static_cast<uint64_t>(channel_order) >> 24) & uint64_t { 0x00000000000000FF });
-}
-
-static std::size_t get_num_host_pixel_components(const ocl_template_matching::impl::cl::CLImage::HostChannelOrder& channel_order)
-{
-	return channel_order.num_channels;
-}
-
-static cl_uint get_image_channel_order_specifier(const ocl_template_matching::impl::cl::CLImage::ImageChannelOrder channel_order)
-{
-	return static_cast<cl_uint>((static_cast<uint64_t>(channel_order) >> 32) & uint64_t { 0x00000000FFFFFFFF });
-}
-
-static cl_uint get_image_channel_type_specifier(const ocl_template_matching::impl::cl::CLImage::ImageChannelType channel_type)
-{
-	return static_cast<cl_uint>((static_cast<uint64_t>(channel_type) >> 32) & uint64_t { 0x00000000FFFFFFFF });
-}
 
 ocl_template_matching::impl::cl::CLImage::CLImage(const std::shared_ptr<CLState>& clstate, const ImageDesc& image_desc) :
 	m_image{nullptr},
@@ -900,22 +873,24 @@ ocl_template_matching::impl::cl::CLImage::CLImage(const std::shared_ptr<CLState>
 	m_event_cache{},
 	m_cl_state{clstate}
 {
+	m_image_desc.host_ptr = (image_desc.flags.host_pointer_option == HostPointerOption::UseHostPtr || image_desc.flags.host_pointer_option == HostPointerOption::CopyHostPtr) ? image_desc.host_ptr : nullptr;
 	cl_image_format fmt{get_image_channel_order_specifier(m_image_desc.channel_order), get_image_channel_type_specifier(m_image_desc.channel_type)};
 	cl_image_desc desc{
 		static_cast<cl_mem_object_type>(m_image_desc.type),
 		m_image_desc.dimensions.width,
 		m_image_desc.dimensions.height,
-		m_image_desc.dimensions.depth,
-		m_image_desc.dimensions.depth,
-		0,
-		0,
+		m_image_desc.type == ImageType::Image3D ? m_image_desc.dimensions.depth : 1ull,
+		(m_image_desc.type == ImageType::Image1DArray || m_image_desc.type == ImageType::Image2DArray) ? m_image_desc.dimensions.depth : 1ull,
+		m_image_desc.host_ptr ? m_image_desc.pitch.row_pitch : 0ull,
+		m_image_desc.host_ptr ? m_image_desc.pitch.slice_pitch : 0ull,
 		0ull,
 		0ull,
 		nullptr
 	};
 
 	cl_int err{CL_SUCCESS};
-	m_image = clCreateImage(m_cl_state->context(), static_cast<cl_mem_flags>(m_image_desc.access), &fmt, &desc, nullptr, &err);
+	cl_mem_flags clflags{static_cast<cl_mem_flags>(m_image_desc.flags.device_access) | static_cast<cl_mem_flags>(m_image_desc.flags.host_access) | static_cast<cl_mem_flags>(m_image_desc.flags.host_pointer_option)};
+	m_image = clCreateImage(m_cl_state->context(), clflags, &fmt, &desc, m_image_desc.host_ptr, &err);
 	if(err != CL_SUCCESS)
 		throw CLException(err, __LINE__, __FILE__, "[CLImage]: clCreateImage failed.");
 }
@@ -967,82 +942,38 @@ std::size_t ocl_template_matching::impl::cl::CLImage::layers() const
 
 bool ocl_template_matching::impl::cl::CLImage::match_format(const HostFormat& format)
 {
-	bool match{false};
-	// check channel format
-	switch(format.channel_type)
-	{
-	
-		case HostDataType::INT8:
-			match = (m_image_desc.channel_type == ImageChannelType::SNORM_INT8 || m_image_desc.channel_type == ImageChannelType::INT8);
-			break;
-		case HostDataType::INT16:
-			match = (m_image_desc.channel_type == ImageChannelType::SNORM_INT16 || m_image_desc.channel_type == ImageChannelType::INT16);
-			break;
-		case HostDataType::INT32:
-			match = (m_image_desc.channel_type == ImageChannelType::INT32);
-			break;
-		case HostDataType::UINT8:
-			match = (m_image_desc.channel_type == ImageChannelType::UNORM_INT8 || m_image_desc.channel_type == ImageChannelType::UINT8);
-			break;
-		case HostDataType::UINT16:
-			match = (m_image_desc.channel_type == ImageChannelType::UNORM_INT16 || m_image_desc.channel_type == ImageChannelType::UINT16);
-			break;
-		case HostDataType::UINT32:
-			match = (m_image_desc.channel_type == ImageChannelType::UINT32);
-			break;
-		case HostDataType::HALF:
-			match = (m_image_desc.channel_type == ImageChannelType::HALF);
-			break;
-		case HostDataType::FLOAT:
-			match = (m_image_desc.channel_type == ImageChannelType::FLOAT);
-			break;
-		default:
-			return false;
-			break;
-	}
-	if(!match) return false;
+	// check channel data type
+	if(!(get_host_channel_base_type(format.channel_type) == get_image_channel_base_type(m_image_desc.channel_type)))
+		return false;
 	// check channel order
-	match = false;
-	switch(m_image_desc.channel_order)
-	{
-		case ImageChannelOrder::R:
-			match = format.channel_order == HOST_CHANNEL_ORDER_R;
-			break;
-		case ImageChannelOrder::RG:
-			match = format.channel_order == HOST_CHANNEL_ORDER_RG;
-			break;
-		case ImageChannelOrder::RGBA:
-			match = format.channel_order == HOST_CHANNEL_ORDER_RGBA;
-			break;
-		case ImageChannelOrder::BGRA:
-			match = format.channel_order == HOST_CHANNEL_ORDER_BGRA;
-			break;
-		case ImageChannelOrder::sRGBA:
-			match = format.channel_order == HOST_CHANNEL_ORDER_RGBA;
-			break;
-		default:
+	if(!(get_num_host_pixel_components(format.channel_order) == get_num_image_pixel_components(m_image_desc.channel_order)))
+		return false;
+	// iterate over host color channels and check if the corresponding image color channel matches
+	for(std::size_t i = 0; i < format.channel_order.num_channels; ++i)
+		if(format.channel_order.channels[i] != get_image_color_channel(m_image_desc.channel_order, i))
 			return false;
-			break;
-	}
-	return match;
+	// success!
+	return true;
 }
 
-ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImage::img_write(const HostFormat& format, const void* data_ptr, bool invalidate, ChannelDefaultValue default_value)
+ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImage::img_write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool invalidate, ChannelDefaultValue default_value)
 {
-	if(!(format.im_region.dimensions.width && format.im_region.dimensions.height && format.im_region.dimensions.depth))
+	if(m_image_desc.flags.host_access == HostAccess::NoAccess || m_image_desc.flags.host_access == HostAccess::ReadOnly)
+		throw std::runtime_error("[CLImage]: Host is not allowed to write this image.");
+	if(!(img_region.dimensions.width && img_region.dimensions.height && img_region.dimensions.depth))
 		throw std::runtime_error("[CLImage]: Write failed, region is empty.");
 	// check if region matches
-	if(	(format.im_region.offset.offset_width + format.im_region.dimensions.width > m_image_desc.dimensions.width)		||
-		(format.im_region.offset.offset_height + format.im_region.dimensions.height > m_image_desc.dimensions.height)	||
-		(format.im_region.offset.offset_depth + format.im_region.dimensions.depth > m_image_desc.dimensions.depth))
+	if(	(img_region.offset.offset_width + img_region.dimensions.width > m_image_desc.dimensions.width)		||
+		(img_region.offset.offset_height + img_region.dimensions.height > m_image_desc.dimensions.height)	||
+		(img_region.offset.offset_depth + img_region.dimensions.depth > m_image_desc.dimensions.depth))
 		throw std::runtime_error("[CLImage]: Write failed. Input region exceeds image dimensions.");
 	// handle wrong pitch values
-	if((m_image_desc.type == ImageType::Image1D || m_image_desc.type == ImageType::Image2D) && format.im_region.pitch.slice_pitch != 0ull)
+	if((m_image_desc.type == ImageType::Image1D || m_image_desc.type == ImageType::Image2D) && format.pitch.slice_pitch != 0ull)
 		throw std::runtime_error("[CLImage]: Slice pitch must be 0 for 1D or 2D images.");
 
 	// for parameterization of clEnqueueMapImage
-	std::size_t origin[]{format.im_region.offset.offset_width, format.im_region.offset.offset_height, format.im_region.offset.offset_depth};
-	std::size_t region[]{format.im_region.dimensions.width, format.im_region.dimensions.height, format.im_region.dimensions.depth};
+	std::size_t origin[]{img_region.offset.offset_width, img_region.offset.offset_height, img_region.offset.offset_depth};
+	std::size_t region[]{img_region.dimensions.width, img_region.dimensions.height, img_region.dimensions.depth};
 
 	// pixel sizes for cl and host
 	std::size_t cl_component_size = get_image_channel_type_size(m_image_desc.channel_type);
@@ -1053,11 +984,11 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 	std::size_t host_pixel_size = host_component_size * host_num_components;
 
 	// pitches for host in bytes
-	std::size_t host_row_pitch = (format.im_region.pitch.row_pitch != 0ull ? format.im_region.pitch.row_pitch : format.im_region.dimensions.width * host_pixel_size);
-	if(host_row_pitch < format.im_region.dimensions.width * host_pixel_size)
+	std::size_t host_row_pitch = (format.pitch.row_pitch != 0ull ? format.pitch.row_pitch : img_region.dimensions.width * host_pixel_size);
+	if(host_row_pitch < img_region.dimensions.width * host_pixel_size)
 		throw std::runtime_error("[CLImage]: Row pitch must be >= region width * bytes per pixel.");
-	std::size_t host_slice_pitch = (format.im_region.pitch.slice_pitch != 0ull ? format.im_region.pitch.slice_pitch : format.im_region.dimensions.height * host_row_pitch);
-	if(host_slice_pitch < format.im_region.dimensions.height * host_row_pitch)
+	std::size_t host_slice_pitch = (format.pitch.slice_pitch != 0ull ? format.pitch.slice_pitch : img_region.dimensions.height * host_row_pitch);
+	if(host_slice_pitch < img_region.dimensions.height * host_row_pitch)
 		throw std::runtime_error("[CLImage]: Row pitch must be >= height * host row pitch.");
 
 	// map image region
@@ -1084,11 +1015,11 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 		throw CLException(err, __LINE__, __FILE__, "[CLImage]: clEnqueueMapImage failed.");
 
 	// if slice_pitch is 0 we have a 1D o 2D image. Re-use slice_pitch in this case:
-	slice_pitch = slice_pitch ? slice_pitch : row_pitch * format.im_region.dimensions.height;
+	slice_pitch = slice_pitch ? slice_pitch : row_pitch * img_region.dimensions.height;
 	// determine size of copied memory regions
 	std::size_t row_size = std::min(row_pitch, host_row_pitch);
 	std::size_t slice_size = std::min(slice_pitch, host_slice_pitch);
-	std::size_t region_size = format.im_region.dimensions.depth * host_slice_pitch;
+	std::size_t region_size = img_region.dimensions.depth * host_slice_pitch;
 
 	// host format must match image format
 	if(match_format(format))
@@ -1103,7 +1034,7 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 			{
 				uint8_t* cur_img_ptr = img_ptr;
 				const uint8_t* cur_data_ptr = static_cast<const uint8_t*>(data_ptr);
-				for(std::size_t slice_idx = 0; slice_idx < format.im_region.dimensions.depth; ++slice_idx) // copy one slice at a time
+				for(std::size_t slice_idx = 0; slice_idx < img_region.dimensions.depth; ++slice_idx) // copy one slice at a time
 				{
 					std::memcpy(cur_img_ptr, cur_data_ptr, slice_size);
 					cur_img_ptr += slice_pitch;
@@ -1114,11 +1045,11 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 			{
 				uint8_t* cur_img_ptr = img_ptr;
 				const uint8_t* cur_data_ptr = static_cast<const uint8_t*>(data_ptr);
-				for(std::size_t slice_idx = 0; slice_idx < format.im_region.dimensions.depth; ++slice_idx)
+				for(std::size_t slice_idx = 0; slice_idx < img_region.dimensions.depth; ++slice_idx)
 				{
 					uint8_t* cur_row_img_ptr = cur_img_ptr;
 					const uint8_t* cur_row_data_ptr = cur_data_ptr;
-					for(std::size_t row_idx = 0; row_idx < format.im_region.dimensions.height; ++row_idx) // copy row by row
+					for(std::size_t row_idx = 0; row_idx < img_region.dimensions.height; ++row_idx) // copy row by row
 					{
 						std::memcpy(cur_row_img_ptr, cur_row_data_ptr, row_size);
 						cur_row_img_ptr += row_pitch;
@@ -1138,22 +1069,24 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 	return map_event;
 }
 
-ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImage::img_read(const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value)
+ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImage::img_read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value)
 {
-	if(!(format.im_region.dimensions.width && format.im_region.dimensions.height && format.im_region.dimensions.depth))
+	if(m_image_desc.flags.host_access == HostAccess::NoAccess || m_image_desc.flags.host_access == HostAccess::WriteOnly)
+		throw std::runtime_error("[CLImage]: Host is not allowed to write this image.");
+	if(!(img_region.dimensions.width && img_region.dimensions.height && img_region.dimensions.depth))
 		throw std::runtime_error("[CLImage]: Read failed, region is empty.");
 	// check if region matches
-	if((format.im_region.offset.offset_width + format.im_region.dimensions.width > m_image_desc.dimensions.width) ||
-		(format.im_region.offset.offset_height + format.im_region.dimensions.height > m_image_desc.dimensions.height) ||
-		(format.im_region.offset.offset_depth + format.im_region.dimensions.depth > m_image_desc.dimensions.depth))
+	if((img_region.offset.offset_width + img_region.dimensions.width > m_image_desc.dimensions.width) ||
+		(img_region.offset.offset_height + img_region.dimensions.height > m_image_desc.dimensions.height) ||
+		(img_region.offset.offset_depth + img_region.dimensions.depth > m_image_desc.dimensions.depth))
 		throw std::runtime_error("[CLImage]: Read failed. Input region exceeds image dimensions.");
 	// handle wrong pitch values
-	if((m_image_desc.type == ImageType::Image1D || m_image_desc.type == ImageType::Image2D) && format.im_region.pitch.slice_pitch != 0ull)
+	if((m_image_desc.type == ImageType::Image1D || m_image_desc.type == ImageType::Image2D) && format.pitch.slice_pitch != 0ull)
 		throw std::runtime_error("[CLImage]: Slice pitch must be 0 for 1D or 2D images.");
 
 	// for parameterization of clEnqueueMapImage
-	std::size_t origin[]{format.im_region.offset.offset_width, format.im_region.offset.offset_height, format.im_region.offset.offset_depth};
-	std::size_t region[]{format.im_region.dimensions.width, format.im_region.dimensions.height, format.im_region.dimensions.depth};
+	std::size_t origin[]{img_region.offset.offset_width, img_region.offset.offset_height, img_region.offset.offset_depth};
+	std::size_t region[]{img_region.dimensions.width, img_region.dimensions.height, img_region.dimensions.depth};
 
 	// pixel sizes for cl and host
 	std::size_t cl_component_size = get_image_channel_type_size(m_image_desc.channel_type);
@@ -1164,11 +1097,11 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 	std::size_t host_pixel_size = host_component_size * host_num_components;
 
 	// pitches for host in bytes
-	std::size_t host_row_pitch = (format.im_region.pitch.row_pitch != 0ull ? format.im_region.pitch.row_pitch : format.im_region.dimensions.width * host_pixel_size);
-	if(host_row_pitch < format.im_region.dimensions.width * host_pixel_size)
+	std::size_t host_row_pitch = (format.pitch.row_pitch != 0ull ? format.pitch.row_pitch : img_region.dimensions.width * host_pixel_size);
+	if(host_row_pitch < img_region.dimensions.width * host_pixel_size)
 		throw std::runtime_error("[CLImage]: Row pitch must be >= region width * bytes per pixel.");
-	std::size_t host_slice_pitch = (format.im_region.pitch.slice_pitch != 0ull ? format.im_region.pitch.slice_pitch : format.im_region.dimensions.height * host_row_pitch);
-	if(host_slice_pitch < format.im_region.dimensions.height * host_row_pitch)
+	std::size_t host_slice_pitch = (format.pitch.slice_pitch != 0ull ? format.pitch.slice_pitch : img_region.dimensions.height * host_row_pitch);
+	if(host_slice_pitch < img_region.dimensions.height * host_row_pitch)
 		throw std::runtime_error("[CLImage]: Row pitch must be >= height * host row pitch.");
 
 	// map image region
@@ -1195,11 +1128,11 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 		throw CLException(err, __LINE__, __FILE__, "[CLImage]: clEnqueueMapImage failed.");
 
 	// if slice_pitch is 0 we have a 1D o 2D image. Re-use slice_pitch in this case:
-	slice_pitch = slice_pitch ? slice_pitch : row_pitch * format.im_region.dimensions.height;
+	slice_pitch = slice_pitch ? slice_pitch : row_pitch * img_region.dimensions.height;
 	// determine size of copied memory regions
 	std::size_t row_size = std::min(row_pitch, host_row_pitch);
 	std::size_t slice_size = std::min(slice_pitch, host_slice_pitch);
-	std::size_t region_size = format.im_region.dimensions.depth * host_slice_pitch;
+	std::size_t region_size = img_region.dimensions.depth * host_slice_pitch;
 
 	// host format must match image format
 	if(match_format(format))
@@ -1214,7 +1147,7 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 			{
 				const uint8_t* cur_img_ptr = img_ptr;
 				uint8_t* cur_data_ptr = static_cast<uint8_t*>(data_ptr);
-				for(std::size_t slice_idx = 0; slice_idx < format.im_region.dimensions.depth; ++slice_idx) // copy one slice at a time
+				for(std::size_t slice_idx = 0; slice_idx < img_region.dimensions.depth; ++slice_idx) // copy one slice at a time
 				{
 					std::memcpy(cur_data_ptr, cur_img_ptr, slice_size);
 					cur_img_ptr += slice_pitch;
@@ -1225,11 +1158,11 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 			{
 				const uint8_t* cur_img_ptr = img_ptr;
 				uint8_t* cur_data_ptr = static_cast<uint8_t*>(data_ptr);
-				for(std::size_t slice_idx = 0; slice_idx < format.im_region.dimensions.depth; ++slice_idx)
+				for(std::size_t slice_idx = 0; slice_idx < img_region.dimensions.depth; ++slice_idx)
 				{
 					const uint8_t* cur_row_img_ptr = cur_img_ptr;
 					uint8_t* cur_row_data_ptr = cur_data_ptr;
-					for(std::size_t row_idx = 0; row_idx < format.im_region.dimensions.height; ++row_idx) // copy row by row
+					for(std::size_t row_idx = 0; row_idx < img_region.dimensions.height; ++row_idx) // copy row by row
 					{
 						std::memcpy(cur_row_data_ptr, cur_row_img_ptr, row_size);
 						cur_row_img_ptr += row_pitch;

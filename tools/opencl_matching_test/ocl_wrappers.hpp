@@ -347,7 +347,7 @@ namespace ocl_template_matching
 				 *	\param device_index		Index of the device in the selected platform to create the context for.
 				 *	\return					A shared pointer to the newly created CLState instance. Use this for instantiating the other wrapper classes.
 				*/
-				friend std::shared_ptr<CLState> createCLInstance(std::size_t platform_index, std::size_t device_index);
+				static std::shared_ptr<CLState> createInstance(std::size_t platform_index, std::size_t device_index);
 
 				/// Destructor.
 				~CLState();
@@ -364,24 +364,43 @@ namespace ocl_template_matching
 				cl_command_queue command_queue() const { return m_command_queue; }
 
 				/**
-				 * @brief	Returns the CLPlatform info struct for the selected platform.
-				 * @return  Returns the CLDevice info struct for the selected device.
+				 *	\brief	Returns the CLPlatform info struct of the selected platform.
+				 *	\return  Returns the CLPlatform info struct of the selected platform.
 				*/
 				const CLPlatform& get_selected_platform() const;
+
+				/**
+				 *	\brief	Returns the CLDevice info struct of the selected device.
+				 *	\return  Returns the CLDevice info struct of the selected device.
+				*/
 				const CLDevice& get_selected_device() const;
 
 				/**
-				 * @brief	Prints detailed information about the selected platform.
+				 *	\brief	Prints detailed information about the selected platform.
 				*/
 				void print_selected_platform_info() const;
+
 				/**
-				 * @brief	Prints detailed infomation about the selected device.
+				 *	\brief	Prints detailed infomation about the selected device.
 				*/
 				void print_selected_device_info() const;
+
 				/**
-				 * @brief	Prints detailed information about all suitable (OpenCL 1.2+) platforms and devices available on the system.
+				 *	\brief	Prints detailed information about all suitable (OpenCL 1.2+) platforms and devices available on the system.
+				 *	\param	available_platforms		Vector of CLPlatform's as received from read_platform_and_device_info().
 				*/
-				void print_suitable_platform_and_device_info() const;		
+				static void print_platform_and_device_info(const std::vector<CLPlatform>& available_platforms);
+
+				/**
+				 *	\brief	Prints detailed information about all suitable (OpenCL 1.2+) platforms and devices available on the system.
+				*/
+				void print_platform_and_device_info();
+
+				/**
+				 *	\brief Searches for available platforms and devices and stores suitable ones (OpenCL 1.2+) in the platforms list member.
+				 *	\return	Returns a vector of CLPlatform's.
+				*/
+				static std::vector<CLPlatform> read_platform_and_device_info();
 
 			private:
 				/**
@@ -437,10 +456,6 @@ namespace ocl_template_matching
 				/// Callback used while creating the context.
 				friend void create_context_callback(const char* errinfo, const void* private_info, std::size_t cb, void* user_data);
 
-				/**
-				 * \brief Searches for available platforms and devices and stores suitable ones (OpenCL 1.2+) in the platforms list member. 
-				*/
-				void read_platform_and_device_info();
 				/**
 				 * \brief Initializes OpenCL context and command queue.
 				 * \param platform_id Selected platform index.

@@ -16,7 +16,7 @@ namespace ocl_template_matching
 		};
 
 		MatcherImpl::MatcherImpl(const MatchingPolicyBase& matching_policy) :
-			m_cl_state{std::move(cl::createCLInstance(matching_policy.platform_id(), matching_policy.device_id()))}
+			m_cl_state{std::move(cl::CLState::createInstance(matching_policy.platform_id(), matching_policy.device_id()))}
 		{
 		}
 	}

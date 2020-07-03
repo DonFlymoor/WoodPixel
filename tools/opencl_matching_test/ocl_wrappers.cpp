@@ -31,13 +31,13 @@ unsigned int ocl_template_matching::impl::util::get_cl_version_num(const std::st
 #pragma region class CLState
 // ---------------------- class CLState
 // factory function
-std::shared_ptr<ocl_template_matching::impl::cl::CLState> ocl_template_matching::impl::cl::createCLInstance(std::size_t platform_index, std::size_t device_index)
+std::shared_ptr<ocl_template_matching::impl::cl::CLState> ocl_template_matching::impl::cl::CLState::createInstance(std::size_t platform_index, std::size_t device_index)
 {
 	return std::shared_ptr<CLState>(new CLState{platform_index, device_index});
 }
 
 ocl_template_matching::impl::cl::CLState::CLState(std::size_t platform_index, std::size_t device_index) :
-	m_available_platforms{},
+	m_available_platforms{std::move(read_platform_and_device_info())},
 	m_selected_platform_index{0},
 	m_selected_device_index{0},
 	m_context{nullptr},
@@ -46,14 +46,12 @@ ocl_template_matching::impl::cl::CLState::CLState(std::size_t platform_index, st
 {
 	try
 	{
-		read_platform_and_device_info();
-		print_suitable_platform_and_device_info();
 		init_cl_instance(platform_index, device_index);
 	}
 	catch(...)
 	{
 		cleanup();
-		std::cerr << "[ERROR][OCL_TEMPLATE_MATCHER]: OpenCL initialization failed." << std::endl;
+		std::cerr << "[OCL_TEMPLATE_MATCHER]: OpenCL initialization failed." << std::endl;
 		throw;
 	}
 }
@@ -105,7 +103,22 @@ void ocl_template_matching::impl::cl::CLState::print_selected_device_info() cons
 	std::cout << m_available_platforms[m_selected_platform_index].devices[m_selected_device_index];
 }
 
-void ocl_template_matching::impl::cl::CLState::print_suitable_platform_and_device_info() const
+void ocl_template_matching::impl::cl::CLState::print_platform_and_device_info(const std::vector<CLState::CLPlatform>& available_platforms)
+{
+	std::cout << "===== SUITABLE OpenCL PLATFORMS AND DEVICES =====" << std::endl;
+	for(std::size_t p = 0ull; p < available_platforms.size(); ++p)
+	{
+		std::cout << "[Platform ID: " << p << "] " << available_platforms[p] << std::endl;
+		std::cout << "Suitable OpenCL 1.2+ devices:" << std::endl;
+		for(std::size_t d = 0ull; d < available_platforms[p].devices.size(); ++d)
+		{
+			std::cout << std::endl;
+			std::cout << "[Platform ID: " << p << "]" << "[Device ID: " << d << "] " << available_platforms[p].devices[d];
+		}
+	}
+}
+
+void ocl_template_matching::impl::cl::CLState::print_platform_and_device_info()
 {
 	std::cout << "===== SUITABLE OpenCL PLATFORMS AND DEVICES =====" << std::endl;
 	for(std::size_t p = 0ull; p < m_available_platforms.size(); ++p)
@@ -120,13 +133,15 @@ void ocl_template_matching::impl::cl::CLState::print_suitable_platform_and_devic
 	}
 }
 
-void ocl_template_matching::impl::cl::CLState::read_platform_and_device_info()
+std::vector<ocl_template_matching::impl::cl::CLState::CLPlatform> ocl_template_matching::impl::cl::CLState::read_platform_and_device_info()
 {
+	// output vector
+	std::vector<CLPlatform> available_platforms;
 	// query number of platforms available
 	cl_uint number_of_platforms{0};
 	CL_EX(clGetPlatformIDs(0, nullptr, &number_of_platforms));
 	if(number_of_platforms == 0u)
-		return;
+		return available_platforms;
 	// query platform ID's
 	std::unique_ptr<cl_platform_id[]> platform_ids(new cl_platform_id[number_of_platforms]);
 	CL_EX(clGetPlatformIDs(number_of_platforms, platform_ids.get(), &number_of_platforms));
@@ -305,21 +320,22 @@ void ocl_template_matching::impl::cl::CLState::read_platform_and_device_info()
 			// if there are suitable devices, add this platform to the list of suitable platforms.
 			if(platform.devices.size() > 0)
 			{
-				m_available_platforms.push_back(std::move(platform));
+				available_platforms.push_back(std::move(platform));
 			}
 		}
 	}
+	return available_platforms;
 }
 
 void ocl_template_matching::impl::cl::CLState::init_cl_instance(std::size_t platform_id, std::size_t device_id)
 {
 	if(m_available_platforms.size() == 0ull)
 		throw std::runtime_error("[OCL_TEMPLATE_MATCHER]: No suitable OpenCL 1.2 platform found.");
-	if(platform_id > m_available_platforms.size())
+	if(platform_id >= m_available_platforms.size())
 		throw std::runtime_error("[OCL_TEMPLATE_MATCHER]: Platform index out of range.");
 	if(m_available_platforms[platform_id].devices.size() == 0ull)
 		throw std::runtime_error("[OCL_TEMPLATE_MATCHER]: No suitable OpenCL 1.2 device found.");
-	if(device_id > m_available_platforms[platform_id].devices.size())
+	if(device_id >= m_available_platforms[platform_id].devices.size())
 		throw std::runtime_error("[OCL_TEMPLATE_MATCHER]: Device index out of range.");
 
 	// select device and platform

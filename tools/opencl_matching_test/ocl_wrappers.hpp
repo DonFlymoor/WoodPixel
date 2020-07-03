@@ -559,8 +559,8 @@ namespace ocl_template_matching
 			*	\brief Checks if a complex type T is usable as parameter for CLProgram. Positive case.
 			*
 			*	Requirements:
-			*	1.	The type has to expose a member std::size_t arg_size(const T&) (may be const) which returns the size in bytes of the param.
-			*	2.	The type has to expose a member const void* arg_data(const T&) (may be const) which returns a pointer to arg_size(const T&) bytes of data to pass to the kernel as argument.
+			*	1.	The type has to expose a member std::size_t arg_size() (may be const) which returns the size in bytes of the param.
+			*	2.	The type has to expose a member const void* arg_data() (may be const) which returns a pointer to arg_size() bytes of data to pass to the kernel as argument.
 			*/
 			template <typename T>
 			struct is_cl_param <T, ocl_template_matching::meta::void_t<

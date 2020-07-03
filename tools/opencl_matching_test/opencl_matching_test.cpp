@@ -7,6 +7,12 @@
 
 using namespace ocl_template_matching::impl;
 
+struct blub
+{
+	int x;
+	float u[80];
+};
+
 int main()
 {
 	try
@@ -14,11 +20,10 @@ int main()
 		auto clplatform{cl::CLState::createInstance(0, 0)};
 		std::cout << "Selected platform: \n" << clplatform->get_selected_platform() << "\n";
 		std::cout << "Selected device: \n" << clplatform->get_selected_device() << "\n";
-
 		std::string kernel_src = R"(
-			kernel void hello_world()
+			kernel void hello_world(float a, float b)
 			{
-				printf("Hello CL!");
+				printf("Hello CL! %f", a + b);
 			}
 		)";
 
@@ -29,8 +34,14 @@ int main()
 			{1, 0, 0},	// Global work size
 			{1, 0, 0}	// Local work size
 		};
-		progra("hello_world", exparams).wait();
+
+		float a{5.0f};
+		float b{8.0f};
+
+		auto kernel{progra.getKernel("hello_world")};
+		auto event{progra(kernel, exparams, a, b)};
 		std::cout << "Weow that worked!";
+		event.wait();
 	}
 	catch(const std::exception& ex)
 	{

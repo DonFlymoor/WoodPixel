@@ -100,7 +100,7 @@ namespace ocl_template_matching
 		*	\tparam ...Rest	List of predicates (tail).
 		*/
 		template <typename First, typename ... Rest>
-		struct conjunction<First, Rest...> : std::conditional<bool(First::value), conjunction<Rest...>, First> {};
+		struct conjunction<First, Rest...> : std::conditional<bool(First::value), conjunction<Rest...>, First>::type {};
 
 		/**
 			 *	\brief		Evaluates the maximum size of a list of types at compile time.
@@ -169,6 +169,13 @@ namespace ocl_template_matching
 				>::type::value
 			}; ///<	Maximum alignment of all types in the type list.
 		};
+
+		/**
+		 *	\brief		Strips reference and cv qualification from a type.
+		 *	\tparam	T	Type.
+		 */
+		template <typename T>
+		using bare_type_t = typename std::remove_cv<typename std::remove_reference<T>::type>::type;
 	}
 
 	/**
@@ -504,6 +511,42 @@ namespace ocl_template_matching
 			};
 			#pragma endregion
 
+			#pragma region local memory and samplers
+
+			/**
+			 *	\brief		Represents some local memory of size sizeof(T) * num_elements. Pass this to a kernel to specify local memory.
+			 *	\tparam T	Element type in local memory. Should have a well defined size.
+			*/
+			template <typename T = uint8_t>
+			class CLLocalMemory
+			{
+			public:
+				/**
+				 *	\brief	Constructs a new CLLocalMemory instance.
+				 *	\param num_elements		Desired number of elements in local memory.
+				*/
+				explicit CLLocalMemory(std::size_t num_elements = 1ull) : m_num_elements(num_elements) {}
+				/// Copy constructor.
+				CLLocalMemory(const CLLocalMemory&) noexcept = default;
+				/// Move constructor.
+				CLLocalMemory(CLLocalMemory&&) noexcept = default;
+				/// Copy assignment operator.
+				CLLocalMemory& operator=(const CLLocalMemory&) noexcept = default;
+				/// Move assignment operator.
+				CLLocalMemory& operator=(CLLocalMemory&&) noexcept = default;
+
+				/// Used by CLProgram to access argument size.
+				std::size_t arg_size() const { return m_num_elements * sizeof(meta::bare_type_t<T>); }
+				/// Used by CLProgram to access data pointer (nullptr for local memory!).
+				static constexpr const void* arg_data() { return nullptr; }
+			private:
+				std::size_t m_num_elements; ///< Desired number of elements in local memory.
+			};
+
+			// TODO: Maybe add sampler objects?
+
+			#pragma endregion
+
 			#pragma region program_and_kernels
 			// check if a complex type T has member funcions to access data pointer and size (for setting kernel params!)
 			/**
@@ -516,8 +559,8 @@ namespace ocl_template_matching
 			*	\brief Checks if a complex type T is usable as parameter for CLProgram. Positive case.
 			*
 			*	Requirements:
-			*	1.	The type has to expose a member std::size_t arg_size() (possibly const) which returns the size in bytes of the param.
-			*	2.	The type has to expose a member const void* arg_data() (possibly const) which returns a pointer to arg_size() bytes of data to pass to the kernel as argument.
+			*	1.	The type has to expose a member std::size_t arg_size(const T&) (may be const) which returns the size in bytes of the param.
+			*	2.	The type has to expose a member const void* arg_data(const T&) (may be const) which returns a pointer to arg_size(const T&) bytes of data to pass to the kernel as argument.
 			*/
 			template <typename T>
 			struct is_cl_param <T, ocl_template_matching::meta::void_t<
@@ -538,59 +581,45 @@ namespace ocl_template_matching
 			*	\tparam T type to check for suitability as a kernel argument.
 			*/
 			template <typename T>
-			struct CLKernelArgTraits <T, typename std::enable_if<is_cl_param<T>::value>::type>
+			struct CLKernelArgTraits <T, typename std::enable_if<is_cl_param<meta::bare_type_t<T>>::value>::type>
 			{
-				static std::size_t arg_size(const T& arg) { return arg.arg_size(); }
-				static const void* arg_data(const T& arg) { static_cast<const void*>(return arg.arg_data()) }
+				static std::size_t arg_size(const meta::bare_type_t<T>& arg) { return arg.arg_size(); }
+				static const void* arg_data(const meta::bare_type_t<T>& arg) { return static_cast<const void*>(arg.arg_data()); }
 			};
 
 			// case: arithmetic type or standard layout type (poc struct, plain array...)
 			/**
-			*	\brief Traits class for convenient processing of kernel arguments. T is arithmetic type or has standard layout (POC object!).
+			*	\brief Traits class for convenient processing of kernel arguments. T is arithmetic type or has standard layout (POC object!) and is not a pointer or nullptr.
 			*	\tparam T type to check for suitability as a kernel argument.
 			*/
 			template <typename T>
-			struct CLKernelArgTraits <T, typename std::enable_if<std::is_arithmetic<T>::value || std::is_standard_layout<T>::value>::type>
+			struct CLKernelArgTraits <T, typename std::enable_if<(std::is_arithmetic<meta::bare_type_t<T>>::value || std::is_standard_layout<meta::bare_type_t<T>>::value) && 
+																	!std::is_pointer<meta::bare_type_t<T>>::value &&
+																	!std::is_same<meta::bare_type_t<T>, std::nullptr_t>::value &&
+																	!is_cl_param<meta::bare_type_t<T>>::value>::type>
 			{
-				static constexpr std::size_t arg_size(const T& arg) { return sizeof(T); }
-				static const void* arg_data(const T& arg) { static_cast<const void*>(return &arg) }
-			};
-
-			// case: pointer
-			/**
-			*	\brief Traits class for convenient processing of kernel arguments. Pointer to some argument type.
-			*	\tparam T type to check for suitability as a kernel argument.
-			*/
-			template <typename T>
-			struct CLKernelArgTraits <T*, void>
-			{
-				static std::size_t arg_size(const T * const & arg) { return CLKernelArgTraits<T>::arg_size(*arg) }
-				static const void* arg_data(const T * const & arg) { return CLKernelArgTraits<T>::arg_data(*arg) }
-			};
-
-			// case: nullptr
-			template <>
-			/**
-			*	\brief Traits class for convenient processing of kernel arguments. Case: nullptr.
-			*/
-			struct CLKernelArgTraits <std::nullptr_t, void>
-			{
-				static constexpr std::size_t arg_size(const std::nullptr_t& ptr) { return std::size_t{0}; }
-				static constexpr const void* arg_data(const std::nullptr_t& ptr) { return nullptr; }
+				static constexpr std::size_t arg_size(const meta::bare_type_t<T>& arg) { return sizeof(meta::bare_type_t<T>); }
+				static const void* arg_data(const meta::bare_type_t<T>& arg) { return static_cast<const void*>(&arg); }
 			};
 
 			// general check for allowed argument types. Used to present meaningful error message wenn invoked with wrong types.
 			/**
 			*	\brief General check for allowed argument types. Used to present meaningful error message wenn invoked with wrong types.
+			*
+			*	Allowed argument types are types which:
+			*	-	fullfill is_cl_param<T> (i.e. expose arg_size and arg_data members!) or
+			*	-	arithmetic types like int's and float's or
+			*	-	standard layout types (e.g. arithmetic types, POC structs, plain arrays...) and
+			*	-	are no pointer types or nullptr_t
 			*/
 			template <typename T>
-			using is_valid_kernel_arg = std::conditional<
-				is_cl_param<T>::value ||
-				std::is_arithmetic<T>::value ||
-				std::is_standard_layout<T>::value ||
-				std::is_same<T, std::nullptr_t>::value ||
-				std::is_pointer<T>::value
-				, std::true_type, std::false_type>;
+			using is_valid_kernel_arg = typename std::conditional<
+				(is_cl_param<meta::bare_type_t<T>>::value ||
+				std::is_arithmetic<meta::bare_type_t<T>>::value ||
+				std::is_standard_layout<meta::bare_type_t<T>>::value) &&
+				!std::is_pointer<meta::bare_type_t<T>>::value &&
+				!std::is_same<meta::bare_type_t<T>, std::nullptr_t>::value
+				, std::true_type, std::false_type>::type;
 
 			/**
 			 * \brief Handle to some OpenCL event. Can be used to synchronize OpenCL operations.
@@ -644,11 +673,12 @@ namespace ocl_template_matching
 				*/
 				class CLKernelHandle
 				{
-					friend class CLProgram;
+				public:
 					CLKernelHandle(const CLKernelHandle& other) noexcept = default;
 					CLKernelHandle& operator=(const CLKernelHandle& other) noexcept = default;
 					~CLKernelHandle() noexcept = default;
 				private:
+					friend class CLProgram;
 					explicit CLKernelHandle(cl_kernel kernel) noexcept : m_kernel{kernel} {}
 					cl_kernel m_kernel;
 				};
@@ -808,7 +838,7 @@ namespace ocl_template_matching
 				template <typename DependencyIterator, typename ... ArgTypes>
 				CLEvent operator()(const std::string& name, DependencyIterator start_dep_iterator, DependencyIterator end_dep_iterator, const ExecParams& exec_params, const ArgTypes&... args)
 				{
-					static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DependencyIterator>::value_type>::type>::type , CLEvent>::value , "[CLProgram]: Dependency iterators must refer to a collection of CLEvent objects.");
+					static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DependencyIterator>::value_type> , CLEvent>::value , "[CLProgram]: Dependency iterators must refer to a collection of CLEvent objects.");
 					static_assert(ocl_template_matching::meta::conjunction<is_valid_kernel_arg<ArgTypes>...>::value, "[CLProgram]: Incompatible kernel argument type.");
 					try
 					{
@@ -852,7 +882,7 @@ namespace ocl_template_matching
 				template <typename DependencyIterator, typename ... ArgTypes>
 				CLEvent operator()(const CLKernelHandle& kernel, DependencyIterator start_dep_iterator, DependencyIterator end_dep_iterator, const ExecParams& exec_params, const ArgTypes&... args)
 				{
-					static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DependencyIterator>::value_type>::type>::type, CLEvent>::value, "[CLProgram]: Dependency iterators must refer to a collection of CLEvent objects.");
+					static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DependencyIterator>::value_type>, CLEvent>::value, "[CLProgram]: Dependency iterators must refer to a collection of CLEvent objects.");
 					static_assert(ocl_template_matching::meta::conjunction<is_valid_kernel_arg<ArgTypes>...>::value, "[CLProgram]: Incompatible kernel argument type.");					
 					// unpack args
 					setKernelArgs < std::size_t{0}, ArgTypes... > (kernel.m_kernel, args...);
@@ -882,7 +912,7 @@ namespace ocl_template_matching
 				template <typename DependencyIterator>
 				CLEvent operator()(const std::string& name, DependencyIterator start_dep_iterator, DependencyIterator end_dep_iterator, const ExecParams& exec_params)
 				{
-					static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DependencyIterator>::value_type>::type>::type, CLEvent>::value, "[CLProgram]: Dependency iterators must refer to a collection of CLEvent objects.");
+					static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DependencyIterator>::value_type>, CLEvent>::value, "[CLProgram]: Dependency iterators must refer to a collection of CLEvent objects.");
 					try
 					{
 						// invoke kernel
@@ -919,7 +949,7 @@ namespace ocl_template_matching
 				template <typename DependencyIterator>
 				CLEvent operator()(const CLKernelHandle& kernel, DependencyIterator start_dep_iterator, DependencyIterator end_dep_iterator, const ExecParams& exec_params)
 				{				
-					static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DependencyIterator>::value_type>::type>::type, CLEvent>::value, "[CLProgram]: Dependency iterators must refer to a collection of CLEvent objects.");
+					static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DependencyIterator>::value_type>, CLEvent>::value, "[CLProgram]: Dependency iterators must refer to a collection of CLEvent objects.");
 					// invoke kernel
 					m_event_cache.clear();
 					for(DependencyIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
@@ -1000,7 +1030,7 @@ namespace ocl_template_matching
 				void setKernelArgs(const std::string& name, const FirstArgType& first_arg)
 				{
 					// set opencl kernel argument
-					setKernelArgsImpl(name, index, CLKernelArgTraits<FirstArgType>::arg_size(), CLKernelArgTraits<FirstArgType>::arg_data());
+					setKernelArgsImpl(name, index, CLKernelArgTraits<FirstArgType>::arg_size(first_arg), CLKernelArgTraits<FirstArgType>::arg_data(first_arg));
 				}
 
 				// template parameter pack unpacking
@@ -1034,7 +1064,7 @@ namespace ocl_template_matching
 				void setKernelArgs(cl_kernel kernel, const FirstArgType& first_arg)
 				{
 					// set opencl kernel argument
-					setKernelArgsImpl(kernel, index, CLKernelArgTraits<FirstArgType>::arg_size(), CLKernelArgTraits<FirstArgType>::arg_data());
+					setKernelArgsImpl(kernel, index, CLKernelArgTraits<FirstArgType>::arg_size(first_arg), CLKernelArgTraits<FirstArgType>::arg_data(first_arg));
 				}
 
 				std::string m_source;	///< OpenCL program source code.
@@ -1291,7 +1321,7 @@ namespace ocl_template_matching
 			template<typename DepIterator>
 			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::write_bytes(const void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length, std::size_t offset, bool invalidate)
 			{
-				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLBuffer]: Dependency iterators must refer to a collection of CLEvent objects.");
+				static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, CLEvent>::value, "[CLImage]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
 					m_event_cache.push_back(it->m_event);
@@ -1301,7 +1331,7 @@ namespace ocl_template_matching
 			template<typename DepIterator>
 			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::read_bytes(void* data, DepIterator dep_begin, DepIterator dep_end, std::size_t length, std::size_t offset)
 			{
-				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLBuffer]: Dependency iterators must refer to a collection of CLEvent objects.");
+				static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, CLEvent>::value, "[CLImage]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
 					m_event_cache.push_back(it->m_event);
@@ -1345,7 +1375,7 @@ namespace ocl_template_matching
 			template<typename DataIterator, typename DepIterator>
 			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::write(DataIterator data_begin, DataIterator data_end, DepIterator dep_begin, DepIterator dep_end, std::size_t offset, bool invalidate)
 			{
-				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLBuffer]: Dependency iterators must refer to a collection of CLEvent objects.");
+				static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, CLEvent>::value, "[CLImage]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
 					m_event_cache.push_back(it->m_event);
@@ -1365,7 +1395,7 @@ namespace ocl_template_matching
 			template<typename DataIterator, typename DepIterator>
 			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::read(DataIterator data_begin, std::size_t num_elements, DepIterator dep_begin, DepIterator dep_end, std::size_t offset)
 			{
-				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLBuffer]: Dependency iterators must refer to a collection of CLEvent objects.");
+				static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, CLEvent>::value, "[CLImage]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
 					m_event_cache.push_back(it->m_event);
@@ -1813,7 +1843,7 @@ namespace ocl_template_matching
 			template<typename DepIterator>
 			inline CLEvent ocl_template_matching::impl::cl::CLImage::write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, DepIterator dep_begin, DepIterator dep_end, bool invalidate, ChannelDefaultValue default_value)
 			{
-				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLImage]: Dependency iterators must refer to a collection of CLEvent objects.");
+				static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, CLEvent>::value, "[CLImage]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
 					m_event_cache.push_back(it->m_event);
@@ -1823,7 +1853,7 @@ namespace ocl_template_matching
 			template<typename DepIterator>
 			inline CLEvent ocl_template_matching::impl::cl::CLImage::read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, DepIterator dep_begin, DepIterator dep_end, ChannelDefaultValue default_value)
 			{
-				static_assert(std::is_same<typename std::remove_cv<typename std::remove_reference<typename std::iterator_traits<DepIterator>::value_type>::type>::type, CLEvent>::value, "[CLImage]: Dependency iterators must refer to a collection of CLEvent objects.");
+				static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, CLEvent>::value, "[CLImage]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
 					m_event_cache.push_back(it->m_event);

@@ -775,7 +775,7 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLBuff
 {
 	if(offset + length > m_size)
 		throw std::out_of_range("[CLBuffer]: Buffer write failed. Input offset + length out of range.");
-	if(static_cast<cl_mem_flags>(m_flags.host_access) | CL_MEM_HOST_READ_ONLY | CL_MEM_HOST_NO_ACCESS)
+	if(m_flags.host_access == HostAccess::ReadOnly || m_flags.host_access == HostAccess::NoAccess)
 		throw std::runtime_error("[CLBuffer]: Writing to a read only buffer is not allowed.");
 	std::size_t _offset = (length > 0ull ? offset : 0ull);
 	std::size_t _length = (length > 0ull ? length : m_size);
@@ -793,7 +793,7 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLBuff
 {
 	if(offset + length > m_size)
 		throw std::out_of_range("[CLBuffer]: Buffer read failed. Input offset + length out of range.");
-	if(static_cast<cl_mem_flags>(m_flags.host_access) | CL_MEM_HOST_WRITE_ONLY | CL_MEM_HOST_NO_ACCESS)
+	if(m_flags.host_access == HostAccess::WriteOnly || m_flags.host_access == HostAccess::NoAccess)
 		throw std::runtime_error("[CLBuffer]: Reading from a write only buffer is not allowed.");
 	std::size_t _offset = (length > 0ull ? offset : 0ull);
 	std::size_t _length = (length > 0ull ? length : m_size);
@@ -1038,7 +1038,7 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImage::img_read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value)
 {
 	if(m_image_desc.flags.host_access == HostAccess::NoAccess || m_image_desc.flags.host_access == HostAccess::WriteOnly)
-		throw std::runtime_error("[CLImage]: Host is not allowed to write this image.");
+		throw std::runtime_error("[CLImage]: Host is not allowed to read this image.");
 	if(!(img_region.dimensions.width && img_region.dimensions.height && img_region.dimensions.depth))
 		throw std::runtime_error("[CLImage]: Read failed, region is empty.");
 	// check if region matches

@@ -543,7 +543,10 @@ namespace ocl_template_matching
 				std::size_t m_num_elements; ///< Desired number of elements in local memory.
 			};
 
-			// TODO: Maybe add sampler objects?
+			/** 
+			\namespace ocl_template_matching::detail::cl
+			\todo Maybe add sampler objects? 
+			*/
 
 			#pragma endregion
 
@@ -1089,6 +1092,7 @@ namespace ocl_template_matching
 
 			/**
 			 * \brief Encapsulates creation and read / write operations on OpenCL buffer objects.
+			 * \todo	Optimize read/write with iterators. Exploit contiguous memory using plain memcpy!.
 			*/
 			class CLBuffer
 			{
@@ -1258,7 +1262,7 @@ namespace ocl_template_matching
 				*	\brief Used for interfacing with CLProgram (this class can be used as kernel argument)
 				*	\return	Returns pointer to the cl_mem handle.
 				*/
-				const void* arg_data() const { return m_cl_memory; }
+				const void* arg_data() const { return &m_cl_memory; }
 				
 			private:
 				
@@ -1298,12 +1302,12 @@ namespace ocl_template_matching
 				*/
 				CLEvent unmap_buffer(void* bufptr);
 
-				cl_mem m_cl_memory;						///< Handle to allocated OpenCL buffer.
-				MemoryFlags m_flags;					///< Memory flags used to create the buffer.
-				void* m_hostptr;						///< Host pointer used to create the buffer.
-				std::size_t m_size;						///< Size in bytes of the allocated buffer memory.
-				std::shared_ptr<CLState> m_cl_state;	///< Shared pointer to a valid CLState instance.
-				std::vector<cl_event> m_event_cache;	///< Used for caching cl_event's in contiguous memory before calling the OpenCL API functions.
+				cl_mem m_cl_memory;	///< Handle to allocated OpenCL buffer.
+				MemoryFlags m_flags;						///< Memory flags used to create the buffer.
+				void* m_hostptr;							///< Host pointer used to create the buffer.
+				std::size_t m_size;							///< Size in bytes of the allocated buffer memory.
+				std::shared_ptr<CLState> m_cl_state;		///< Shared pointer to a valid CLState instance.
+				std::vector<cl_event> m_event_cache;		///< Used for caching cl_event's in contiguous memory before calling the OpenCL API functions.
 			};
 
 			CLEvent ocl_template_matching::impl::cl::CLBuffer::write_bytes(const void* data, std::size_t length, std::size_t offset, bool invalidate)
@@ -1341,6 +1345,8 @@ namespace ocl_template_matching
 			template<typename DataIterator>
 			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::write(DataIterator data_begin, DataIterator data_end, std::size_t offset, bool invalidate)
 			{
+				if(m_flags.host_access == HostAccess::ReadOnly || m_flags.host_access == HostAccess::NoAccess)
+					throw std::runtime_error("[CLBuffer]: Writing to a read only buffer is not allowed.");
 				using elem_t = typename std::iterator_traits<DataIterator>::value_type;
 				static_assert(std::is_standard_layout<elem_t>::value, "[CLBuffer]: Types read and written from and to OpenCL buffers must have standard layout.");
 				std::size_t datasize = static_cast<std::size_t>(std::distance(data_begin, data_end)) * sizeof(elem_t);
@@ -1358,6 +1364,8 @@ namespace ocl_template_matching
 			template<typename DataIterator>
 			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::read(DataIterator data_begin, std::size_t num_elements, std::size_t offset)
 			{
+				if(m_flags.host_access == HostAccess::WriteOnly || m_flags.host_access == HostAccess::NoAccess)
+					throw std::runtime_error("[CLBuffer]: Reading from a write only buffer is not allowed.");
 				using elem_t = typename std::iterator_traits<DataIterator>::value_type;
 				static_assert(std::is_standard_layout<elem_t>::value, "[CLBuffer]: Types read and written from and to OpenCL buffers must have standard layout.");
 				std::size_t datasize = num_elements * sizeof(elem_t);
@@ -1375,6 +1383,8 @@ namespace ocl_template_matching
 			template<typename DataIterator, typename DepIterator>
 			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::write(DataIterator data_begin, DataIterator data_end, DepIterator dep_begin, DepIterator dep_end, std::size_t offset, bool invalidate)
 			{
+				if(m_flags.host_access == HostAccess::ReadOnly || m_flags.host_access == HostAccess::NoAccess)
+					throw std::runtime_error("[CLBuffer]: Writing to a read only buffer is not allowed.");
 				static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, CLEvent>::value, "[CLImage]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
@@ -1395,6 +1405,8 @@ namespace ocl_template_matching
 			template<typename DataIterator, typename DepIterator>
 			inline CLEvent ocl_template_matching::impl::cl::CLBuffer::read(DataIterator data_begin, std::size_t num_elements, DepIterator dep_begin, DepIterator dep_end, std::size_t offset)
 			{
+				if(m_flags.host_access == HostAccess::WriteOnly || m_flags.host_access == HostAccess::NoAccess)
+					throw std::runtime_error("[CLBuffer]: Reading from a write only buffer is not allowed.");
 				static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, CLEvent>::value, "[CLImage]: Dependency iterators must refer to a collection of CLEvent objects.");
 				m_event_cache.clear();
 				for(DepIterator it{dep_begin}; it != dep_end; ++it)
@@ -1810,7 +1822,7 @@ namespace ocl_template_matching
 				*	\brief Used for interfacing with CLProgram (this class can be used as kernel argument)
 				*	\return	Returns pointer to the cl_mem handle.
 				*/
-				const void* arg_data() const { return m_image; }
+				const void* arg_data() const { return &m_image; }
 			private:
 				/// Implementation of image write operations.
 				CLEvent img_write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);

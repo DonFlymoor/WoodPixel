@@ -1,9 +1,9 @@
-﻿#include <ocl_wrappers.hpp>
+﻿#include <simple_cl.hpp>
 
-// -------------------------------------------- NAMESPACE ocl_template_matching::impl::util-----------------------------------
+// -------------------------------------------- NAMESPACE simple_cl::util-----------------------------------
 #pragma region util
 
-std::vector<std::string> ocl_template_matching::impl::util::string_split(const std::string& s, char delimiter)
+std::vector<std::string> simple_cl::util::string_split(const std::string& s, char delimiter)
 {
 	std::vector<std::string> tokens;
 	std::string token;
@@ -15,7 +15,7 @@ std::vector<std::string> ocl_template_matching::impl::util::string_split(const s
 	return tokens;
 }
 
-unsigned int ocl_template_matching::impl::util::get_cl_version_num(const std::string& str)
+unsigned int simple_cl::util::get_cl_version_num(const std::string& str)
 {
 	std::string version_string = util::string_split(str, ' ')[1];
 	unsigned int version_major = static_cast<unsigned int>(std::stoul(util::string_split(version_string, '.')[0]));
@@ -25,18 +25,18 @@ unsigned int ocl_template_matching::impl::util::get_cl_version_num(const std::st
 
 #pragma endregion
 
-// -------------------------------------------- NAMESPACE ocl_template_matching::impl::cl -------------------------------------
+// -------------------------------------------- NAMESPACE simple_cl::cl -------------------------------------
 
 #pragma region cl
-#pragma region class CLState
-// ---------------------- class CLState
+#pragma region class Context
+// ---------------------- class Context
 // factory function
-std::shared_ptr<ocl_template_matching::impl::cl::CLState> ocl_template_matching::impl::cl::CLState::createInstance(std::size_t platform_index, std::size_t device_index)
+std::shared_ptr<simple_cl::cl::Context> simple_cl::cl::Context::createInstance(std::size_t platform_index, std::size_t device_index)
 {
-	return std::shared_ptr<CLState>(new CLState{platform_index, device_index});
+	return std::shared_ptr<Context>(new Context{platform_index, device_index});
 }
 
-ocl_template_matching::impl::cl::CLState::CLState(std::size_t platform_index, std::size_t device_index) :
+simple_cl::cl::Context::Context(std::size_t platform_index, std::size_t device_index) :
 	m_available_platforms{std::move(read_platform_and_device_info())},
 	m_selected_platform_index{0},
 	m_selected_device_index{0},
@@ -56,12 +56,12 @@ ocl_template_matching::impl::cl::CLState::CLState(std::size_t platform_index, st
 	}
 }
 
-ocl_template_matching::impl::cl::CLState::~CLState()
+simple_cl::cl::Context::~Context()
 {
 	cleanup();
 }
 
-ocl_template_matching::impl::cl::CLState::CLState(CLState&& other) noexcept :
+simple_cl::cl::Context::Context(Context&& other) noexcept :
 	m_available_platforms(std::move(other.m_available_platforms)),
 	m_selected_platform_index{other.m_selected_platform_index},
 	m_selected_device_index{other.m_selected_device_index},
@@ -74,7 +74,7 @@ ocl_template_matching::impl::cl::CLState::CLState(CLState&& other) noexcept :
 	other.m_cl_ex_holder.ex_msg = nullptr;
 }
 
-ocl_template_matching::impl::cl::CLState& ocl_template_matching::impl::cl::CLState::operator=(CLState&& other) noexcept
+simple_cl::cl::Context& simple_cl::cl::Context::operator=(Context&& other) noexcept
 {
 	if(this == &other)
 		return *this;
@@ -91,19 +91,19 @@ ocl_template_matching::impl::cl::CLState& ocl_template_matching::impl::cl::CLSta
 	return *this;
 }
 
-void ocl_template_matching::impl::cl::CLState::print_selected_platform_info() const
+void simple_cl::cl::Context::print_selected_platform_info() const
 {
 	std::cout << "===== Selected OpenCL platform =====" << std::endl;
 	std::cout << m_available_platforms[m_selected_platform_index];
 }
 
-void ocl_template_matching::impl::cl::CLState::print_selected_device_info() const
+void simple_cl::cl::Context::print_selected_device_info() const
 {
 	std::cout << "===== Selected OpenCL device =====" << std::endl;
 	std::cout << m_available_platforms[m_selected_platform_index].devices[m_selected_device_index];
 }
 
-void ocl_template_matching::impl::cl::CLState::print_platform_and_device_info(const std::vector<CLState::CLPlatform>& available_platforms)
+void simple_cl::cl::Context::print_platform_and_device_info(const std::vector<Context::CLPlatform>& available_platforms)
 {
 	std::cout << "===== SUITABLE OpenCL PLATFORMS AND DEVICES =====" << std::endl;
 	for(std::size_t p = 0ull; p < available_platforms.size(); ++p)
@@ -118,7 +118,7 @@ void ocl_template_matching::impl::cl::CLState::print_platform_and_device_info(co
 	}
 }
 
-void ocl_template_matching::impl::cl::CLState::print_platform_and_device_info()
+void simple_cl::cl::Context::print_platform_and_device_info()
 {
 	std::cout << "===== SUITABLE OpenCL PLATFORMS AND DEVICES =====" << std::endl;
 	for(std::size_t p = 0ull; p < m_available_platforms.size(); ++p)
@@ -133,7 +133,7 @@ void ocl_template_matching::impl::cl::CLState::print_platform_and_device_info()
 	}
 }
 
-std::vector<ocl_template_matching::impl::cl::CLState::CLPlatform> ocl_template_matching::impl::cl::CLState::read_platform_and_device_info()
+std::vector<simple_cl::cl::Context::CLPlatform> simple_cl::cl::Context::read_platform_and_device_info()
 {
 	// output vector
 	std::vector<CLPlatform> available_platforms;
@@ -327,7 +327,7 @@ std::vector<ocl_template_matching::impl::cl::CLState::CLPlatform> ocl_template_m
 	return available_platforms;
 }
 
-void ocl_template_matching::impl::cl::CLState::init_cl_instance(std::size_t platform_id, std::size_t device_id)
+void simple_cl::cl::Context::init_cl_instance(std::size_t platform_id, std::size_t device_id)
 {
 	if(m_available_platforms.size() == 0ull)
 		throw std::runtime_error("[OCL_TEMPLATE_MATCHER]: No suitable OpenCL 1.2 platform found.");
@@ -379,7 +379,7 @@ void ocl_template_matching::impl::cl::CLState::init_cl_instance(std::size_t plat
 	std::cout << " done!" << std::endl;
 }
 
-void ocl_template_matching::impl::cl::CLState::cleanup()
+void simple_cl::cl::Context::cleanup()
 {
 	if(m_command_queue)
 		CL(clReleaseCommandQueue(m_command_queue));
@@ -390,17 +390,17 @@ void ocl_template_matching::impl::cl::CLState::cleanup()
 	m_cl_ex_holder.ex_msg = nullptr;
 }
 
-const ocl_template_matching::impl::cl::CLState::CLPlatform& ocl_template_matching::impl::cl::CLState::get_selected_platform() const
+const simple_cl::cl::Context::CLPlatform& simple_cl::cl::Context::get_selected_platform() const
 {
 	return m_available_platforms[m_selected_platform_index];
 }
 
-const ocl_template_matching::impl::cl::CLState::CLDevice& ocl_template_matching::impl::cl::CLState::get_selected_device() const
+const simple_cl::cl::Context::CLDevice& simple_cl::cl::Context::get_selected_device() const
 {
 	return m_available_platforms[m_selected_platform_index].devices[m_selected_device_index];
 }
 
-std::ostream& ocl_template_matching::impl::cl::operator<<(std::ostream& os, const ocl_template_matching::impl::cl::CLState::CLPlatform& plat)
+std::ostream& simple_cl::cl::operator<<(std::ostream& os, const simple_cl::cl::Context::CLPlatform& plat)
 {
 	os << "===== OpenCL Platform =====" << std::endl
 		<< "Name:" << std::endl
@@ -417,7 +417,7 @@ std::ostream& ocl_template_matching::impl::cl::operator<<(std::ostream& os, cons
 	return os;
 }
 
-std::ostream& ocl_template_matching::impl::cl::operator<<(std::ostream& os, const ocl_template_matching::impl::cl::CLState::CLDevice& dev)
+std::ostream& simple_cl::cl::operator<<(std::ostream& os, const simple_cl::cl::Context::CLDevice& dev)
 {
 	os << "===== OpenCL Device =====" << std::endl
 		<< "Vendor ID:" << std::endl
@@ -488,17 +488,17 @@ std::ostream& ocl_template_matching::impl::cl::operator<<(std::ostream& os, cons
 
 // opencl callbacks
 
-void ocl_template_matching::impl::cl::create_context_callback(const char* errinfo, const void* private_info, std::size_t cb, void* user_data)
+void simple_cl::cl::create_context_callback(const char* errinfo, const void* private_info, std::size_t cb, void* user_data)
 {
-	static_cast<CLState::CLExHolder*>(user_data)->ex_msg = errinfo;
+	static_cast<Context::CLExHolder*>(user_data)->ex_msg = errinfo;
 }
 
 #pragma endregion
 
-#pragma region class CLProgram
-// -------------------------- class CLProgram
+#pragma region class Program
+// -------------------------- class Program
 
-ocl_template_matching::impl::cl::CLProgram::CLProgram(const std::string& kernel_source, const std::string& compiler_options, const std::shared_ptr<CLState>& clstate) :
+simple_cl::cl::Program::Program(const std::string& kernel_source, const std::string& compiler_options, const std::shared_ptr<Context>& clstate) :
 	m_source(kernel_source),
 	m_kernels(),
 	m_cl_state(clstate),
@@ -560,12 +560,12 @@ ocl_template_matching::impl::cl::CLProgram::CLProgram(const std::string& kernel_
 	}
 }
 
-ocl_template_matching::impl::cl::CLProgram::~CLProgram()
+simple_cl::cl::Program::~Program()
 {
 	cleanup();
 }
 
-ocl_template_matching::impl::cl::CLProgram::CLProgram(CLProgram&& other) noexcept :
+simple_cl::cl::Program::Program(Program&& other) noexcept :
 	m_source{std::move(other.m_source)},
 	m_kernels{std::move(other.m_kernels)},
 	m_cl_state{std::move(other.m_cl_state)},
@@ -578,7 +578,7 @@ ocl_template_matching::impl::cl::CLProgram::CLProgram(CLProgram&& other) noexcep
 	other.m_cl_program = nullptr;	
 }
 
-ocl_template_matching::impl::cl::CLProgram& ocl_template_matching::impl::cl::CLProgram::operator=(CLProgram&& other) noexcept
+simple_cl::cl::Program& simple_cl::cl::Program::operator=(Program&& other) noexcept
 {
 	if(this == &other)
 		return *this;
@@ -596,7 +596,7 @@ ocl_template_matching::impl::cl::CLProgram& ocl_template_matching::impl::cl::CLP
 	return *this;
 }
 
-void ocl_template_matching::impl::cl::CLProgram::cleanup() noexcept
+void simple_cl::cl::Program::cleanup() noexcept
 {
 	for(auto& k : m_kernels)
 	{
@@ -608,7 +608,7 @@ void ocl_template_matching::impl::cl::CLProgram::cleanup() noexcept
 		clReleaseProgram(m_cl_program);
 }
 
-ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLProgram::invoke(cl_kernel kernel, const std::vector<cl_event>& dep_events, const ExecParams& exparams)
+simple_cl::cl::Event simple_cl::cl::Program::invoke(cl_kernel kernel, const std::vector<cl_event>& dep_events, const ExecParams& exparams)
 {
 	cl_event ev{nullptr};
 	CL_EX(clEnqueueNDRangeKernel(
@@ -622,10 +622,10 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLProg
 		dep_events.size() > 0ull ? dep_events.data() : nullptr,
 		&ev
 	));
-	return CLEvent{ev};
+	return Event{ev};
 }
 
-void ocl_template_matching::impl::cl::CLProgram::setKernelArgsImpl(const std::string& name, std::size_t index, std::size_t arg_size, const void* arg_data_ptr)
+void simple_cl::cl::Program::setKernelArgsImpl(const std::string& name, std::size_t index, std::size_t arg_size, const void* arg_data_ptr)
 {
 	try
 	{
@@ -633,7 +633,7 @@ void ocl_template_matching::impl::cl::CLProgram::setKernelArgsImpl(const std::st
 	}
 	catch(const std::out_of_range&) // kernel name wasn't found
 	{
-		throw std::runtime_error("[CLProgram]: Unknown kernel name");
+		throw std::runtime_error("[Program]: Unknown kernel name");
 	}
 	catch(...)
 	{
@@ -641,12 +641,12 @@ void ocl_template_matching::impl::cl::CLProgram::setKernelArgsImpl(const std::st
 	}
 }
 
-void ocl_template_matching::impl::cl::CLProgram::setKernelArgsImpl(cl_kernel kernel, std::size_t index, std::size_t arg_size, const void* arg_data_ptr)
+void simple_cl::cl::Program::setKernelArgsImpl(cl_kernel kernel, std::size_t index, std::size_t arg_size, const void* arg_data_ptr)
 {	
 	CL_EX(clSetKernelArg(kernel, static_cast<cl_uint>(index), arg_size, arg_data_ptr));
 }
 
-ocl_template_matching::impl::cl::CLProgram::CLKernelHandle ocl_template_matching::impl::cl::CLProgram::getKernel(const std::string& name)
+simple_cl::cl::Program::CLKernelHandle simple_cl::cl::Program::getKernel(const std::string& name)
 {
 	try
 	{
@@ -660,33 +660,33 @@ ocl_template_matching::impl::cl::CLProgram::CLKernelHandle ocl_template_matching
 
 #pragma endregion
 
-#pragma region class CLEvent
-// class CLEvent
-ocl_template_matching::impl::cl::CLEvent::CLEvent(cl_event ev) :
+#pragma region class Event
+// class Event
+simple_cl::cl::Event::Event(cl_event ev) :
 	m_event{ev}
 {	
 }
 
-ocl_template_matching::impl::cl::CLEvent::~CLEvent()
+simple_cl::cl::Event::~Event()
 {
 	if(m_event)
 		CL_EX(clReleaseEvent(m_event));
 }
 
-ocl_template_matching::impl::cl::CLEvent::CLEvent(const CLEvent& other) :
+simple_cl::cl::Event::Event(const Event& other) :
 	m_event{other.m_event}
 {
 	if(m_event)
 		CL_EX(clRetainEvent(m_event));
 }
 
-ocl_template_matching::impl::cl::CLEvent::CLEvent(CLEvent&& other) noexcept :
+simple_cl::cl::Event::Event(Event&& other) noexcept :
 	m_event{other.m_event}
 {
 	other.m_event = nullptr;
 }
 
-ocl_template_matching::impl::cl::CLEvent& ocl_template_matching::impl::cl::CLEvent::operator=(const CLEvent& other)
+simple_cl::cl::Event& simple_cl::cl::Event::operator=(const Event& other)
 {
 	if(this == &other)
 		return *this;
@@ -697,7 +697,7 @@ ocl_template_matching::impl::cl::CLEvent& ocl_template_matching::impl::cl::CLEve
 	return *this;
 }
 
-ocl_template_matching::impl::cl::CLEvent& ocl_template_matching::impl::cl::CLEvent::operator=(CLEvent&& other) noexcept
+simple_cl::cl::Event& simple_cl::cl::Event::operator=(Event&& other) noexcept
 {
 	if(this == &other)
 		return *this;
@@ -707,17 +707,17 @@ ocl_template_matching::impl::cl::CLEvent& ocl_template_matching::impl::cl::CLEve
 	return *this;
 }
 
-void ocl_template_matching::impl::cl::CLEvent::wait() const
+void simple_cl::cl::Event::wait() const
 {
 	CL_EX(clWaitForEvents(1, &m_event));
 }
 
 #pragma endregion
 
-#pragma region class CLBuffer
-// class CLBuffer
+#pragma region class Buffer
+// class Buffer
 
-ocl_template_matching::impl::cl::CLBuffer::CLBuffer(std::size_t size, const MemoryFlags& flags, const std::shared_ptr<CLState>& clstate, void* hostptr) :
+simple_cl::cl::Buffer::Buffer(std::size_t size, const MemoryFlags& flags, const std::shared_ptr<Context>& clstate, void* hostptr) :
 	m_cl_memory{nullptr},
 	m_size{0ull},
 	m_cl_state{clstate},
@@ -729,19 +729,19 @@ ocl_template_matching::impl::cl::CLBuffer::CLBuffer(std::size_t size, const Memo
 	cl_mem_flags clflags{static_cast<cl_mem_flags>(flags.device_access) | static_cast<cl_mem_flags>(flags.host_access) | static_cast<cl_mem_flags>(flags.host_pointer_option)};
 	m_cl_memory = clCreateBuffer(m_cl_state->context(), clflags, size, (flags.host_pointer_option == HostPointerOption::UseHostPtr || flags.host_pointer_option == HostPointerOption::CopyHostPtr) ? hostptr : nullptr, &err);
 	if(err != CL_SUCCESS)
-		throw CLException(err, __LINE__, __FILE__, "[CLBuffer]: OpenCL buffer creation failed.");
+		throw CLException(err, __LINE__, __FILE__, "[Buffer]: OpenCL buffer creation failed.");
 	m_size = size;
 	m_flags = flags;
 	m_hostptr = (flags.host_pointer_option == HostPointerOption::UseHostPtr || flags.host_pointer_option == HostPointerOption::CopyHostPtr) ? hostptr : nullptr;
 }
 
-ocl_template_matching::impl::cl::CLBuffer::~CLBuffer() noexcept
+simple_cl::cl::Buffer::~Buffer() noexcept
 {
 	if(m_cl_memory)
 		CL(clReleaseMemObject(m_cl_memory));
 }
 
-ocl_template_matching::impl::cl::CLBuffer::CLBuffer(CLBuffer&& other) noexcept :
+simple_cl::cl::Buffer::Buffer(Buffer&& other) noexcept :
 	m_cl_memory{nullptr},
 	m_size{0ull},
 	m_cl_state{nullptr},
@@ -756,7 +756,7 @@ ocl_template_matching::impl::cl::CLBuffer::CLBuffer(CLBuffer&& other) noexcept :
 	std::swap(m_hostptr, other.m_hostptr);
 }
 
-ocl_template_matching::impl::cl::CLBuffer& ocl_template_matching::impl::cl::CLBuffer::operator=(CLBuffer&& other) noexcept
+simple_cl::cl::Buffer& simple_cl::cl::Buffer::operator=(Buffer&& other) noexcept
 {
 	if(this == &other)
 		return *this;
@@ -771,69 +771,69 @@ ocl_template_matching::impl::cl::CLBuffer& ocl_template_matching::impl::cl::CLBu
 	return *this;
 }
 
-ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLBuffer::buf_write(const void* data, std::size_t length, std::size_t offset, bool invalidate)
+simple_cl::cl::Event simple_cl::cl::Buffer::buf_write(const void* data, std::size_t length, std::size_t offset, bool invalidate)
 {
 	if(offset + length > m_size)
-		throw std::out_of_range("[CLBuffer]: Buffer write failed. Input offset + length out of range.");
+		throw std::out_of_range("[Buffer]: Buffer write failed. Input offset + length out of range.");
 	if(m_flags.host_access == HostAccess::ReadOnly || m_flags.host_access == HostAccess::NoAccess)
-		throw std::runtime_error("[CLBuffer]: Writing to a read only buffer is not allowed.");
+		throw std::runtime_error("[Buffer]: Writing to a read only buffer is not allowed.");
 	std::size_t _offset = (length > 0ull ? offset : 0ull);
 	std::size_t _length = (length > 0ull ? length : m_size);
 	cl_int err{CL_SUCCESS};
 	cl_event unmap_event{nullptr};
 	void* bufptr = clEnqueueMapBuffer(m_cl_state->command_queue(), m_cl_memory, true, (invalidate ? CL_MAP_WRITE_INVALIDATE_REGION : CL_MAP_WRITE), _offset, _length, static_cast<cl_uint>(m_event_cache.size()), (m_event_cache.size() > 0ull? m_event_cache.data() : nullptr), nullptr, &err);
 	if(err != CL_SUCCESS)
-		throw CLException(err, __LINE__, __FILE__, "[CLBuffer]: Write failed.");
+		throw CLException(err, __LINE__, __FILE__, "[Buffer]: Write failed.");
 	std::memcpy(bufptr, data, _length);
 	CL_EX(clEnqueueUnmapMemObject(m_cl_state->command_queue(), m_cl_memory, bufptr, 0u, nullptr, &unmap_event));
-	return CLEvent{unmap_event};
+	return Event{unmap_event};
 }
 
-ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLBuffer::buf_read(void* data, std::size_t length, std::size_t offset) const
+simple_cl::cl::Event simple_cl::cl::Buffer::buf_read(void* data, std::size_t length, std::size_t offset) const
 {
 	if(offset + length > m_size)
-		throw std::out_of_range("[CLBuffer]: Buffer read failed. Input offset + length out of range.");
+		throw std::out_of_range("[Buffer]: Buffer read failed. Input offset + length out of range.");
 	if(m_flags.host_access == HostAccess::WriteOnly || m_flags.host_access == HostAccess::NoAccess)
-		throw std::runtime_error("[CLBuffer]: Reading from a write only buffer is not allowed.");
+		throw std::runtime_error("[Buffer]: Reading from a write only buffer is not allowed.");
 	std::size_t _offset = (length > 0ull ? offset : 0ull);
 	std::size_t _length = (length > 0ull ? length : m_size);
 	cl_int err{CL_SUCCESS};
 	cl_event unmap_event{nullptr};
 	void* bufptr = clEnqueueMapBuffer(m_cl_state->command_queue(), m_cl_memory, true, CL_MAP_READ, _offset, _length, static_cast<cl_uint>(m_event_cache.size()), (m_event_cache.size() > 0ull ? m_event_cache.data() : nullptr), nullptr, &err);
 	if(err != CL_SUCCESS)
-		throw CLException(err, __LINE__, __FILE__, "[CLBuffer]: Read failed.");
+		throw CLException(err, __LINE__, __FILE__, "[Buffer]: Read failed.");
 	std::memcpy(data, bufptr, _length);
 	CL_EX(clEnqueueUnmapMemObject(m_cl_state->command_queue(), m_cl_memory, bufptr, 0u, nullptr, &unmap_event));
-	return CLEvent{unmap_event};
+	return Event{unmap_event};
 }
 
-void* ocl_template_matching::impl::cl::CLBuffer::map_buffer(std::size_t length, std::size_t offset, bool write, bool invalidate)
+void* simple_cl::cl::Buffer::map_buffer(std::size_t length, std::size_t offset, bool write, bool invalidate)
 {
 	cl_int err{CL_SUCCESS};
 	void* bufptr = clEnqueueMapBuffer(m_cl_state->command_queue(), m_cl_memory, true, (write ? (invalidate ? CL_MAP_WRITE_INVALIDATE_REGION : CL_MAP_WRITE) : CL_MAP_READ), offset, length, static_cast<cl_uint>(m_event_cache.size()), (m_event_cache.size() > 0ull ? m_event_cache.data() : nullptr), nullptr, &err);
 	if(err != CL_SUCCESS)
-		throw CLException(err, __LINE__, __FILE__, "[CLBuffer]: Mapping buffer failed.");
+		throw CLException(err, __LINE__, __FILE__, "[Buffer]: Mapping buffer failed.");
 	return bufptr;
 }
 
-ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLBuffer::unmap_buffer(void* bufptr)
+simple_cl::cl::Event simple_cl::cl::Buffer::unmap_buffer(void* bufptr)
 {
 	cl_event unmap_event{nullptr};
 	CL_EX(clEnqueueUnmapMemObject(m_cl_state->command_queue(), m_cl_memory, bufptr, 0u, nullptr, &unmap_event));
-	return CLEvent{unmap_event};
+	return Event{unmap_event};
 }
 
-std::size_t ocl_template_matching::impl::cl::CLBuffer::size() const noexcept
+std::size_t simple_cl::cl::Buffer::size() const noexcept
 {
 	return m_size;
 }
 
 #pragma endregion
 
-#pragma region class CLImage
-// class CLImage
+#pragma region class Image
+// class Image
 
-ocl_template_matching::impl::cl::CLImage::CLImage(const std::shared_ptr<CLState>& clstate, const ImageDesc& image_desc) :
+simple_cl::cl::Image::Image(const std::shared_ptr<Context>& clstate, const ImageDesc& image_desc) :
 	m_image{nullptr},
 	m_image_desc{image_desc},
 	m_event_cache{},
@@ -858,16 +858,16 @@ ocl_template_matching::impl::cl::CLImage::CLImage(const std::shared_ptr<CLState>
 	cl_mem_flags clflags{static_cast<cl_mem_flags>(m_image_desc.flags.device_access) | static_cast<cl_mem_flags>(m_image_desc.flags.host_access) | static_cast<cl_mem_flags>(m_image_desc.flags.host_pointer_option)};
 	m_image = clCreateImage(m_cl_state->context(), clflags, &fmt, &desc, m_image_desc.host_ptr, &err);
 	if(err != CL_SUCCESS)
-		throw CLException(err, __LINE__, __FILE__, "[CLImage]: clCreateImage failed.");
+		throw CLException(err, __LINE__, __FILE__, "[Image]: clCreateImage failed.");
 }
 
-ocl_template_matching::impl::cl::CLImage::~CLImage() noexcept
+simple_cl::cl::Image::~Image() noexcept
 {
 	if(m_image)
 		CL(clReleaseMemObject(m_image));
 }
 
-ocl_template_matching::impl::cl::CLImage::CLImage(CLImage&& other) noexcept :
+simple_cl::cl::Image::Image(Image&& other) noexcept :
 	m_image{other.m_image},
 	m_image_desc{other.m_image_desc},
 	m_event_cache{}
@@ -875,7 +875,7 @@ ocl_template_matching::impl::cl::CLImage::CLImage(CLImage&& other) noexcept :
 	other.m_image = nullptr;
 }
 
-ocl_template_matching::impl::cl::CLImage& ocl_template_matching::impl::cl::CLImage::operator=(CLImage&& other) noexcept
+simple_cl::cl::Image& simple_cl::cl::Image::operator=(Image&& other) noexcept
 {
 	if(this == &other)
 		return *this;
@@ -886,27 +886,27 @@ ocl_template_matching::impl::cl::CLImage& ocl_template_matching::impl::cl::CLIma
 	return *this;
 }
 
-std::size_t ocl_template_matching::impl::cl::CLImage::width() const
+std::size_t simple_cl::cl::Image::width() const
 {
 	return std::size_t{m_image_desc.dimensions.width};
 }
 
-std::size_t ocl_template_matching::impl::cl::CLImage::height() const
+std::size_t simple_cl::cl::Image::height() const
 {
 	return std::size_t{m_image_desc.dimensions.height};
 }
 
-std::size_t ocl_template_matching::impl::cl::CLImage::depth() const
+std::size_t simple_cl::cl::Image::depth() const
 {
 	return std::size_t{m_image_desc.dimensions.depth};
 }
 
-std::size_t ocl_template_matching::impl::cl::CLImage::layers() const
+std::size_t simple_cl::cl::Image::layers() const
 {
 	return std::size_t{m_image_desc.dimensions.depth};
 }
 
-bool ocl_template_matching::impl::cl::CLImage::match_format(const HostFormat& format)
+bool simple_cl::cl::Image::match_format(const HostFormat& format)
 {
 	// check channel data type
 	if(!(get_host_channel_base_type(format.channel_type) == get_image_channel_base_type(m_image_desc.channel_type)))
@@ -922,20 +922,20 @@ bool ocl_template_matching::impl::cl::CLImage::match_format(const HostFormat& fo
 	return true;
 }
 
-ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImage::img_write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool invalidate, ChannelDefaultValue default_value)
+simple_cl::cl::Event simple_cl::cl::Image::img_write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool invalidate, ChannelDefaultValue default_value)
 {
 	if(m_image_desc.flags.host_access == HostAccess::NoAccess || m_image_desc.flags.host_access == HostAccess::ReadOnly)
-		throw std::runtime_error("[CLImage]: Host is not allowed to write this image.");
+		throw std::runtime_error("[Image]: Host is not allowed to write this image.");
 	if(!(img_region.dimensions.width && img_region.dimensions.height && img_region.dimensions.depth))
-		throw std::runtime_error("[CLImage]: Write failed, region is empty.");
+		throw std::runtime_error("[Image]: Write failed, region is empty.");
 	// check if region matches
 	if(	(img_region.offset.offset_width + img_region.dimensions.width > m_image_desc.dimensions.width)		||
 		(img_region.offset.offset_height + img_region.dimensions.height > m_image_desc.dimensions.height)	||
 		(img_region.offset.offset_depth + img_region.dimensions.depth > m_image_desc.dimensions.depth))
-		throw std::runtime_error("[CLImage]: Write failed. Input region exceeds image dimensions.");
+		throw std::runtime_error("[Image]: Write failed. Input region exceeds image dimensions.");
 	// handle wrong pitch values
 	if((m_image_desc.type == ImageType::Image1D || m_image_desc.type == ImageType::Image2D) && format.pitch.slice_pitch != 0ull)
-		throw std::runtime_error("[CLImage]: Slice pitch must be 0 for 1D or 2D images.");
+		throw std::runtime_error("[Image]: Slice pitch must be 0 for 1D or 2D images.");
 
 	// for parameterization of clEnqueueMapImage
 	std::size_t origin[]{img_region.offset.offset_width, img_region.offset.offset_height, img_region.offset.offset_depth};
@@ -952,10 +952,10 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 	// pitches for host in bytes
 	std::size_t host_row_pitch = (format.pitch.row_pitch != 0ull ? format.pitch.row_pitch : img_region.dimensions.width * host_pixel_size);
 	if(host_row_pitch < img_region.dimensions.width * host_pixel_size)
-		throw std::runtime_error("[CLImage]: Row pitch must be >= region width * bytes per pixel.");
+		throw std::runtime_error("[Image]: Row pitch must be >= region width * bytes per pixel.");
 	std::size_t host_slice_pitch = (format.pitch.slice_pitch != 0ull ? format.pitch.slice_pitch : img_region.dimensions.height * host_row_pitch);
 	if(host_slice_pitch < img_region.dimensions.height * host_row_pitch)
-		throw std::runtime_error("[CLImage]: Row pitch must be >= height * host row pitch.");
+		throw std::runtime_error("[Image]: Row pitch must be >= height * host row pitch.");
 
 	// map image region
 	cl_int err{CL_SUCCESS};
@@ -978,7 +978,7 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 		&err
 	));
 	if(err != CL_SUCCESS)
-		throw CLException(err, __LINE__, __FILE__, "[CLImage]: clEnqueueMapImage failed.");
+		throw CLException(err, __LINE__, __FILE__, "[Image]: clEnqueueMapImage failed.");
 
 	// if slice_pitch is 0 we have a 1D o 2D image. Re-use slice_pitch in this case:
 	slice_pitch = slice_pitch ? slice_pitch : row_pitch * img_region.dimensions.height;
@@ -1028,27 +1028,27 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 		}
 	}
 	else
-		throw std::runtime_error("[CLImage]: Image write failed. Host format does not match image format.");
+		throw std::runtime_error("[Image]: Image write failed. Host format does not match image format.");
 
 	// unmap image and return event
 	CL_EX(clEnqueueUnmapMemObject(m_cl_state->command_queue(), m_image, img_ptr, 0ull, nullptr, &map_event));
-	return CLEvent{map_event};
+	return Event{map_event};
 }
 
-ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImage::img_read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value)
+simple_cl::cl::Event simple_cl::cl::Image::img_read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value)
 {
 	if(m_image_desc.flags.host_access == HostAccess::NoAccess || m_image_desc.flags.host_access == HostAccess::WriteOnly)
-		throw std::runtime_error("[CLImage]: Host is not allowed to read this image.");
+		throw std::runtime_error("[Image]: Host is not allowed to read this image.");
 	if(!(img_region.dimensions.width && img_region.dimensions.height && img_region.dimensions.depth))
-		throw std::runtime_error("[CLImage]: Read failed, region is empty.");
+		throw std::runtime_error("[Image]: Read failed, region is empty.");
 	// check if region matches
 	if((img_region.offset.offset_width + img_region.dimensions.width > m_image_desc.dimensions.width) ||
 		(img_region.offset.offset_height + img_region.dimensions.height > m_image_desc.dimensions.height) ||
 		(img_region.offset.offset_depth + img_region.dimensions.depth > m_image_desc.dimensions.depth))
-		throw std::runtime_error("[CLImage]: Read failed. Input region exceeds image dimensions.");
+		throw std::runtime_error("[Image]: Read failed. Input region exceeds image dimensions.");
 	// handle wrong pitch values
 	if((m_image_desc.type == ImageType::Image1D || m_image_desc.type == ImageType::Image2D) && format.pitch.slice_pitch != 0ull)
-		throw std::runtime_error("[CLImage]: Slice pitch must be 0 for 1D or 2D images.");
+		throw std::runtime_error("[Image]: Slice pitch must be 0 for 1D or 2D images.");
 
 	// for parameterization of clEnqueueMapImage
 	std::size_t origin[]{img_region.offset.offset_width, img_region.offset.offset_height, img_region.offset.offset_depth};
@@ -1065,10 +1065,10 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 	// pitches for host in bytes
 	std::size_t host_row_pitch = (format.pitch.row_pitch != 0ull ? format.pitch.row_pitch : img_region.dimensions.width * host_pixel_size);
 	if(host_row_pitch < img_region.dimensions.width * host_pixel_size)
-		throw std::runtime_error("[CLImage]: Row pitch must be >= region width * bytes per pixel.");
+		throw std::runtime_error("[Image]: Row pitch must be >= region width * bytes per pixel.");
 	std::size_t host_slice_pitch = (format.pitch.slice_pitch != 0ull ? format.pitch.slice_pitch : img_region.dimensions.height * host_row_pitch);
 	if(host_slice_pitch < img_region.dimensions.height * host_row_pitch)
-		throw std::runtime_error("[CLImage]: Row pitch must be >= height * host row pitch.");
+		throw std::runtime_error("[Image]: Row pitch must be >= height * host row pitch.");
 
 	// map image region
 	cl_int err{CL_SUCCESS};
@@ -1091,7 +1091,7 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 		&err
 	));
 	if(err != CL_SUCCESS)
-		throw CLException(err, __LINE__, __FILE__, "[CLImage]: clEnqueueMapImage failed.");
+		throw CLException(err, __LINE__, __FILE__, "[Image]: clEnqueueMapImage failed.");
 
 	// if slice_pitch is 0 we have a 1D o 2D image. Re-use slice_pitch in this case:
 	slice_pitch = slice_pitch ? slice_pitch : row_pitch * img_region.dimensions.height;
@@ -1141,23 +1141,23 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 		}
 	}
 	else
-		throw std::runtime_error("[CLImage]: Image read failed. Host format does not match image format.");
+		throw std::runtime_error("[Image]: Image read failed. Host format does not match image format.");
 
 	// unmap image and return event
 	CL_EX(clEnqueueUnmapMemObject(m_cl_state->command_queue(), m_image, img_ptr, 0ull, nullptr, &map_event));
-	return CLEvent{map_event};
+	return Event{map_event};
 }
 
-ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImage::img_fill(const FillColor& color, const ImageRegion& img_region)
+simple_cl::cl::Event simple_cl::cl::Image::img_fill(const FillColor& color, const ImageRegion& img_region)
 {
 	if(m_image_desc.flags.host_access == HostAccess::NoAccess || m_image_desc.flags.host_access == HostAccess::ReadOnly)
-		throw std::runtime_error("[CLImage]: Host is not allowed to fill this image.");
+		throw std::runtime_error("[Image]: Host is not allowed to fill this image.");
 	if(!(img_region.dimensions.width && img_region.dimensions.height && img_region.dimensions.depth))
-		throw std::runtime_error("[CLImage]: Fill failed, region is empty.");
+		throw std::runtime_error("[Image]: Fill failed, region is empty.");
 	if((img_region.offset.offset_width + img_region.dimensions.width > m_image_desc.dimensions.width) ||
 		(img_region.offset.offset_height + img_region.dimensions.height > m_image_desc.dimensions.height) ||
 		(img_region.offset.offset_depth + img_region.dimensions.depth > m_image_desc.dimensions.depth))
-		throw std::runtime_error("[CLImage]: Fill failed. Input region exceeds image dimensions.");
+		throw std::runtime_error("[Image]: Fill failed. Input region exceeds image dimensions.");
 
 	// --- prepare color data
 	// largest possible fill color: 4x4 bytes
@@ -1204,7 +1204,7 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 				static_cast<int32_t*>(static_cast<void*>(&color_buffer[0]))[3] = static_cast<int32_t>(color.get(channel_indices[3]));
 				break;
 			default:
-				throw std::runtime_error("[CLImage]: Fill failed. Invalid channel type size");
+				throw std::runtime_error("[Image]: Fill failed. Invalid channel type size");
 				break;
 		}
 	}
@@ -1231,7 +1231,7 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 				static_cast<uint32_t*>(static_cast<void*>(&color_buffer[0]))[3] = static_cast<uint32_t>(color.get(channel_indices[3]));
 				break;
 			default:
-				throw std::runtime_error("[CLImage]: Fill failed. Invalid channel type size");
+				throw std::runtime_error("[Image]: Fill failed. Invalid channel type size");
 				break;
 		}
 	}
@@ -1252,7 +1252,7 @@ ocl_template_matching::impl::cl::CLEvent ocl_template_matching::impl::cl::CLImag
 		(m_event_cache.size() > 0ull ? m_event_cache.data() : nullptr),
 		&fill_event)
 	);
-	return CLEvent{fill_event};
+	return Event{fill_event};
 }
 
 #pragma endregion

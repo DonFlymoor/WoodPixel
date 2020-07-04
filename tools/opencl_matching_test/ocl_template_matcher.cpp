@@ -1,5 +1,5 @@
 #include <ocl_template_matcher.hpp>
-#include <ocl_wrappers.hpp>
+#include <simple_cl.hpp>
 
 
 // ----------------------------------------- IMPLEMENTATION ---------------------------------------------
@@ -12,11 +12,11 @@ namespace ocl_template_matching
 		public:
 			MatcherImpl(const MatchingPolicyBase& matching_policy);
 		private:
-			std::shared_ptr<cl::CLState> m_cl_state;
+			std::shared_ptr<simple_cl::cl::Context> m_cl_state;
 		};
 
 		MatcherImpl::MatcherImpl(const MatchingPolicyBase& matching_policy) :
-			m_cl_state{std::move(cl::CLState::createInstance(matching_policy.platform_id(), matching_policy.device_id()))}
+			m_cl_state{std::move(simple_cl::cl::Context::createInstance(matching_policy.platform_id(), matching_policy.device_id()))}
 		{
 		}
 	}

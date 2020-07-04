@@ -1,11 +1,17 @@
-#ifndef _OCL_ERROR_HPP_
-#define _OCL_ERROR_HPP_
+/** \file simple_cl_error.h
+*	\author Fabian Friederichs
+*
+*	\brief Customized exception class and error handling macros.
+*/
+
+#ifndef _SIMPLE_CL_ERROR_HPP_
+#define _SIMPLE_CL_ERROR_HPP_
 
 #include <CL/cl.h>
 #include <exception>
 #include <stdexcept>
 
-namespace ocl_template_matching
+namespace simple_cl
 {
 	// generate human readable error string
 	const char* _get_cl_error_string(cl_int error_val);
@@ -36,10 +42,10 @@ namespace ocl_template_matching
 }
 
 #ifdef CLERR_DEBUG
-	#define CL(clcall) ocl_template_matching::_print_cl_error(clcall, __FILE__, __LINE__) 
+	#define CL(clcall) simple_cl::_print_cl_error(clcall, __FILE__, __LINE__) 
 #else
 	#define CL(clcall) clcall
 #endif
 
-#define CL_EX(clcall) ocl_template_matching::_check_throw_cl_error(clcall, __FILE__, __LINE__)
+#define CL_EX(clcall) simple_cl::_check_throw_cl_error(clcall, __FILE__, __LINE__)
 #endif

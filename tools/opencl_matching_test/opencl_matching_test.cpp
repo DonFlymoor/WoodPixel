@@ -2,10 +2,10 @@
 #include <vector>
 //#include <ocl_template_matcher.hpp>
 //#include <matching_policies.hpp>
-#include <ocl_wrappers.hpp>
+#include <simple_cl.hpp>
 #include <string>
 
-using namespace ocl_template_matching::impl;
+using namespace simple_cl;
 
 struct blub
 {
@@ -17,7 +17,7 @@ int main()
 {
 	try
 	{
-		auto clplatform{cl::CLState::createInstance(0, 0)};
+		auto clplatform{cl::Context::createInstance(0, 0)};
 		std::cout << "Selected platform: \n" << clplatform->get_selected_platform() << "\n";
 		std::cout << "Selected device: \n" << clplatform->get_selected_device() << "\n";
 		std::string kernel_src = R"(
@@ -32,7 +32,7 @@ int main()
 		)";
 		constexpr std::size_t num_vals{1000000000};
 		std::vector<cl_float> data(num_vals, 0.0f);
-		cl::CLBuffer buffer{
+		cl::Buffer buffer{
 			sizeof(cl_float) * data.size(),
 			cl::MemoryFlags{
 				cl::DeviceAccess::WriteOnly,
@@ -44,8 +44,8 @@ int main()
 
 		buffer.write(data.begin(), data.end(), 0ull, true).wait();
 
-		auto progra{cl::CLProgram(kernel_src, "", clplatform)};
-		cl::CLProgram::ExecParams exparams{
+		auto progra{cl::Program(kernel_src, "", clplatform)};
+		cl::Program::ExecParams exparams{
 			1,			// Work dimension
 			{0, 0, 0},	// Offset
 			{num_vals, 0, 0},	// Global work size

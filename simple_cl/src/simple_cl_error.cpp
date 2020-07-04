@@ -1,11 +1,11 @@
-#include <ocl_error.hpp>
+#include <simple_cl_error.hpp>
 #include <iostream>
 #include <cstring>
 #include <algorithm>
 #include <cstdlib>
 #include <cmath>
 
-const char* ocl_template_matching::_get_cl_error_string(cl_int error_val)
+const char* simple_cl::_get_cl_error_string(cl_int error_val)
 {
 	const char* err = nullptr;
 	switch(error_val)
@@ -77,7 +77,7 @@ const char* ocl_template_matching::_get_cl_error_string(cl_int error_val)
 }
 
 // print error if there is any
-cl_int ocl_template_matching::_print_cl_error(cl_int error_val, const char* file, int line)
+cl_int simple_cl::_print_cl_error(cl_int error_val, const char* file, int line)
 {
 	if(error_val == CL_SUCCESS)
 		return error_val;
@@ -86,7 +86,7 @@ cl_int ocl_template_matching::_print_cl_error(cl_int error_val, const char* file
 	return error_val;
 }
 
-ocl_template_matching::CLException::CLException() :
+simple_cl::CLException::CLException() :
 	cl_error_val{0},
 	line{0},
 	file{""},
@@ -94,7 +94,7 @@ ocl_template_matching::CLException::CLException() :
 {
 }
 
-ocl_template_matching::CLException::CLException(cl_int error, int _line, const char* _file, const char* errormsg) :
+simple_cl::CLException::CLException(cl_int error, int _line, const char* _file, const char* errormsg) :
 	cl_error_val{error},
 	line{_line},
 	file{_file},
@@ -102,7 +102,7 @@ ocl_template_matching::CLException::CLException(cl_int error, int _line, const c
 {
 }
 
-const char* ocl_template_matching::CLException::what() const noexcept
+const char* simple_cl::CLException::what() const noexcept
 {
 	static constexpr size_t ERR_STR_LEN{4192};
 	static char msg[ERR_STR_LEN]; // ugly but necessary for exception safety.
@@ -147,7 +147,7 @@ const char* ocl_template_matching::CLException::what() const noexcept
 }
 
 // throw if there is a cl error
-cl_int ocl_template_matching::_check_throw_cl_error(cl_int error_val, const char* file, int line)
+cl_int simple_cl::_check_throw_cl_error(cl_int error_val, const char* file, int line)
 {
 	if(error_val != CL_SUCCESS)
 		throw CLException{error_val, line, file};

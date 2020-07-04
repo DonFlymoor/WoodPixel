@@ -25,7 +25,6 @@ SET(BOOST_USE_STATIC_RUNTIME OFF)
 FIND_PACKAGE(Boost REQUIRED COMPONENTS chrono date_time filesystem log program_options system)
 FIND_PACKAGE(OpenCV 3 REQUIRED)
 FIND_PACKAGE(OpenMP REQUIRED)
-FIND_PACKAGE(OpenCL REQUIRED) # creates target OpenCL::OpenCL
 
 # ----------------------------- SETUP TARGETS / DEPENDENCIES FOR SUB PROJECTS --------
 
@@ -52,30 +51,6 @@ target_link_libraries(LIBS_OPENCV
 		${OpenCV_LIBS}
 )
 
-# opencl
-# interface library for CLHPP headers (C++ binding)
-# SET(CLHPP_INCLUDE_DIR "" CACHE PATH "Path to CLHPP include directory (Khronos OpenCL C++ binding project)")
-# ADD_LIBRARY(CLHPP INTERFACE)
-# target_include_directories(CLHPP
-# 	INTERFACE
-# 		${CLHPP_INCLUDE_DIR}
-# )
-# specify OpenCL version (200 => 2.0, 120 => 1.2 ...)
-# target_compile_definitions(CLHPP
-# 	INTERFACE
-# 		CL_HPP_TARGET_OPENCL_VERSION=120
-# 		CL_HPP_MINIMUM_OPENCL_VERSION=120
-# 		CL_HPP_ENABLE_EXCEPTIONS
-# 		CL_HPP_CL_1_2_DEFAULT_BUILD
-# )
-# this target links against OpenCL
-ADD_LIBRARY(LIBS_OPENCL INTERFACE)
-target_link_libraries(LIBS_OPENCL
-	INTERFACE
-		OpenCL::OpenCL
-		#CLHPP
-)
-
 # set_target_properties(${Boost_LIBRARIES} PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO RELEASE)
 set_target_properties(${OpenCV_LIBS} PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO RELEASE)
 
@@ -93,13 +68,7 @@ SET(LIBS
 # dependencies built along with this project
 ADD_DEFINITIONS(-DHAVE_CONFIG_H -D_CRT_SECURE_NO_WARNINGS -D_SCL_SECURE_NO_WARNINGS)
 ADD_SUBDIRECTORY(lib)
-
-# trlib
-ADD_LIBRARY(LIBS_TRLIB INTERFACE)
-target_link_libraries(LIBS_TRLIB
-	INTERFACE
-		trlib
-)
+ADD_SUBDIRECTORY(simple_cl)
 
 # add bundle lib target to replace old style global CMake dependencies
 
@@ -108,7 +77,7 @@ TARGET_LINK_LIBRARIES(LIBS_ALLDEPS
 	INTERFACE
 		LIBS_BOOST
 		LIBS_OPENCV
-		LIBS_TRLIB)
+		trlib)
 TARGET_INCLUDE_DIRECTORIES(LIBS_ALLDEPS
 	INTERFACE
 		${PROJECT_SOURCE_DIR}
@@ -118,7 +87,7 @@ TARGET_INCLUDE_DIRECTORIES(LIBS_ALLDEPS
 # Library targets available:
 #	LIBS_BOOST
 #	LIBS_OPENCV
-#	LIBS_TRLIB
+#	trlib
 #	LIBS_ALLDEPS # old "LIBS" variable.
 
 # --------------------------------- EXECUTABLE ------------------------------------

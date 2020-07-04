@@ -180,7 +180,7 @@ namespace simple_cl
 
 	
 	/**
-	*	\namespace simple_cl::detail::util
+	*	\namespace simple_cl::util
 	*	\brief Some utility functions used in this section.
 	*/
 	namespace util
@@ -254,7 +254,7 @@ namespace simple_cl
 	}
 
 	/**
-	*	\namespace simple_cl::detail::cl
+	*	\namespace simple_cl::cl
 	*	\brief Encapsulates implementation of OpenCL wrappers.
 	*/
 	namespace cl
@@ -539,7 +539,7 @@ namespace simple_cl
 		};
 
 		/** 
-		\namespace simple_cl::detail::cl
+		\namespace simple_cl::cl
 		\todo Maybe add sampler objects? 
 		*/
 

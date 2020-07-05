@@ -1583,6 +1583,7 @@ namespace simple_cl
 
 			/**
 				*	\brief	Defines the number and order of color channels of a host image. 
+				*	\todo	Add constructor overloads for convenient instantiation.
 			*/
 			struct HostChannelOrder
 			{

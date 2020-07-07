@@ -549,8 +549,21 @@ simple_cl::cl::Program::Program(const std::string& kernel_source, const std::str
 		// create kernels
 		for(std::size_t i = 0; i < num_kernels; ++i)
 		{
-			cl_kernel kernel = clCreateKernel(m_cl_program, kernel_names[i].c_str(), &res); if(res != CL_SUCCESS) throw CLException{res, __LINE__, __FILE__, "clCreateKernel failed."};
-			m_kernels[kernel_names[i]] = CLKernel{i, kernel};
+			cl_kernel kernel = clCreateKernel(m_cl_program, kernel_names[i].c_str(), &res); if(res != CL_SUCCESS) throw CLException{res, __LINE__, __FILE__, "clCreateKernel failed."};			
+			m_kernels[kernel_names[i]] = CLKernel{i, {}, kernel};
+			// query per-kernel info
+			CLKernelInfo kinfo;
+			std::size_t sz{0ull};
+			cl_ulong usz{0ul};
+			CL_EX(clGetKernelWorkGroupInfo(kernel, m_cl_state->get_selected_device().device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(std::size_t), &sz, nullptr));
+			kinfo.max_work_group_size = sz; sz = 0ull;
+			CL_EX(clGetKernelWorkGroupInfo(kernel, m_cl_state->get_selected_device().device_id, CL_KERNEL_LOCAL_MEM_SIZE, sizeof(cl_ulong), &usz, nullptr));
+			kinfo.local_memory_usage = std::size_t{usz}; usz = 0ul;
+			CL_EX(clGetKernelWorkGroupInfo(kernel, m_cl_state->get_selected_device().device_id, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, sizeof(std::size_t), &sz, nullptr));
+			kinfo.preferred_work_group_size_multiple = sz; sz = 0ull;
+			CL_EX(clGetKernelWorkGroupInfo(kernel, m_cl_state->get_selected_device().device_id, CL_KERNEL_PRIVATE_MEM_SIZE, sizeof(cl_ulong), &usz, nullptr));
+			kinfo.private_memory_usage = std::size_t{usz};
+			m_kernels[kernel_names[i]].kernel_info = kinfo;
 		}
 	}
 	catch(...)
@@ -646,16 +659,34 @@ void simple_cl::cl::Program::setKernelArgsImpl(cl_kernel kernel, std::size_t ind
 	CL_EX(clSetKernelArg(kernel, static_cast<cl_uint>(index), arg_size, arg_data_ptr));
 }
 
-simple_cl::cl::Program::CLKernelHandle simple_cl::cl::Program::getKernel(const std::string& name)
+simple_cl::cl::Program::CLKernelHandle simple_cl::cl::Program::getKernel(const std::string& name) const
 {
 	try
 	{
-		return CLKernelHandle{m_kernels.at(name).kernel};
+		const auto& kernel{m_kernels.at(name)};
+		return CLKernelHandle{kernel.kernel, kernel.kernel_info};
 	}
 	catch(const std::out_of_range&)
 	{
 		throw std::runtime_error("Unknown kernel name.");
 	}
+}
+
+simple_cl::cl::Program::CLKernelInfo simple_cl::cl::Program::getKernelInfo(const std::string& name) const
+{
+	try
+	{
+		return m_kernels.at(name).kernel_info;
+	}
+	catch(const std::out_of_range&)
+	{
+		throw std::runtime_error("Unknown kernel name.");
+	}
+}
+
+simple_cl::cl::Program::CLKernelInfo simple_cl::cl::Program::getKernelInfo(const CLKernelHandle& kernel) const
+{
+	return kernel.m_kernel_info;
 }
 
 #pragma endregion

@@ -87,6 +87,7 @@ SET(SRC
 	vector.hpp
 	vector_graphics_saver.cpp
 	vector_graphics_saver.hpp
+	idgen.hpp
 	${PROJECT_SOURCE_DIR}/config.h
 )
 

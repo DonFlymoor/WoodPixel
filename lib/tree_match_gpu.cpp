@@ -427,14 +427,15 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 	}
 // TODO OpenCL impl here
 
-
 #pragma omp parallel for
 	for(int i = 0; i < static_cast<int>(results.size()); ++i)
 	{
+		// not exactly sure what happens here
 		cv::Mat texture_mask;
 		cv::erode(m_textures[results[i].texture_index][results[i].texture_rot].mask(), texture_mask, region.mask(), cv::Point(0, 0), 1, cv::BORDER_CONSTANT, 0);
 		texture_mask = texture_mask(cv::Rect(0, 0, texture_mask.cols - kernel.response.cols() + 1, texture_mask.rows - kernel.response.rows() + 1));
 
+		// all of this stuff is going to be replaced by the cl implementation
 		if(cv::countNonZero(texture_mask) > 0)
 		{
 			cv::Mat match;

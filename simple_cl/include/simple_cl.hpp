@@ -620,15 +620,15 @@ namespace simple_cl
 			, std::true_type, std::false_type>::type;
 
 		/**
-			* \brief Handle to some OpenCL event. Can be used to synchronize OpenCL operations.
+		* \brief Handle to some OpenCL event. Can be used to synchronize OpenCL operations.
 		*/
 		class Event
 		{
 			friend class Program;
 		public:
 			/**
-				* \brief Constructs a new handle.
-				* \param ev OpenCL event to encapsulate.
+			* \brief Constructs a new handle.
+			* \param ev OpenCL event to encapsulate.
 			*/
 			explicit Event(cl_event ev);
 			/// Destructor. Internally decreases reference count to the cl_event object.
@@ -643,7 +643,7 @@ namespace simple_cl
 			Event& operator=(Event&& other) noexcept;
 
 			/**
-				* \brief Blocks until the corresponding OpenCL command submitted to the command queue finished execution.
+			* \brief Blocks until the corresponding OpenCL command submitted to the command queue finished execution.
 			*/
 			void wait() const;
 		private:
@@ -651,7 +651,7 @@ namespace simple_cl
 		};
 
 		/**
-			* \brief Compiles OpenCL-C source code and extracts kernel functions from this source. Found kernels can then be conveniently invoked using the call operator.
+		* \brief Compiles OpenCL-C source code and extracts kernel functions from this source. Found kernels can then be conveniently invoked using the call operator.
 		*/
 		class Program
 		{
@@ -663,11 +663,22 @@ namespace simple_cl
 				std::size_t work_offset[constants::OCL_KERNEL_MAX_WORK_DIM]; ///< Global offset from the origin.
 				std::size_t global_work_size[constants::OCL_KERNEL_MAX_WORK_DIM]; ///< Global work volume dimensions.
 				std::size_t local_work_size[constants::OCL_KERNEL_MAX_WORK_DIM]; ///< Local work group dimensions.
-			};				
+			};
 
 			/**
-				* \brief Handle to an OpenCL kernel in this program. Useful to circumvent kernel name lookup to improve performance of invokes.
-				* \attention This is a non owning handle which becomes invalid if the creating Program instance dies.
+			 *	\brief Packs information about the kernel.
+			*/
+			struct CLKernelInfo
+			{
+				std::size_t max_work_group_size;				///< Maximum number of threads in a work group for this kernel.
+				std::size_t local_memory_usage;					///< Total local memory usage of this kernel.
+				std::size_t private_memory_usage;				///< Total private memory usage of this kernel.
+				std::size_t preferred_work_group_size_multiple;	///< Preferred work group size. Work groups should be a multiple of this size and smaller than max_work_group_size. Total local memory used is another limitation to keep in mind.
+			};
+
+			/**
+			* \brief Handle to an OpenCL kernel in this program. Useful to circumvent kernel name lookup to improve performance of invokes.
+			* \attention This is a non owning handle which becomes invalid if the creating Program instance dies.
 			*/
 			class CLKernelHandle
 			{
@@ -675,17 +686,20 @@ namespace simple_cl
 				CLKernelHandle(const CLKernelHandle& other) noexcept = default;
 				CLKernelHandle& operator=(const CLKernelHandle& other) noexcept = default;
 				~CLKernelHandle() noexcept = default;
+				/// Returns information about the kernel.
+				const CLKernelInfo& getKernelInfo() const { return m_kernel_info; }
 			private:
 				friend class Program;
-				explicit CLKernelHandle(cl_kernel kernel) noexcept : m_kernel{kernel} {}
+				explicit CLKernelHandle(cl_kernel kernel, const CLKernelInfo& kernel_info) noexcept : m_kernel{kernel}, m_kernel_info{kernel_info} {}
 				cl_kernel m_kernel;
+				CLKernelInfo m_kernel_info;
 			};
 
 			/**
-				* \brief	Compiles OpenCL-C source code, creates a cl_program object and extracts all the available kernel functions.
-				* \param source String containing the entire source code.
-				* \param compiler_options String containing compiler options.
-				* \param clstate A valid Context intance used to interface with OpenCL.
+			* \brief	Compiles OpenCL-C source code, creates a cl_program object and extracts all the available kernel functions.
+			* \param source String containing the entire source code.
+			* \param compiler_options String containing compiler options.
+			* \param clstate A valid Context intance used to interface with OpenCL.
 			*/
 			Program(const std::string& source, const std::string& compiler_options, const std::shared_ptr<Context>& clstate);
 			/// Destructor. Frees created cl_program and cl_kernel objects.
@@ -960,7 +974,21 @@ namespace simple_cl
 			*	\brief Returns a kernel handle to the kernel with name name.
 			*	\param name	Name of the kernel to create a handle of.
 			*/
-			CLKernelHandle getKernel(const std::string& name);
+			CLKernelHandle getKernel(const std::string& name) const;
+
+			/**
+			 *	\brief			Returns information about the kernel, specifically information about preferred work group size and memory usage.
+			 *	\param name		Name of the kernel.
+			 *	\return			CLKernelInfo struct filled with information about the kernel.
+			*/
+			CLKernelInfo getKernelInfo(const std::string& name) const;
+
+			/**
+			 *	\brief			Returns information about the kernel, specifically information about preferred work group size and memory usage.
+			 *	\param kernel	Handle to the kernel.
+			 *	\return			CLKernelInfo struct filled with information about the kernel.
+			*/
+			CLKernelInfo getKernelInfo(const CLKernelHandle& kernel) const;
 
 		private:
 			/// Cleans up internal state.
@@ -972,6 +1000,7 @@ namespace simple_cl
 			struct CLKernel
 			{
 				std::size_t id;		///< Running id
+				CLKernelInfo kernel_info; ///< Information about the kernel
 				cl_kernel kernel;	///< OpenCL kernel object handle
 			};
 

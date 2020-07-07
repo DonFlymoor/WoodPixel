@@ -7,6 +7,7 @@ SET(SRC
 	ocl_template_matcher.hpp
 	ocl_template_matcher.cpp
 	matching_policies.hpp
+	matching_policies.cpp
 )
 
 ADD_EXECUTABLE(${EXECUTABLE_NAME} ${SRC})

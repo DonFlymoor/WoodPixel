@@ -30,6 +30,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "feature_vector.hpp"
 #include "texture_marker.hpp"
 #include "serializable.hpp"
+#include <idgen.hpp>
 
 struct TextureRegion
 {
@@ -121,7 +122,7 @@ public:
   cv::Mat transformation_matrix_inv;
 
   TextureMarker marker;
-  std::string id;
+  std::string id; 
 
   double angle_rad;
   double scale;

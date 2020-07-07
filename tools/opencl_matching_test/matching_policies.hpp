@@ -2,31 +2,78 @@
 #define _MATCHING_POLICIES_HPP_
 
 #include <ocl_template_matcher.hpp>
+#include <memory>
 
-// default policy for testing
-class DefaultMatchingPolicy : public ocl_template_matching::MatchingPolicyBase
+namespace ocl_template_matching
 {
-public:
-	DefaultMatchingPolicy(std::size_t platform_id_, std::size_t device_id_) :
-		MatchingPolicyBase(),
-		m_platform_id(platform_id_),
-		m_device_id(device_id_)
+	namespace matching_policies
 	{
+		// Implements template matching via OpenCL capabilities
+		namespace impl { class CLMatcherImpl; }
+		class CLMatcher : public ocl_template_matching::MatchingPolicyBase
+		{
+		public:
+			enum class DeviceSelectionPolicy
+			{
+				MostComputeUnits,
+				MostGPUThreads,
+				FirstSuitableDevice
+			};
+
+			CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory);
+			~CLMatcher() noexcept;
+
+			std::size_t platform_id() const override;
+			std::size_t device_id() const override;
+
+			bool uses_opencl() const { return true; }
+
+			void compute_response(
+				const Texture& texture, 
+				const cv::Mat& texture_mask, 
+				const Texture& kernel, 
+				const cv::Mat& kernel_mask, 
+				double texture_rotation, 
+				MatchingResult& match_res_out, 
+				simple_cl::cl::Context* clcontext
+			) override;
+
+			void find_best_matches(MatchingResult& match_res_out) override;
+
+			cv::Vec3i response_dimensions(
+				const Texture& texture,
+				const cv::Mat& texture_mask,
+				const Texture& kernel,
+				const cv::Mat& kernel_mask,
+				double texture_rotation
+			) const override;
+
+			match_response_cv_mat_t response_image_data_type(
+				const Texture& texture,
+				const cv::Mat& texture_mask,
+				const Texture& kernel,
+				const cv::Mat& kernel_mask,
+				double texture_rotation
+			) const override;
+
+		private:
+			std::unique_ptr<impl::CLMatcherImpl> m_impl;
+			impl::CLMatcherImpl* impl() { return m_impl.get(); }
+			const impl::CLMatcherImpl* impl() const { return m_impl.get(); }
+		};
+
+		//// Uses OpenCV for template matching
+		//class OpenCVMatcher : public ocl_template_matching::MatchingPolicyBase
+		//{
+
+		//};
+
+		//// Hybrid approach which chooses between two matchers based on the template size
+		//template<typename MatcherA, typename MatcherB>
+		//class HybridMatcher : public ocl_template_matching::MatchingPolicyBase
+		//{
+
+		//};
 	}
-
-	std::size_t platform_id() const override
-	{
-		return m_platform_id;
-	}
-
-	std::size_t device_id() const override
-	{
-		return m_device_id;
-	}
-
-private:
-	const std::size_t m_platform_id;
-	const std::size_t m_device_id;
-};
-
+}
 #endif

@@ -37,88 +37,97 @@
 *           Input, Output chunks
 *       Build cache:
 *           Textureid + region -> chunk id
-*/  
+*/ 
+
+// forward declarations for interfaces
+namespace simple_cl{namespace cl{class Context;}}
 
 namespace ocl_template_matching
 {
-    // exception class
-    class CLException;
+    struct Match
+    {
+        cv::Point match_pos;
+        double match_cost;
+    };
 
     struct MatchingResult
     {
         cv::Mat total_cost_matrix;
-        cv::Point min_cost_pos;
-        double min_cost;
+        std::vector<Match> matches;
     };
+
+    using match_response_cv_mat_t = int;
 
     class MatchingPolicyBase
     {
     public:
-        virtual std::size_t platform_id() const = 0;
-        virtual std::size_t device_id() const = 0;
+        MatchingPolicyBase() = default;
+        MatchingPolicyBase(const MatchingPolicyBase&) = delete;
+        MatchingPolicyBase(MatchingPolicyBase&&) = delete;
+        MatchingPolicyBase& operator=(const MatchingPolicyBase&) = delete;
+        MatchingPolicyBase& operator=(MatchingPolicyBase&&) = delete;
+
+        inline virtual ~MatchingPolicyBase() noexcept = 0;
+
+        // matching policy interface
+        virtual std::size_t platform_id() const { return 0ull; }
+        virtual std::size_t device_id() const { return 0ull; }
+
+        // tell if this policy uses OpenCL
+        virtual bool uses_opencl() const { return false; }
+
+        // matching functions
+        virtual void compute_response(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& match_res_out, simple_cl::cl::Context* clcontext) {}
+        virtual void find_best_matches(MatchingResult& match_res_out, simple_cl::cl::Context* clcontext) {}
+
+        // calculate response dimensions
+        virtual cv::Vec3i response_dimensions(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation) const = 0;
+        // report OpenCV datatype for response mat
+        virtual match_response_cv_mat_t response_image_data_type(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation) const = 0;
+
+        // without opencl
+        virtual void compute_response(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& match_res_out) {}
+        virtual void find_best_matches(MatchingResult& match_res_out) {}
     };
+    MatchingPolicyBase::~MatchingPolicyBase() noexcept {}
 
-    namespace impl
-    { 
-        class MatcherImpl;
-        class MatcherBase
-        {
-        protected:
-            MatcherBase(const ocl_template_matching::MatchingPolicyBase& matching_strat);
-            MatcherBase(const MatcherBase&) = delete;
-            MatcherBase(MatcherBase&& other) noexcept;
-            MatcherBase& operator=(const MatcherBase&) = delete;
-            MatcherBase& operator=(MatcherBase&& other) noexcept;
-            ~MatcherBase();
-
-            MatchingResult match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, const MatchingPolicyBase& matching_strat);
-            void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, MatchingResult& result, const MatchingPolicyBase& matching_strat);
-
-        private:
-            std::unique_ptr <ocl_template_matching::impl::MatcherImpl> m_impl;
-        };
-    }
-
-    template <typename MatchingPolicy>
-    class Matcher : private impl::MatcherBase
+    namespace impl{class MatcherImpl;}
+    class Matcher
     {
     public:
-        Matcher(const MatchingPolicy& matching_strat);
-        Matcher(const Matcher&) = delete;
-        Matcher(Matcher&& other) = default;
-        Matcher& operator=(const Matcher&) = delete;
-        Matcher& operator=(Matcher&& other) = default;
-        ~Matcher();
-
-        MatchingResult match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask);
-        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, MatchingResult& result);
+        Matcher(std::unique_ptr<MatchingPolicyBase>&& matching_policy);
     
+    public:
+        Matcher(const Matcher&) = delete;
+        Matcher(Matcher&& other) noexcept;
+        Matcher& operator=(const Matcher&) = delete;
+        Matcher& operator=(Matcher&& other) noexcept;
+        ~Matcher() noexcept;
+
+        MatchingResult match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation);
+        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result);
+
+        template <typename ConcretePolicy>
+        ConcretePolicy& get_policy()
+        {
+            return &dynamic_cast<ConcretePolicy*>(m_matching_policy.get());
+        }
+
+        template <typename ConcretePolicy>
+        const ConcretePolicy& get_policy() const
+        {
+            return &dynamic_cast<const ConcretePolicy*>(m_matching_policy.get());
+        }
+
     private:
-        MatchingPolicy m_matching_policy;
-    };
-
-    template <typename MatchingPolicy>
-    Matcher<MatchingPolicy>::Matcher(const MatchingPolicy& matching_policy) :
-        MatcherBase(matching_policy),
-        m_matching_policy(matching_policy)
-    {
-    }
-
-    template <typename MatchingPolicy>
-    Matcher<MatchingPolicy>::~Matcher()
-    {
-    }
-
-    template <typename MatchingPolicy>
-    MatchingResult Matcher<MatchingPolicy>::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask)
-    {
-        return impl::MatcherBase::match(texture, texture_mask, kernel, kernel_mask, m_matching_policy);
-    }
-
-    template <typename MatchingPolicy>
-    void Matcher<MatchingPolicy>::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, MatchingResult& result)
-    {
-        result = impl::MatcherBase::match(texture, texture_mask, kernel, kernel_mask, m_matching_policy);
-    }        
+        // for const correctness
+        const impl::MatcherImpl* impl() const { return m_impl.get(); }
+        impl::MatcherImpl* impl() { return m_impl.get(); }
+        
+        // matching policy
+        std::unique_ptr<MatchingPolicyBase> m_matching_policy;
+        // pointer to implementation
+        std::unique_ptr<impl::MatcherImpl> m_impl;        
+    };       
 }
 #endif

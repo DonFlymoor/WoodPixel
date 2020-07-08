@@ -71,14 +71,16 @@ namespace ocl_template_matching
 
         // matching policy interface
         virtual std::size_t platform_id() const { return 0ull; }
-        virtual std::size_t device_id() const { return 0ull; }
+        virtual std::size_t device_id() const { return 0ull; }        
 
         // tell if this policy uses OpenCL
         virtual bool uses_opencl() const { return false; }
+        virtual void initialize_opencl_state(const std::shared_ptr<simple_cl::cl::Context>&) {}
+        virtual void cleanup_opencl_state() {}
 
-        // matching functions
-        virtual void compute_response(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& match_res_out, simple_cl::cl::Context* clcontext) {}
-        virtual void find_best_matches(MatchingResult& match_res_out, simple_cl::cl::Context* clcontext) {}
+        //// matching functions
+        //virtual void compute_response(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& match_res_out, const std::shared_ptr<simple_cl::cl::Context>&) {}
+        //virtual void find_best_matches(MatchingResult& match_res_out, const std::shared_ptr<simple_cl::cl::Context>&) {}
 
         // calculate response dimensions
         virtual cv::Vec3i response_dimensions(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation) const = 0;
@@ -89,7 +91,7 @@ namespace ocl_template_matching
         virtual void compute_response(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& match_res_out) {}
         virtual void find_best_matches(MatchingResult& match_res_out) {}
     };
-    MatchingPolicyBase::~MatchingPolicyBase() noexcept {}
+    MatchingPolicyBase::~MatchingPolicyBase() noexcept { cleanup_opencl_state(); }
 
     namespace impl{class MatcherImpl;}
     class Matcher
@@ -122,12 +124,12 @@ namespace ocl_template_matching
     private:
         // for const correctness
         const impl::MatcherImpl* impl() const { return m_impl.get(); }
-        impl::MatcherImpl* impl() { return m_impl.get(); }
-        
-        // matching policy
-        std::unique_ptr<MatchingPolicyBase> m_matching_policy;
+        impl::MatcherImpl* impl() { return m_impl.get(); }        
+       
         // pointer to implementation
-        std::unique_ptr<impl::MatcherImpl> m_impl;        
+        std::unique_ptr<impl::MatcherImpl> m_impl;
+         // matching policy
+        std::unique_ptr<MatchingPolicyBase> m_matching_policy;
     };       
 }
 #endif

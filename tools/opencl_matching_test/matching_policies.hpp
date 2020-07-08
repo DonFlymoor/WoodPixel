@@ -26,7 +26,9 @@ namespace ocl_template_matching
 			std::size_t platform_id() const override;
 			std::size_t device_id() const override;
 
-			bool uses_opencl() const { return true; }
+			bool uses_opencl() const override { return true; }
+			void initialize_opencl_state(const std::shared_ptr<simple_cl::cl::Context>& clcontext) override;
+			void cleanup_opencl_state() override;
 
 			void compute_response(
 				const Texture& texture, 
@@ -34,8 +36,7 @@ namespace ocl_template_matching
 				const Texture& kernel, 
 				const cv::Mat& kernel_mask, 
 				double texture_rotation, 
-				MatchingResult& match_res_out, 
-				simple_cl::cl::Context* clcontext
+				MatchingResult& match_res_out
 			) override;
 
 			void find_best_matches(MatchingResult& match_res_out) override;

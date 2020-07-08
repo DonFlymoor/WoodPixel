@@ -15,27 +15,26 @@ namespace ocl_template_matching
 				m_context(nullptr)
 			{
 				if(m_matching_policy->uses_opencl())
+				{
 					m_context = simple_cl::cl::Context::createInstance(m_matching_policy->platform_id(), m_matching_policy->device_id());
-			};
+					m_matching_policy->initialize_opencl_state(m_context);
+				}
+			}
+
+			~MatcherImpl()
+			{
+			}
 
 			void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result)
-			{
-				if(m_matching_policy->uses_opencl())
-				{
-					// calculate response
-					m_matching_policy->compute_response(texture, texture_mask, kernel, kernel_mask, texture_rotation, result, m_context.get());
-					// extract best matches
-					m_matching_policy->find_best_matches(result, m_context.get());
-				}
-				else
-				{
-					// calculate response
-					m_matching_policy->compute_response(texture, texture_mask, kernel, kernel_mask, texture_rotation, result);
-					// extract best matches
-					m_matching_policy->find_best_matches(result);
-				}
+			{				
+				// calculate response
+				m_matching_policy->compute_response(texture, texture_mask, kernel, kernel_mask, texture_rotation, result);
+				// extract best matches
+				m_matching_policy->find_best_matches(result);				
 			};
+
 		private:
+
 			MatchingPolicyBase* m_matching_policy;
 			std::shared_ptr<simple_cl::cl::Context> m_context;
 		};
@@ -46,10 +45,10 @@ namespace ocl_template_matching
 // ----------------------------------------- INTERFACE --------------------------------------------------
 
 ocl_template_matching::Matcher::Matcher(std::unique_ptr<MatchingPolicyBase>&& matching_policy) :
-	m_impl(new impl::MatcherImpl(matching_policy.get())),
-	m_matching_policy(std::move(matching_policy))
+	m_matching_policy(std::move(matching_policy)),
+	m_impl(new impl::MatcherImpl(matching_policy.get()))
+	
 {
-
 }
 
 ocl_template_matching::Matcher::Matcher(Matcher&& other) noexcept :

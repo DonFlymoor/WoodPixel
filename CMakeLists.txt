@@ -5,6 +5,10 @@ SET(PROJECT_NAME texture_remix_optimizer)
 
 PROJECT(${PROJECT_NAME})
 
+# ------------------------------- ADDITIONAL CMAKE SCRIPTS --------------------------
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+# ------------------------------- GENERAL PROJECT SETTINGS --------------------------
 SET(CMAKE_CONFIGURATION_TYPES "Release;Debug;RelWithDebInfo" CACHE STRING "Semicolon separated list of configuration types" FORCE)
 
 SET(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

@@ -1,0 +1,8 @@
+#ifndef _CL_KERNEL_${kernel_name}_HPP_
+#define _CL_KERNEL_${kernel_name}_HPP_
+namespace kernels
+{
+	const char* ${kernel_name}_src = R"(${kernel_source})";
+	const char* ${kernel_name}_copt = "${kernel_compiler_options}";
+}
+#endif

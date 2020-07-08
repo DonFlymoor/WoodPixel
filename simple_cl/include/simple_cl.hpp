@@ -670,10 +670,10 @@ namespace simple_cl
 			*/
 			struct CLKernelInfo
 			{
-				std::size_t max_work_group_size;				///< Maximum number of threads in a work group for this kernel.
-				std::size_t local_memory_usage;					///< Total local memory usage of this kernel.
-				std::size_t private_memory_usage;				///< Total private memory usage of this kernel.
-				std::size_t preferred_work_group_size_multiple;	///< Preferred work group size. Work groups should be a multiple of this size and smaller than max_work_group_size. Total local memory used is another limitation to keep in mind.
+				std::size_t max_work_group_size = 0ull;					///< Maximum number of threads in a work group for this kernel.
+				std::size_t local_memory_usage = 0ull;					///< Total local memory usage of this kernel.
+				std::size_t private_memory_usage = 0ull;				///< Total private memory usage of this kernel.
+				std::size_t preferred_work_group_size_multiple = 0ull;	///< Preferred work group size. Work groups should be a multiple of this size and smaller than max_work_group_size. Total local memory used is another limitation to keep in mind.
 			};
 
 			/**
@@ -683,6 +683,7 @@ namespace simple_cl
 			class CLKernelHandle
 			{
 			public:
+				CLKernelHandle() noexcept = default;
 				CLKernelHandle(const CLKernelHandle& other) noexcept = default;
 				CLKernelHandle& operator=(const CLKernelHandle& other) noexcept = default;
 				~CLKernelHandle() noexcept = default;
@@ -691,7 +692,7 @@ namespace simple_cl
 			private:
 				friend class Program;
 				explicit CLKernelHandle(cl_kernel kernel, const CLKernelInfo& kernel_info) noexcept : m_kernel{kernel}, m_kernel_info{kernel_info} {}
-				cl_kernel m_kernel;
+				cl_kernel m_kernel = nullptr;
 				CLKernelInfo m_kernel_info;
 			};
 
@@ -771,6 +772,7 @@ namespace simple_cl
 			template <typename ... ArgTypes>
 			Event operator()(const CLKernelHandle& kernel, const ExecParams& exec_params, const ArgTypes&... args)
 			{
+				assert(kernel.m_kernel);
 				static_assert(simple_cl::meta::conjunction<is_valid_kernel_arg<ArgTypes>...>::value, "[Program]: Incompatible kernel argument type.");					
 				// unpack args
 				setKernelArgs<std::size_t{0}, ArgTypes...>(kernel.m_kernel, args...);
@@ -824,6 +826,7 @@ namespace simple_cl
 			*/
 			Event operator()(const CLKernelHandle& kernel, const ExecParams& exec_params)
 			{					
+				assert(kernel.m_kernel);
 				// invoke kernel
 				m_event_cache.clear();
 				return invoke(kernel.m_kernel, m_event_cache, exec_params);					
@@ -894,6 +897,7 @@ namespace simple_cl
 			template <typename DependencyIterator, typename ... ArgTypes>
 			Event operator()(const CLKernelHandle& kernel, DependencyIterator start_dep_iterator, DependencyIterator end_dep_iterator, const ExecParams& exec_params, const ArgTypes&... args)
 			{
+				assert(kernel.m_kernel);
 				static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DependencyIterator>::value_type>, Event>::value, "[Program]: Dependency iterators must refer to a collection of Event objects.");
 				static_assert(simple_cl::meta::conjunction<is_valid_kernel_arg<ArgTypes>...>::value, "[Program]: Incompatible kernel argument type.");					
 				// unpack args
@@ -961,6 +965,7 @@ namespace simple_cl
 			template <typename DependencyIterator>
 			Event operator()(const CLKernelHandle& kernel, DependencyIterator start_dep_iterator, DependencyIterator end_dep_iterator, const ExecParams& exec_params)
 			{				
+				assert(kernel.m_kernel);
 				static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DependencyIterator>::value_type>, Event>::value, "[Program]: Dependency iterators must refer to a collection of Event objects.");
 				// invoke kernel
 				m_event_cache.clear();

@@ -686,6 +686,7 @@ simple_cl::cl::Program::CLKernelInfo simple_cl::cl::Program::getKernelInfo(const
 
 simple_cl::cl::Program::CLKernelInfo simple_cl::cl::Program::getKernelInfo(const CLKernelHandle& kernel) const
 {
+	assert(kernel.m_kernel);
 	return kernel.m_kernel_info;
 }
 

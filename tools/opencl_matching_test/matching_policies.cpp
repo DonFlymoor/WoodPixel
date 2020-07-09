@@ -448,9 +448,9 @@ namespace ocl_template_matching
 			simple_cl::cl::Event ocl_template_matching::matching_policies::impl::CLMatcherImpl::read_output_image(cv::Mat& out_mat, const cv::Vec3i& output_size, const std::vector<simple_cl::cl::Event>& wait_for)
 			{
 				// resize output if necessary
-				if((static_cast<std::size_t>(output_size[0]) != m_output_buffer->width()) ||
-					(static_cast<std::size_t>(output_size[1]) != m_output_buffer->height()) ||
-					(static_cast<std::size_t>(output_size[2]) != 1ull))
+				if((output_size[0] != out_mat.cols) ||
+					(output_size[1] != out_mat.rows) ||
+					(output_size[2] != out_mat.channels()))
 				{
 					out_mat = cv::Mat(output_size[1], output_size[0], CV_32FC1);
 				}
@@ -519,7 +519,9 @@ namespace ocl_template_matching
 					tex_mask_image,
 					kernel_mask_image,
 					*m_output_buffer,
-					static_cast<float>(texture_rotation)
+					cl_int2{static_cast<int>(input_image_desc.dimensions.width), static_cast<int>(input_image_desc.dimensions.height)},
+					cl_int2{static_cast<int>(kernel_image_desc.dimensions.width), static_cast<int>(kernel_image_desc.dimensions.height)},
+					cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
 				);
 				// read result
 				
@@ -563,14 +565,16 @@ namespace ocl_template_matching
 					{8ull, 8ull, 1ull}
 				};
 				simple_cl::cl::Event compute_finished = (*m_program_naive_sqdiff)(
-					m_kernel_naive_sqdiff_both_masks,
+					m_kernel_naive_sqdiff_tex_mask,
 					pre_compute_events.begin(), pre_compute_events.end(),
 					exec_params,
 					input_image,
 					kernel_image,
 					tex_mask_image,
 					*m_output_buffer,
-					static_cast<float>(texture_rotation)
+					cl_int2{static_cast<int>(input_image_desc.dimensions.width), static_cast<int>(input_image_desc.dimensions.height)},
+					cl_int2{static_cast<int>(kernel_image_desc.dimensions.width), static_cast<int>(kernel_image_desc.dimensions.height)},
+					cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
 					);
 					// read result
 
@@ -614,14 +618,16 @@ namespace ocl_template_matching
 					{8ull, 8ull, 1ull}
 				};
 				simple_cl::cl::Event compute_finished = (*m_program_naive_sqdiff)(
-					m_kernel_naive_sqdiff_both_masks,
+					m_kernel_naive_sqdiff_kernel_mask,
 					pre_compute_events.begin(), pre_compute_events.end(),
 					exec_params,
 					input_image,
 					kernel_image,
 					kernel_mask_image,
 					*m_output_buffer,
-					static_cast<float>(texture_rotation)
+					cl_int2{static_cast<int>(input_image_desc.dimensions.width), static_cast<int>(input_image_desc.dimensions.height)},
+					cl_int2{static_cast<int>(kernel_image_desc.dimensions.width), static_cast<int>(kernel_image_desc.dimensions.height)},
+					cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
 					);
 					// read result
 
@@ -660,19 +666,26 @@ namespace ocl_template_matching
 					{static_cast<std::size_t>(out_dims[0]), static_cast<std::size_t>(out_dims[1]), 1ull},
 					{8ull, 8ull, 1ull}
 				};
+				// debug stuff. remove.
+				simple_cl::cl::wait_for_events(pre_compute_events.begin(), pre_compute_events.end());
+				auto t1 = std::chrono::high_resolution_clock::now();
 				simple_cl::cl::Event compute_finished = (*m_program_naive_sqdiff)(
-					m_kernel_naive_sqdiff_both_masks,
-					pre_compute_events.begin(), pre_compute_events.end(),
+					m_kernel_naive_sqdiff_no_mask,
+					//pre_compute_events.begin(), pre_compute_events.end(),
 					exec_params,
 					input_image,
 					kernel_image,
 					*m_output_buffer,
-					static_cast<float>(texture_rotation)
-					);
-					// read result
+					cl_int2{static_cast<int>(input_image_desc.dimensions.width), static_cast<int>(input_image_desc.dimensions.height)},
+					cl_int2{static_cast<int>(kernel_image_desc.dimensions.width), static_cast<int>(kernel_image_desc.dimensions.height)},
+					cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
+				);
+				compute_finished.wait();
+				std::cout << "Kernel Exec Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t1).count() << " ms!!!\n";
+				// read result
 
 				pre_compute_events.clear();
-				pre_compute_events.push_back(std::move(compute_finished));
+				//pre_compute_events.push_back(std::move(compute_finished));
 				read_output_image(match_res_out.total_cost_matrix, out_dims, pre_compute_events).wait();
 			}
 			

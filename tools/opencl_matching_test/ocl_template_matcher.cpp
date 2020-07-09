@@ -25,12 +25,36 @@ namespace ocl_template_matching
 			{
 			}
 
-			void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result)
+			void match(const Texture& texture, const Texture& kernel, double texture_rotation, MatchingResult& result)
 			{				
+				// calculate response
+				m_matching_policy->compute_response(texture, kernel, texture_rotation, result);
+				// extract best matches
+				m_matching_policy->find_best_matches(result);				
+			};
+
+			void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& result)
+			{
+				// calculate response
+				m_matching_policy->compute_response(texture, texture_mask, kernel, texture_rotation, result);
+				// extract best matches
+				m_matching_policy->find_best_matches(result);
+			};
+
+			void match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result)
+			{
+				// calculate response
+				m_matching_policy->compute_response(texture,  kernel, kernel_mask, texture_rotation, result);
+				// extract best matches
+				m_matching_policy->find_best_matches(result);
+			};
+
+			void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result)
+			{
 				// calculate response
 				m_matching_policy->compute_response(texture, texture_mask, kernel, kernel_mask, texture_rotation, result);
 				// extract best matches
-				m_matching_policy->find_best_matches(result);				
+				m_matching_policy->find_best_matches(result);
 			};
 
 		private:
@@ -71,11 +95,19 @@ ocl_template_matching::Matcher::~Matcher() noexcept
 {
 }
 
-ocl_template_matching::MatchingResult ocl_template_matching::Matcher::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation)
+void ocl_template_matching::Matcher::match(const Texture& texture, const Texture& kernel, double texture_rotation, MatchingResult& result)
 {
-	MatchingResult result;
-	impl()->match(texture, texture_mask, kernel, kernel_mask, texture_rotation, result);
-	return result;
+	impl()->match(texture, kernel, texture_rotation, result);
+}
+
+void ocl_template_matching::Matcher::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& result)
+{
+	impl()->match(texture, texture_mask, kernel, texture_rotation, result);
+}
+
+void ocl_template_matching::Matcher::match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result)
+{
+	impl()->match(texture, kernel, kernel_mask, texture_rotation, result);
 }
 
 void ocl_template_matching::Matcher::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result)

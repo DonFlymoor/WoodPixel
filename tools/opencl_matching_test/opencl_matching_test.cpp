@@ -14,5 +14,7 @@ int main()
 	ocl_template_matching::Matcher matcher(std::unique_ptr<ocl_template_matching::matching_policies::CLMatcher>(
 			new ocl_template_matching::matching_policies::CLMatcher(ocl_template_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits, 2000000000)
 		));
+
+	// create test texture and kernel
 	std::cout << "Weow!";
 }

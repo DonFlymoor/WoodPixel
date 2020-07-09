@@ -744,6 +744,10 @@ void simple_cl::cl::Event::wait() const
 	CL_EX(clWaitForEvents(1, &m_event));
 }
 
+void simple_cl::cl::Event::wait_for_events_(const std::vector<cl_event>& events)
+{
+	CL_EX(clWaitForEvents(static_cast<cl_uint>(events.size()), events.data()));
+}
 #pragma endregion
 
 #pragma region class Buffer

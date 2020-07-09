@@ -83,12 +83,20 @@ namespace ocl_template_matching
         //virtual void find_best_matches(MatchingResult& match_res_out, const std::shared_ptr<simple_cl::cl::Context>&) {}
 
         // calculate response dimensions
-        virtual cv::Vec3i response_dimensions(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation) const = 0;
+        virtual cv::Vec3i response_dimensions(const Texture& texture, const Texture& kernel, double texture_rotation) const = 0;
         // report OpenCV datatype for response mat
-        virtual match_response_cv_mat_t response_image_data_type(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation) const = 0;
+        virtual match_response_cv_mat_t response_image_data_type(const Texture& texture, const Texture& kernel, double texture_rotation) const = 0;
 
         // without opencl
-        virtual void compute_response(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& match_res_out) {}
+        // no masks
+        virtual void compute_response(const Texture& texture, const Texture& kernel, double texture_rotation, MatchingResult& match_res_out) = 0;
+        // only texture mask
+        virtual void compute_response(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& match_res_out) = 0;
+        // only kernel mask
+        virtual void compute_response(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& match_res_out) = 0;
+        // both texture and kernel mask
+        virtual void compute_response(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& match_res_out) = 0;
+        // find best matches
         virtual void find_best_matches(MatchingResult& match_res_out) {}
     };
     MatchingPolicyBase::~MatchingPolicyBase() noexcept { cleanup_opencl_state(); }
@@ -106,7 +114,9 @@ namespace ocl_template_matching
         Matcher& operator=(Matcher&& other) noexcept;
         ~Matcher() noexcept;
 
-        MatchingResult match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation);
+        void match(const Texture& texture,const Texture& kernel,double texture_rotation, MatchingResult& result);
+        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& result);
+        void match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result);
         void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result);
 
         template <typename ConcretePolicy>

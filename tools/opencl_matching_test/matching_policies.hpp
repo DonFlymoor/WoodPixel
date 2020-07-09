@@ -39,21 +39,40 @@ namespace ocl_template_matching
 				MatchingResult& match_res_out
 			) override;
 
+			void compute_response(
+				const Texture& texture,
+				const Texture& kernel,
+				double texture_rotation,
+				MatchingResult& match_res_out
+			) override;
+
+			void compute_response(
+				const Texture& texture,
+				const cv::Mat& texture_mask,
+				const Texture& kernel,
+				double texture_rotation,
+				MatchingResult& match_res_out
+			) override;
+
+			void compute_response(
+				const Texture& texture,
+				const Texture& kernel,
+				const cv::Mat& kernel_mask,
+				double texture_rotation,
+				MatchingResult& match_res_out
+			) override;
+
 			void find_best_matches(MatchingResult& match_res_out) override;
 
 			cv::Vec3i response_dimensions(
 				const Texture& texture,
-				const cv::Mat& texture_mask,
 				const Texture& kernel,
-				const cv::Mat& kernel_mask,
 				double texture_rotation
 			) const override;
 
 			match_response_cv_mat_t response_image_data_type(
 				const Texture& texture,
-				const cv::Mat& texture_mask,
 				const Texture& kernel,
-				const cv::Mat& kernel_mask,
 				double texture_rotation
 			) const override;
 

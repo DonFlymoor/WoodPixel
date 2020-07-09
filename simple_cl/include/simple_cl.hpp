@@ -625,6 +625,12 @@ namespace simple_cl
 		class Event
 		{
 			friend class Program;
+			friend class Buffer;
+			friend class Image;
+
+			template<typename DepIterator>
+			friend void wait_for_events(DepIterator, DepIterator);
+
 		public:
 			/**
 			* \brief Constructs a new handle.
@@ -647,8 +653,28 @@ namespace simple_cl
 			*/
 			void wait() const;
 		private:
+			/// Used by wait_for_events<T> free function
+			static void wait_for_events_(const std::vector<cl_event>& events);
 			cl_event m_event; ///< Handled cl_event object.
 		};
+
+		/**
+		 *	\brief						Waits for a collection of Event's.
+		 *	\tparam DependencyIterator	Iterator which refers to a collection of Event's.
+		 *	\param begin				Begin of collection.
+		 *	\param end					End of collection.
+		*/
+		template <typename DepIterator>
+		inline void wait_for_events(DepIterator begin, DepIterator end)
+		{
+			static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, Event>::value, "[Program]: Dependency iterators must refer to a collection of Event objects.");
+			static std::vector<cl_event> event_cache;
+			event_cache.clear();
+			for(DepIterator it{begin}; it != end; ++it)
+				if(it->m_event)
+					event_cache.push_back(it->m_event);
+			Event::wait_for_events_(event_cache);
+		}
 
 		/**
 		* \brief Compiles OpenCL-C source code and extracts kernel functions from this source. Found kernels can then be conveniently invoked using the call operator.
@@ -863,7 +889,8 @@ namespace simple_cl
 					// invoke kernel
 					m_event_cache.clear();
 					for(DependencyIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
-						m_event_cache.push_back(it->m_event);
+						if(it->m_event)
+							m_event_cache.push_back(it->m_event);
 					return invoke(m_kernels.at(name).kernel, m_event_cache, exec_params);
 				}
 				catch(const std::out_of_range&) // kernel name wasn't found
@@ -906,7 +933,8 @@ namespace simple_cl
 				// invoke kernel
 				m_event_cache.clear();
 				for(DependencyIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
-					m_event_cache.push_back(it->m_event);
+					if(it->m_event)
+						m_event_cache.push_back(it->m_event);
 				return invoke(kernel.m_kernel, m_event_cache, exec_params);					
 			}
 
@@ -934,7 +962,8 @@ namespace simple_cl
 					// invoke kernel
 					m_event_cache.clear();
 					for(DependencyIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
-						m_event_cache.push_back(it->m_event);
+						if(it->m_event)
+							m_event_cache.push_back(it->m_event);
 					return invoke(m_kernels.at(name).kernel, m_event_cache, exec_params);
 				}
 				catch(const std::out_of_range&) // kernel name wasn't found
@@ -970,7 +999,8 @@ namespace simple_cl
 				// invoke kernel
 				m_event_cache.clear();
 				for(DependencyIterator it{start_dep_iterator}; it != end_dep_iterator; ++it)
-					m_event_cache.push_back(it->m_event);
+					if(it->m_event)
+						m_event_cache.push_back(it->m_event);
 				return invoke(kernel.m_kernel, m_event_cache, exec_params);
 			}
 
@@ -1357,7 +1387,8 @@ namespace simple_cl
 			static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, Event>::value, "[Image]: Dependency iterators must refer to a collection of Event objects.");
 			m_event_cache.clear();
 			for(DepIterator it{dep_begin}; it != dep_end; ++it)
-				m_event_cache.push_back(it->m_event);
+				if(it->m_event)
+					m_event_cache.push_back(it->m_event);
 			return buf_write(data, length, offset, invalidate);
 		}
 
@@ -1367,7 +1398,8 @@ namespace simple_cl
 			static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, Event>::value, "[Image]: Dependency iterators must refer to a collection of Event objects.");
 			m_event_cache.clear();
 			for(DepIterator it{dep_begin}; it != dep_end; ++it)
-				m_event_cache.push_back(it->m_event);
+				if(it->m_event)
+					m_event_cache.push_back(it->m_event);
 			return buf_read(data, length, offset);
 		}
 
@@ -1417,7 +1449,8 @@ namespace simple_cl
 			static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, Event>::value, "[Image]: Dependency iterators must refer to a collection of Event objects.");
 			m_event_cache.clear();
 			for(DepIterator it{dep_begin}; it != dep_end; ++it)
-				m_event_cache.push_back(it->m_event);
+				if(it->m_event)
+					m_event_cache.push_back(it->m_event);
 			using elem_t = typename std::iterator_traits<DataIterator>::value_type;
 			static_assert(std::is_standard_layout<elem_t>::value, "[Buffer]: Types read and written from and to OpenCL buffers must have standard layout.");
 			std::size_t datasize = static_cast<std::size_t>(std::distance(data_begin, data_end)) * sizeof(elem_t);
@@ -1439,7 +1472,8 @@ namespace simple_cl
 			static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, Event>::value, "[Image]: Dependency iterators must refer to a collection of Event objects.");
 			m_event_cache.clear();
 			for(DepIterator it{dep_begin}; it != dep_end; ++it)
-				m_event_cache.push_back(it->m_event);
+				if(it->m_event)
+					m_event_cache.push_back(it->m_event);
 			using elem_t = typename std::iterator_traits<DataIterator>::value_type;
 			static_assert(std::is_standard_layout<elem_t>::value, "[Buffer]: Types read and written from and to OpenCL buffers must have standard layout.");
 			std::size_t datasize = num_elements * sizeof(elem_t);
@@ -1569,8 +1603,8 @@ namespace simple_cl
 			*/
 			struct HostPitch
 			{
-				std::size_t row_pitch{0ull};	///< Pitch (length) of one row of the host image, may be larger than its pixel width.
-				std::size_t slice_pitch{0ull};	///< Pitch (length) of one slice (or layer in case of an image array) of the host image, may be larger than height * row_pitch.
+				std::size_t row_pitch{0ull};	///< Pitch (length) of one row of the host image, may only be larger than its pixel width.
+				std::size_t slice_pitch{0ull};	///< Pitch (length) of one slice (or layer in case of an image array) of the host image, may only be larger than height * row_pitch.
 			};
 
 			/**
@@ -1618,6 +1652,7 @@ namespace simple_cl
 			/**
 				*	\brief	Defines the number and order of color channels of a host image. 
 				*	\todo	Add constructor overloads for convenient instantiation.
+				*	\todo	Provide some constexpr pre defined channel orders which are most common.
 			*/
 			struct HostChannelOrder
 			{
@@ -1888,7 +1923,8 @@ namespace simple_cl
 			static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, Event>::value, "[Image]: Dependency iterators must refer to a collection of Event objects.");
 			m_event_cache.clear();
 			for(DepIterator it{dep_begin}; it != dep_end; ++it)
-				m_event_cache.push_back(it->m_event);
+				if(it->m_event)
+					m_event_cache.push_back(it->m_event);
 			return img_write(img_region, format, data_ptr, default_value);
 		}
 
@@ -1898,7 +1934,8 @@ namespace simple_cl
 			static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, Event>::value, "[Image]: Dependency iterators must refer to a collection of Event objects.");
 			m_event_cache.clear();
 			for(DepIterator it{dep_begin}; it != dep_end; ++it)
-				m_event_cache.push_back(it->m_event);
+				if(it->m_event)
+					m_event_cache.push_back(it->m_event);
 			return img_read(img_region, format, data_ptr, default_value);
 		}
 

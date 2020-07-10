@@ -1760,14 +1760,15 @@ namespace simple_cl
 			*	\param	img_region		Image region (offset and dimensions) of the target image to be written.
 			*	\param	format			Host channel data type, channel order and pitch of the host memory region wher the data is read from.
 			*	\param	data_ptr		Pointer to imagedata that shall be written into the specified image region.
-			*	\param	invalidate		If true, the whole image region is invalidated which can improve write performance.
+			*	\param		blocking		If true, this function blocks until the operation is finished. Otherwise, it returns immediately.
+			*	\attention					Make sure data_ptr stays valid until the operation is finished when blocking is false! Otherwise this may cause access violations.
 			*	\param	default_value	Currently ignored.
 			*
 			*	\return					Returns a Event object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
 			*
 			*	\note default_value is currently ignored until the automatic conversion feature is implemented.
 			*/
-			inline Event write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+			inline Event write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool blocking = true, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 
 			/**
 			*	\brief	Reads data from the image.
@@ -1779,13 +1780,15 @@ namespace simple_cl
 			*	\param		img_region		Image region (offset and dimensions) of the target image to be read.
 			*	\param		format			Host channel data type, channel order and pitch of the host memory region where the data should be written to.
 			*	\param[out]	data_ptr		Pointer to imagedata that shall be written.
+			*	\param		blocking		If true, this function blocks until the operation is finished. Otherwise, it returns immediately.
+			*	\attention					Make sure data_ptr stays valid until the operation is finished when blocking is false! Otherwise this may cause access violations.
 			*	\param		default_value	Currently ignored.
 			*
 			*	\return					Returns a Event object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
 			*
 			*	\note default_value is currently ignored until the automatic conversion feature is implemented.
 			*/
-			inline Event read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+			inline Event read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, bool blocking = true, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 				
 			/**
 			*	\brief	Writes data into the image after waiting on a list of Event's.
@@ -1799,7 +1802,8 @@ namespace simple_cl
 			*	\param	data_ptr		Pointer to imagedata that shall be written into the specified image region.
 			*	\param	dep_begin		Begin iterator of Event collection.
 			*	\param	dep_end			End iterator of Event collection.
-			*	\param	invalidate		If true, the whole image region is invalidated which can improve write performance.
+			*	\param	blocking		If true, this function blocks until the operation is finished. Otherwise, it returns immediately.
+			*	\attention				Make sure data_ptr stays valid until the operation is finished when blocking is false! Otherwise this may cause access violations.
 			*	\param	default_value	Currently ignored.
 			*
 			*	\return					Returns a Event object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
@@ -1807,7 +1811,7 @@ namespace simple_cl
 			*	\note default_value is currently ignored until the automatic conversion feature is implemented.
 			*/
 			template<typename DepIterator>
-			inline Event write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, DepIterator dep_begin, DepIterator dep_end, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+			inline Event write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, DepIterator dep_begin, DepIterator dep_end, bool blocking = true, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 				
 			/**
 			*	\brief	Reads data from the image after waiting on a list of Event's.
@@ -1822,6 +1826,8 @@ namespace simple_cl
 			*	\param[out]	data_ptr		Pointer to imagedata that shall be written.
 			*	\param		dep_begin		Begin iterator of Event collection.
 			*	\param		dep_end			End iterator of Event collection.
+			*	\param		blocking		If true, this function blocks until the operation is finished. Otherwise, it returns immediately.
+			*	\attention					Make sure data_ptr stays valid until the operation is finished when blocking is false! Otherwise this may cause access violations.
 			*	\param		default_value	Currently ignored.
 			*
 			*	\return						Returns a Event object which can be waited upon either by other OpenCL operations or explicitely to block until the data is synchronized with OpenCL.
@@ -1829,7 +1835,7 @@ namespace simple_cl
 			*	\note default_value is currently ignored until the automatic conversion feature is implemented.
 			*/
 			template<typename DepIterator>
-			inline Event read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, DepIterator dep_begin, DepIterator dep_end, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+			inline Event read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, DepIterator dep_begin, DepIterator dep_end, bool blocking = true, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 
 			/**
 			*	\brief Represents a color value for e.g. filling an image with a constant color.
@@ -1889,10 +1895,20 @@ namespace simple_cl
 			*/
 			const void* arg_data() const { return &m_image; }
 		private:
+			/** 
+			*	\brief	Implementation of image write operations (using clEnqueueMapImage).
+			*	\bug	Seems to be buggy for image2D arrays. No matter how I set origin[2], it always maps the first array slice.
+			*/
+			Event img_write_mapped(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+			/**
+			*	\brief	Implementation of image read operations (using clEnqueueMapImage).
+			*	\bug	Seems to be buggy for image2D arrays. No matter how I set origin[2], it always maps the first array slice.
+			*/
+			Event img_read_mapped(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 			/// Implementation of image write operations.
-			Event img_write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool invalidate = false, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+			Event img_write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool blocking = true, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 			///	Implementation of image read operations.
-			Event img_read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
+			Event img_read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, bool blocking = true, ChannelDefaultValue default_value = ChannelDefaultValue::Zeros);
 			/// Implementation of image fill operation.
 			Event img_fill(const FillColor& color, const ImageRegion& img_region);
 
@@ -1905,38 +1921,38 @@ namespace simple_cl
 			std::shared_ptr<Context> m_cl_state;	///< Shared pointer to a valid instance of Context.
 		};
 
-		inline Event simple_cl::cl::Image::write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool invalidate, ChannelDefaultValue default_value)
+		inline Event simple_cl::cl::Image::write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool blocking, ChannelDefaultValue default_value)
 		{
 			m_event_cache.clear();
-			return img_write(img_region, format, data_ptr, invalidate, default_value);
+			return img_write(img_region, format, data_ptr, blocking, default_value);
 		}
 
-		inline Event simple_cl::cl::Image::read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value)
+		inline Event simple_cl::cl::Image::read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, bool blocking, ChannelDefaultValue default_value)
 		{
 			m_event_cache.clear();
-			return img_read(img_region, format, data_ptr, default_value);
+			return img_read(img_region, format, data_ptr, blocking, default_value);
 		}
 
 		template<typename DepIterator>
-		inline Event simple_cl::cl::Image::write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, DepIterator dep_begin, DepIterator dep_end, bool invalidate, ChannelDefaultValue default_value)
+		inline Event simple_cl::cl::Image::write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, DepIterator dep_begin, DepIterator dep_end, bool blocking, ChannelDefaultValue default_value)
 		{
 			static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, Event>::value, "[Image]: Dependency iterators must refer to a collection of Event objects.");
 			m_event_cache.clear();
 			for(DepIterator it{dep_begin}; it != dep_end; ++it)
 				if(it->m_event)
 					m_event_cache.push_back(it->m_event);
-			return img_write(img_region, format, data_ptr, default_value);
+			return img_write_mapped(img_region, format, data_ptr, default_value);
 		}
 
 		template<typename DepIterator>
-		inline Event simple_cl::cl::Image::read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, DepIterator dep_begin, DepIterator dep_end, ChannelDefaultValue default_value)
+		inline Event simple_cl::cl::Image::read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, DepIterator dep_begin, DepIterator dep_end, bool blocking, ChannelDefaultValue default_value)
 		{
 			static_assert(std::is_same<meta::bare_type_t<typename std::iterator_traits<DepIterator>::value_type>, Event>::value, "[Image]: Dependency iterators must refer to a collection of Event objects.");
 			m_event_cache.clear();
 			for(DepIterator it{dep_begin}; it != dep_end; ++it)
 				if(it->m_event)
 					m_event_cache.push_back(it->m_event);
-			return img_read(img_region, format, data_ptr, default_value);
+			return img_read_mapped(img_region, format, data_ptr, default_value);
 		}
 
 		inline std::size_t Image::get_image_channel_type_size(const Image::ImageChannelType type)

@@ -958,7 +958,7 @@ bool simple_cl::cl::Image::match_format(const HostFormat& format)
 	return true;
 }
 
-simple_cl::cl::Event simple_cl::cl::Image::img_write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool invalidate, ChannelDefaultValue default_value)
+simple_cl::cl::Event simple_cl::cl::Image::img_write_mapped(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool invalidate, ChannelDefaultValue default_value)
 {
 	if(m_image_desc.flags.host_access == HostAccess::NoAccess || m_image_desc.flags.host_access == HostAccess::ReadOnly)
 		throw std::runtime_error("[Image]: Host is not allowed to write this image.");
@@ -1071,7 +1071,69 @@ simple_cl::cl::Event simple_cl::cl::Image::img_write(const ImageRegion& img_regi
 	return Event{map_event};
 }
 
-simple_cl::cl::Event simple_cl::cl::Image::img_read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value)
+simple_cl::cl::Event simple_cl::cl::Image::img_write(const ImageRegion& img_region, const HostFormat& format, const void* data_ptr, bool blocking, ChannelDefaultValue default_value)
+{
+	if(m_image_desc.flags.host_access == HostAccess::NoAccess || m_image_desc.flags.host_access == HostAccess::ReadOnly)
+		throw std::runtime_error("[Image]: Host is not allowed to write this image.");
+	if(!(img_region.dimensions.width && img_region.dimensions.height && img_region.dimensions.depth))
+		throw std::runtime_error("[Image]: Write failed, region is empty.");
+	// check if region matches
+	if((img_region.offset.offset_width + img_region.dimensions.width > m_image_desc.dimensions.width) ||
+		(img_region.offset.offset_height + img_region.dimensions.height > m_image_desc.dimensions.height) ||
+		(img_region.offset.offset_depth + img_region.dimensions.depth > m_image_desc.dimensions.depth))
+		throw std::runtime_error("[Image]: Write failed. Input region exceeds image dimensions.");
+	// handle wrong pitch values
+	if((m_image_desc.type == ImageType::Image1D || m_image_desc.type == ImageType::Image2D) && format.pitch.slice_pitch != 0ull)
+		throw std::runtime_error("[Image]: Slice pitch must be 0 for 1D or 2D images.");
+
+	// ensure matching image format
+	if(!match_format(format))
+		throw std::runtime_error("[Image]: Write failed. Host format doesn't match image format.");
+
+	// for parameterization of clEnqueueMapImage
+	std::size_t origin[]{img_region.offset.offset_width, img_region.offset.offset_height, img_region.offset.offset_depth};
+	std::size_t region[]{img_region.dimensions.width, img_region.dimensions.height, img_region.dimensions.depth};
+
+	// pixel sizes for cl and host
+	std::size_t cl_component_size = get_image_channel_type_size(m_image_desc.channel_type);
+	std::size_t host_component_size = get_host_channel_type_size(format.channel_type);
+	std::size_t cl_num_components = get_num_image_pixel_components(m_image_desc.channel_order);
+	std::size_t host_num_components = get_num_host_pixel_components(format.channel_order);
+	std::size_t cl_pixel_size = cl_component_size * cl_num_components;
+	std::size_t host_pixel_size = host_component_size * host_num_components;
+
+	// pitches for host in bytes
+	std::size_t host_row_pitch = (format.pitch.row_pitch != 0ull ? format.pitch.row_pitch : img_region.dimensions.width * host_pixel_size);
+	if(host_row_pitch < img_region.dimensions.width * host_pixel_size)
+		throw std::runtime_error("[Image]: Row pitch must be >= region width * bytes per pixel.");
+	std::size_t host_slice_pitch = (format.pitch.slice_pitch != 0ull ? format.pitch.slice_pitch : img_region.dimensions.height * host_row_pitch);
+	if(host_slice_pitch < img_region.dimensions.height * host_row_pitch)
+		throw std::runtime_error("[Image]: Row pitch must be >= height * host row pitch.");
+
+	// map image region
+	cl_event write_event;
+	std::size_t row_pitch{0ull};
+	std::size_t slice_pitch{0ull};
+	// cast mapped pointer to uint8_t. This way we are allowed to do byte-wise pointer arithmetic.
+	CL_EX(clEnqueueWriteImage(
+		m_cl_state->command_queue(),
+		m_image,
+		blocking ? CL_TRUE : CL_FALSE,
+		&origin[0],
+		&region[0],
+		host_row_pitch,
+		host_slice_pitch,
+		data_ptr,
+		static_cast<cl_uint>(m_event_cache.size()),
+		(m_event_cache.size() > 0ull ? m_event_cache.data() : nullptr),
+		&write_event
+	));	
+
+	// unmap image and return event
+	return Event{write_event};
+}
+
+simple_cl::cl::Event simple_cl::cl::Image::img_read_mapped(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, ChannelDefaultValue default_value)
 {
 	if(m_image_desc.flags.host_access == HostAccess::NoAccess || m_image_desc.flags.host_access == HostAccess::WriteOnly)
 		throw std::runtime_error("[Image]: Host is not allowed to read this image.");
@@ -1182,6 +1244,67 @@ simple_cl::cl::Event simple_cl::cl::Image::img_read(const ImageRegion& img_regio
 	// unmap image and return event
 	CL_EX(clEnqueueUnmapMemObject(m_cl_state->command_queue(), m_image, img_ptr, 0ull, nullptr, &map_event));
 	return Event{map_event};
+}
+
+simple_cl::cl::Event simple_cl::cl::Image::img_read(const ImageRegion& img_region, const HostFormat& format, void* data_ptr, bool blocking, ChannelDefaultValue default_value)
+{
+	if(m_image_desc.flags.host_access == HostAccess::NoAccess || m_image_desc.flags.host_access == HostAccess::WriteOnly)
+		throw std::runtime_error("[Image]: Host is not allowed to read this image.");
+	if(!(img_region.dimensions.width && img_region.dimensions.height && img_region.dimensions.depth))
+		throw std::runtime_error("[Image]: Read failed, region is empty.");
+	// check if region matches
+	if((img_region.offset.offset_width + img_region.dimensions.width > m_image_desc.dimensions.width) ||
+		(img_region.offset.offset_height + img_region.dimensions.height > m_image_desc.dimensions.height) ||
+		(img_region.offset.offset_depth + img_region.dimensions.depth > m_image_desc.dimensions.depth))
+		throw std::runtime_error("[Image]: Read failed. Input region exceeds image dimensions.");
+	// handle wrong pitch values
+	if((m_image_desc.type == ImageType::Image1D || m_image_desc.type == ImageType::Image2D) && format.pitch.slice_pitch != 0ull)
+		throw std::runtime_error("[Image]: Slice pitch must be 0 for 1D or 2D images.");
+
+	// ensure matching image format
+	if(!match_format(format))
+		throw std::runtime_error("[Image]: Read failed. Host format doesn't match image format.");
+
+	// for parameterization of clEnqueueMapImage
+	std::size_t origin[]{img_region.offset.offset_width, img_region.offset.offset_height, img_region.offset.offset_depth};
+	std::size_t region[]{img_region.dimensions.width, img_region.dimensions.height, img_region.dimensions.depth};
+
+	// pixel sizes for cl and host
+	std::size_t cl_component_size = get_image_channel_type_size(m_image_desc.channel_type);
+	std::size_t host_component_size = get_host_channel_type_size(format.channel_type);
+	std::size_t cl_num_components = get_num_image_pixel_components(m_image_desc.channel_order);
+	std::size_t host_num_components = get_num_host_pixel_components(format.channel_order);
+	std::size_t cl_pixel_size = cl_component_size * cl_num_components;
+	std::size_t host_pixel_size = host_component_size * host_num_components;
+
+	// pitches for host in bytes
+	std::size_t host_row_pitch = (format.pitch.row_pitch != 0ull ? format.pitch.row_pitch : img_region.dimensions.width * host_pixel_size);
+	if(host_row_pitch < img_region.dimensions.width * host_pixel_size)
+		throw std::runtime_error("[Image]: Row pitch must be >= region width * bytes per pixel.");
+	std::size_t host_slice_pitch = (format.pitch.slice_pitch != 0ull ? format.pitch.slice_pitch : img_region.dimensions.height * host_row_pitch);
+	if(host_slice_pitch < img_region.dimensions.height * host_row_pitch)
+		throw std::runtime_error("[Image]: Row pitch must be >= height * host row pitch.");
+
+	// map image region
+	cl_event read_event;
+	std::size_t row_pitch{0ull};
+	std::size_t slice_pitch{0ull};
+	// cast mapped pointer to uint8_t. This way we are allowed to do byte-wise pointer arithmetic.
+	CL_EX(clEnqueueReadImage(
+		m_cl_state->command_queue(),
+		m_image,
+		blocking ? CL_TRUE : CL_FALSE,
+		&origin[0],
+		&region[0],
+		host_row_pitch,
+		host_slice_pitch,
+		data_ptr,
+		static_cast<cl_uint>(m_event_cache.size()),
+		(m_event_cache.size() > 0ull ? m_event_cache.data() : nullptr),
+		&read_event
+	));
+
+	return Event{read_event};
 }
 
 simple_cl::cl::Event simple_cl::cl::Image::img_fill(const FillColor& color, const ImageRegion& img_region)

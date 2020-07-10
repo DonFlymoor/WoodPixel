@@ -136,7 +136,7 @@ namespace ocl_template_matching
 
 			inline simple_cl::cl::Image::ImageDesc ocl_template_matching::matching_policies::impl::CLMatcherImpl::make_input_image_desc(const Texture& input_tex)
 			{
-				return simple_cl::cl::Image::ImageDesc{
+  				return simple_cl::cl::Image::ImageDesc{
 					simple_cl::cl::Image::ImageType::Image2DArray,	// One array slice per response channel
 					simple_cl::cl::Image::ImageDimensions{
 						static_cast<std::size_t>(input_tex.response.cols()),				// width
@@ -147,7 +147,7 @@ namespace ocl_template_matching
 					simple_cl::cl::Image::ImageChannelType::FLOAT,	// Single precision floating point data
 					simple_cl::cl::MemoryFlags{
 						simple_cl::cl::DeviceAccess::ReadOnly,		// Kernel may only read
-						simple_cl::cl::HostAccess::WriteOnly,		// Host may only write
+						simple_cl::cl::HostAccess::ReadWrite,		// Host may only write // TODO: dbg
 						simple_cl::cl::HostPointerOption::None		// No host pointer stuff
 					},
 					simple_cl::cl::Image::HostPitch{
@@ -196,7 +196,7 @@ namespace ocl_template_matching
 					simple_cl::cl::Image::ImageChannelType::FLOAT,	// Single precision floating point data
 					simple_cl::cl::MemoryFlags{
 						simple_cl::cl::DeviceAccess::ReadOnly,		// Kernel may only read
-						simple_cl::cl::HostAccess::WriteOnly,		// Host may only write
+						simple_cl::cl::HostAccess::ReadWrite,		// Host may only write
 						simple_cl::cl::HostPointerOption::None		// No host pointer stuff
 					},
 					simple_cl::cl::Image::HostPitch{
@@ -342,6 +342,13 @@ namespace ocl_template_matching
 			{
 			}
 
+			void display_image(const std::string& name, const cv::Mat& mat, bool wait = false)
+			{
+				cv::imshow(name, mat);
+				if(wait)
+					cv::waitKey();
+			}
+
 			void ocl_template_matching::matching_policies::impl::CLMatcherImpl::upload_texture(const Texture& fv, simple_cl::cl::Image& climage, std::vector<simple_cl::cl::Event>& events)
 			{
 				// image region
@@ -355,17 +362,29 @@ namespace ocl_template_matching
 					simple_cl::cl::Image::HostDataType::FLOAT,
 					simple_cl::cl::Image::HostPitch{}
 				};
+
 				// iterate reponse channels, convert them to a float image and then copy into device memory
+				// TODO: FIX THIS SHIT
 				for(std::size_t i = 0; i < fv.response.num_channels(); ++i)
 				{
 					cv::Mat float_feature;
-					fv.response[static_cast<int>(i)].convertTo(float_feature, CV_32FC1);
+					fv.response[static_cast<int>(i)].convertTo(float_feature, CV_32FC1, 1.0 / 65535.0);
 					// just to be safe, update row_pitch. I don't trust OpenCV's voodoo here.
 					hostfmt.pitch.row_pitch = static_cast<std::size_t>(float_feature.step[0]);
 					// select slice
 					region.offset.offset_depth = i;
 					// write texture data
-					events.push_back(std::move(climage.write(region, hostfmt, float_feature.data, true)));
+					//events.push_back(std::move(climage.write(region, hostfmt, float_feature.data, true)));
+					climage.write(region, hostfmt, float_feature.data, true);	
+					display_image("write: " + std::to_string(i), float_feature, true);
+				}
+
+				for(std::size_t i = 0; i < fv.response.num_channels(); ++i)
+				{
+					region.offset.offset_depth = i;
+					cv::Mat readdata(fv.response[i].rows, fv.response[i].cols, CV_32FC1);
+					climage.read(region, hostfmt, readdata.data, true);
+					display_image("read: " + std::to_string(i), readdata, true);
 				}
 			}
 
@@ -666,12 +685,9 @@ namespace ocl_template_matching
 					{static_cast<std::size_t>(out_dims[0]), static_cast<std::size_t>(out_dims[1]), 1ull},
 					{8ull, 8ull, 1ull}
 				};
-				// debug stuff. remove.
-				simple_cl::cl::wait_for_events(pre_compute_events.begin(), pre_compute_events.end());
-				auto t1 = std::chrono::high_resolution_clock::now();
 				simple_cl::cl::Event compute_finished = (*m_program_naive_sqdiff)(
 					m_kernel_naive_sqdiff_no_mask,
-					//pre_compute_events.begin(), pre_compute_events.end(),
+					pre_compute_events.begin(), pre_compute_events.end(),
 					exec_params,
 					input_image,
 					kernel_image,
@@ -680,12 +696,9 @@ namespace ocl_template_matching
 					cl_int2{static_cast<int>(kernel_image_desc.dimensions.width), static_cast<int>(kernel_image_desc.dimensions.height)},
 					cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
 				);
-				compute_finished.wait();
-				std::cout << "Kernel Exec Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t1).count() << " ms!!!\n";
 				// read result
-
 				pre_compute_events.clear();
-				//pre_compute_events.push_back(std::move(compute_finished));
+				pre_compute_events.push_back(std::move(compute_finished));
 				read_output_image(match_res_out.total_cost_matrix, out_dims, pre_compute_events).wait();
 			}
 			

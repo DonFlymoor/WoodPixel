@@ -13,7 +13,7 @@ SET(SRC
 )
 
 # opencl kernels
-include_cl_kernel("kernels/sqdiff_naive.cl" "kernels/cl_kernel.hpp.in" "kernels/kernel_sqdiff_naive.hpp" "")
+include_cl_kernel("kernels/sqdiff_naive.cl" "kernels/cl_kernel.hpp.in" "kernels/kernel_sqdiff_naive.hpp" "-cl-std=CL1.2 -g")
 
 ADD_EXECUTABLE(${EXECUTABLE_NAME} ${SRC})
 

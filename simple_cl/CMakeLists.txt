@@ -22,7 +22,7 @@ target_link_libraries(${lib_name}
 target_compile_definitions(${lib_name}
 	PUBLIC
 		$<$<CONFIG:Debug>:CLERR_DEBUG>
-        CL_USE_DEPRECATED_OPENCL_1_2_APIS # We restrict outselves to OpenCL 1.2 which is supported virtually everywhere.
+        #CL_USE_DEPRECATED_OPENCL_1_2_APIS # We restrict outselves to OpenCL 1.2 which is supported virtually everywhere.
 )
 
 target_compile_features(${lib_name} PUBLIC cxx_std_11)

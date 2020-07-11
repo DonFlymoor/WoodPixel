@@ -69,8 +69,8 @@ const char* simple_cl::_get_cl_error_string(cl_int error_val)
 		case CL_INVALID_COMPILER_OPTIONS: err = "CL_INVALID_COMPILER_OPTIONS"; break;
 		case CL_INVALID_LINKER_OPTIONS: err = "CL_INVALID_LINKER_OPTIONS"; break;
 		case CL_INVALID_DEVICE_PARTITION_COUNT: err = "CL_INVALID_DEVICE_PARTITION_COUNT"; break;
-		case CL_INVALID_PIPE_SIZE: err = "CL_INVALID_PIPE_SIZE"; break;
-		case CL_INVALID_DEVICE_QUEUE: err = "CL_INVALID_DEVICE_QUEUE"; break;
+		//case CL_INVALID_PIPE_SIZE: err = "CL_INVALID_PIPE_SIZE"; break;			// These two are not available in OpenCL 1.2.
+		//case CL_INVALID_DEVICE_QUEUE: err = "CL_INVALID_DEVICE_QUEUE"; break;
 		default: err = "UNKNOWN_ERROR"; break;
 	}
 	return err;

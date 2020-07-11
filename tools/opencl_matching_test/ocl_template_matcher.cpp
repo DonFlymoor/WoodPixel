@@ -36,9 +36,9 @@ namespace ocl_template_matching
 			void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& result)
 			{
 				// calculate response
-				m_matching_policy->compute_response(texture, texture_mask, kernel, texture_rotation, result);
+				m_matching_policy->compute_response(texture, kernel, texture_rotation, result);
 				// extract best matches
-				m_matching_policy->find_best_matches(result);
+				m_matching_policy->find_best_matches(result, texture_mask);
 			};
 
 			void match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result)
@@ -52,9 +52,9 @@ namespace ocl_template_matching
 			void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result)
 			{
 				// calculate response
-				m_matching_policy->compute_response(texture, texture_mask, kernel, kernel_mask, texture_rotation, result);
+				m_matching_policy->compute_response(texture, kernel, kernel_mask, texture_rotation, result);
 				// extract best matches
-				m_matching_policy->find_best_matches(result);
+				m_matching_policy->find_best_matches(result, texture_mask);
 			};
 
 		private:

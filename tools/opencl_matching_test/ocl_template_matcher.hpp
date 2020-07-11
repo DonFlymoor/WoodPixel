@@ -90,14 +90,12 @@ namespace ocl_template_matching
         // without opencl
         // no masks
         virtual void compute_response(const Texture& texture, const Texture& kernel, double texture_rotation, MatchingResult& match_res_out) = 0;
-        // only texture mask
-        virtual void compute_response(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& match_res_out) = 0;
-        // only kernel mask
+        // with kernel mask
         virtual void compute_response(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& match_res_out) = 0;
-        // both texture and kernel mask
-        virtual void compute_response(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& match_res_out) = 0;
         // find best matches
         virtual void find_best_matches(MatchingResult& match_res_out) {}
+        // with texture mask
+        virtual void find_best_matches(MatchingResult& match_res_out, const cv::Mat& texture_mask) {}
     };
     MatchingPolicyBase::~MatchingPolicyBase() noexcept { cleanup_opencl_state(); }
 

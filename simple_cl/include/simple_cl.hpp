@@ -1547,8 +1547,8 @@ namespace simple_cl
 				R		= (uint64_t{CL_R} << 32)		| (uint64_t{1} << 24) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 20) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 16) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 12) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 8),
 				RG		= (uint64_t{CL_RG} << 32)		| (uint64_t{2} << 24) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 20) | (uint64_t(static_cast<uint8_t>(ColorChannel::G)) << 16) | (uint64_t(static_cast<uint8_t>(ColorChannel::G)) << 12) | (uint64_t(static_cast<uint8_t>(ColorChannel::G)) << 8),
 				RGBA	= (uint64_t{CL_RGBA} << 32)		| (uint64_t{4} << 24) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 20) | (uint64_t(static_cast<uint8_t>(ColorChannel::G)) << 16) | (uint64_t(static_cast<uint8_t>(ColorChannel::B)) << 12) | (uint64_t(static_cast<uint8_t>(ColorChannel::A)) << 8),
-				BGRA	= (uint64_t{CL_BGRA} << 32)		| (uint64_t{4} << 24) | (uint64_t(static_cast<uint8_t>(ColorChannel::B)) << 20) | (uint64_t(static_cast<uint8_t>(ColorChannel::G)) << 16) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 12) | (uint64_t(static_cast<uint8_t>(ColorChannel::A)) << 8),
-				sRGBA	= (uint64_t{CL_sRGBA} << 32)	| (uint64_t{4} << 24) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 20) | (uint64_t(static_cast<uint8_t>(ColorChannel::G)) << 16) | (uint64_t(static_cast<uint8_t>(ColorChannel::B)) << 12) | (uint64_t(static_cast<uint8_t>(ColorChannel::A)) << 8)
+				BGRA	= (uint64_t{CL_BGRA} << 32)		| (uint64_t{4} << 24) | (uint64_t(static_cast<uint8_t>(ColorChannel::B)) << 20) | (uint64_t(static_cast<uint8_t>(ColorChannel::G)) << 16) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 12) | (uint64_t(static_cast<uint8_t>(ColorChannel::A)) << 8)
+				//sRGBA	= (uint64_t{CL_sRGBA} << 32)	| (uint64_t{4} << 24) | (uint64_t(static_cast<uint8_t>(ColorChannel::R)) << 20) | (uint64_t(static_cast<uint8_t>(ColorChannel::G)) << 16) | (uint64_t(static_cast<uint8_t>(ColorChannel::B)) << 12) | (uint64_t(static_cast<uint8_t>(ColorChannel::A)) << 8) // doesn't seem to be supported on Intel iGPU's for OCL 1.2
 			};
 
 			/**

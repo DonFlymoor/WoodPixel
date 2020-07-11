@@ -11,11 +11,9 @@ endfunction()
 ### Example for the template header. File should have ending *.hpp.in or *.h.in if we follow common practice.
 # #ifndef _CL_KERNEL_${kernel_name}_HPP_
 # #define _CL_KERNEL_${kernel_name}_HPP_
-#
 # namespace kernels
 # {
 # 	const char* ${kernel_name}_src = R"KERNELSOURCE(${kernel_source})KERNELSOURCE";
-#   const char* ${kernel_name}_copt = R"COMPILEROPT(${kernel_compiler_options})COMPILEROPT";
+# 	const char* ${kernel_name}_copt = R"COMPILEROPT(${kernel_compiler_options})COMPILEROPT";
 # }
-#
 # #endif

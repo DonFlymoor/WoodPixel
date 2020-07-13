@@ -33,12 +33,17 @@ int main()
 	std::cout << "hmmm....";
 	
 	ocl_template_matching::Matcher matcher(std::unique_ptr<ocl_template_matching::matching_policies::CLMatcher>(
-			new ocl_template_matching::matching_policies::CLMatcher(ocl_template_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits, 2000000000)
+			new ocl_template_matching::matching_policies::CLMatcher(ocl_template_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits, 2000000000, 16ull)
 		));
 
-	double scale{0.16666};
+	double scale{0.25};
 	Texture input_tex("img/lcds.jpg", 96.0, scale);
 	Texture kernel_tex("img/lcds_res_kernel.jpg", 96.0, scale);
+	cv::Mat kernel_mask_bgr{cv::imread("img/lcds_res_kernel_mask.jpg")};
+	cv::Mat kernel_mask_small_bgr;
+	cv::resize(kernel_mask_bgr, kernel_mask_small_bgr, cv::Size{}, scale, scale);
+	cv::Mat kernel_mask;
+	cv::cvtColor(kernel_mask_small_bgr, kernel_mask, CV_BGR2GRAY);
 	// apply feature filters
 	GaborFilterBank gfbank(32, 1.0, 4);
 	FeatureEvaluator feval(0.5, 0.5, 0.0, gfbank);
@@ -49,6 +54,9 @@ int main()
 
 	kernel_tex.response = feval.evaluate(kernel_tex.texture, kernel_tex.mask());
 	cv::erode(kernel_tex.mask_rotation, kernel_tex.mask_rotation, kernel, cv::Point(-1, -1), 1, cv::BORDER_CONSTANT, cv::Scalar(0));
+
+	std::cout << "Kernel size: " << kernel_tex.response.cols() << " x " << kernel_tex.response.rows() << std::endl;
+	std::cout << "Texture size: " << input_tex.response.cols() << " x " << input_tex.response.rows() << std::endl;
 
 	display_image("image_orig", input_tex.texture);
 	/*display_image("image_intensity", input_tex.response[0]);
@@ -61,30 +69,52 @@ int main()
 	display_image("kernel_sobel", kernel_tex.response[1]);
 	display_image("kernel_mask_rotation", kernel_tex.mask_rotation);
 	display_image("kernel_mask_done", kernel_tex.mask_done, true);*/
-	int num_iters{20};
+	int num_iters{50};
 
-	std::cout << "OpenCV Version... ";
+	std::cout << "OpenCV without mask...\n";
 	cv::Mat rescv;
 	for(int i = 0; i < num_iters; ++i)
 	{
 		auto t1{std::chrono::high_resolution_clock::now()};
 		rescv = input_tex.template_match(kernel_tex);
-		auto mscv{std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t1).count()};
-		std::cout << "Done! That took " << mscv << " milliseconds.\n";
+		auto mscv{std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - t1).count()};
+		std::cout << mscv << " us.\n";
 	}
 	cv::Mat rescv_f(rescv.rows, rescv.cols, CV_32FC1);
 	rescv.convertTo(rescv_f, CV_32FC1);	
 
 	display_intensity("ResultCV", rescv_f, false);
 
-	std::cout << "OpenCL Version... ";
+	std::cout << "OpenCL without mask...\n";
 	ocl_template_matching::MatchingResult result;
 	for(int i = 0; i < num_iters; ++i)
 	{
 		auto t1 = std::chrono::high_resolution_clock::now();
 		matcher.match(input_tex, kernel_tex, 0.0, result);
-		auto mscl{std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t1).count()};
-		std::cout << "Done! That took " << mscl << " milliseconds (including copy overhead!).\n";
+		auto mscl{std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - t1).count()};
+		std::cout << mscl << " us.\n";
+	}
+	display_intensity("ResultCL", result.total_cost_matrix, true);
+	cv::destroyAllWindows();
+
+	std::cout << "OpenCV with mask...\n";
+	for(int i = 0; i < num_iters; ++i)
+	{
+		auto t1{std::chrono::high_resolution_clock::now()};
+		rescv = input_tex.template_match(kernel_tex, kernel_mask);
+		auto mscv{std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - t1).count()};
+		std::cout << mscv << " us.\n";
+	}
+	rescv.convertTo(rescv_f, CV_32FC1);
+	display_intensity("ResultCV", rescv_f, false);
+
+	std::cout << "OpenCL with mask...\n";
+	for(int i = 0; i < num_iters; ++i)
+	{
+		auto t1 = std::chrono::high_resolution_clock::now();
+		matcher.match(input_tex, kernel_tex, kernel_mask, 0.0, result);
+		auto mscl{std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - t1).count()};
+		std::cout << mscl << " us.\n";
 	}
 	display_intensity("ResultCL", result.total_cost_matrix, true);
 	

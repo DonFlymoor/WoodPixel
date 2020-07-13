@@ -20,7 +20,7 @@ namespace ocl_template_matching
 				FirstSuitableDevice
 			};
 
-			CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory);
+			CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size = 16);
 			~CLMatcher() noexcept;
 
 			std::size_t platform_id() const override;

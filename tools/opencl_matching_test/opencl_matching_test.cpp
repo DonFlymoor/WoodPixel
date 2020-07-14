@@ -32,14 +32,19 @@ int main()
 {
 	std::cout << "hmmm....";
 	
-	ocl_template_matching::Matcher matcher(std::unique_ptr<ocl_template_matching::matching_policies::CLMatcher>(
-			new ocl_template_matching::matching_policies::CLMatcher(ocl_template_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits, 2000000000, 16ull, 256ull * 256ull)
+	ocl_template_matching::Matcher matcher(
+		std::unique_ptr<ocl_template_matching::matching_policies::CLMatcher>(
+			new ocl_template_matching::matching_policies::CLMatcher(
+				ocl_template_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits,
+				2000000000,
+				16ull, 256ull * 256ull
+			)
 		));
 
-	double scale{0.25};
+	double scale{0.2};
 	Texture input_tex("img/lcds.jpg", 96.0, scale);
-	Texture kernel_tex("img/lcds_res_kernel.jpg", 96.0, scale);
-	cv::Mat kernel_mask_bgr{cv::imread("img/lcds_res_kernel_mask.jpg")};
+	Texture kernel_tex("img/lcds_seg_kernel.jpg", 96.0, scale);
+	cv::Mat kernel_mask_bgr{cv::imread("img/lcds_seg_kernel_mask.jpg")};
 	cv::Mat kernel_mask_small_bgr;
 	cv::resize(kernel_mask_bgr, kernel_mask_small_bgr, cv::Size{}, scale, scale);
 	cv::Mat kernel_mask;
@@ -59,16 +64,8 @@ int main()
 	std::cout << "Texture size: " << input_tex.response.cols() << " x " << input_tex.response.rows() << std::endl;
 
 	display_image("image_orig", input_tex.texture);
-	/*display_image("image_intensity", input_tex.response[0]);
-	display_image("image_sobel", input_tex.response[1]);
-	display_image("image_mask_rotation", input_tex.mask_rotation);
-	display_image("image_mask_done", input_tex.mask_done, true);*/
 
 	display_image("kernel_orig", kernel_tex.texture);
-	/*display_image("kernel_intensity", kernel_tex.response[0]);
-	display_image("kernel_sobel", kernel_tex.response[1]);
-	display_image("kernel_mask_rotation", kernel_tex.mask_rotation);
-	display_image("kernel_mask_done", kernel_tex.mask_done, true);*/
 	int num_iters{50};
 
 	std::cout << "OpenCV without mask...\n";

@@ -232,6 +232,7 @@ cv::Mat TreeMatchGPU::fit_single_patch(const boost::filesystem::path& filename)
 		}
 	}
 
+	// TODO: replace with CL matching
 #pragma omp parallel for
 	for(int i = 0; i < static_cast<int>(results.size()); ++i)
 	{
@@ -253,6 +254,7 @@ cv::Mat TreeMatchGPU::fit_single_patch(const boost::filesystem::path& filename)
 		throw(std::runtime_error("No texture samples available."));
 	}
 
+	// TODO: Figure out what to do with this rotation
 	cv::Mat result = m_textures[result_min.texture_index][result_min.texture_rot].texture(cv::Rect(result_min.texture_pos, patch.texture.size()));
 	result.convertTo(result, CV_8UC3, 1.0 / 255.0);
 
@@ -345,6 +347,7 @@ bool TreeMatchGPU::find_next_patch_adaptive()
 					int y_fine = patch_coarse.patches[0].anchor_target().y + y * (patch_size_fine.height - m_subpatch_size.height);
 					cv::Rect region_fine(cv::Point(x_fine, y_fine), patch_size_fine);
 
+					// TODO: Figure out where this goes
 					AdaptivePatch patch_fine(match_patch(PatchRegion(patch_coarse.target_index(), patch_coarse.coordinate(), region_fine)), level_fine);
 
 					if(patch_fine.cost() == std::numeric_limits<double>::max())
@@ -387,7 +390,7 @@ bool TreeMatchGPU::find_next_patch_adaptive()
 	return true;
 }
 
-// TODO: Find out what this does.
+// TODO: Main part of the work should go here I guess.
 Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 {
 	if(m_textures.empty())
@@ -418,6 +421,7 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 	Texture kernel = m_targets[region.target_index()](region.bounding_box());
 
 	std::vector<MatchPatchResult> results;
+	// TODO: figure out what to do with the rotation
 	for(size_t i = 0; i < m_textures.size(); ++i)
 	{
 		for(size_t j = 0; j < m_textures[i].size(); ++j)
@@ -430,12 +434,12 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 #pragma omp parallel for
 	for(int i = 0; i < static_cast<int>(results.size()); ++i)
 	{
-		// not exactly sure what happens here
+		// TODO: not exactly sure what happens here
 		cv::Mat texture_mask;
 		cv::erode(m_textures[results[i].texture_index][results[i].texture_rot].mask(), texture_mask, region.mask(), cv::Point(0, 0), 1, cv::BORDER_CONSTANT, 0);
 		texture_mask = texture_mask(cv::Rect(0, 0, texture_mask.cols - kernel.response.cols() + 1, texture_mask.rows - kernel.response.rows() + 1));
 
-		// all of this stuff is going to be replaced by the cl implementation
+		// TODO: all of this stuff is going to be replaced by the cl implementation
 		if(cv::countNonZero(texture_mask) > 0)
 		{
 			cv::Mat match;
@@ -451,6 +455,7 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 		}
 	}
 
+	// TODO: Min rotation?
 	MatchPatchResult result_min = *std::min_element(results.begin(), results.end(), [](const MatchPatchResult& lhs, const MatchPatchResult& rhs) { return lhs.cost < rhs.cost; });
 
 
@@ -480,7 +485,7 @@ std::vector<Patch> TreeMatchGPU::match_patch(const PatchRegion& region)
 				throw(std::invalid_argument((boost::format("TreeMatchGPU::match_patch encountered invalid subpatch as input: %d %d %d") %
 					sub_region.target_index() % sub_region.coordinate().x % sub_region.coordinate().y).str()));
 			}
-
+			// TODO: Stuff
 			sub_patches.push_back(match_patch_impl(sub_region, sub_region.mask()));
 
 			if(!sub_patches.back().region_target.valid())
@@ -495,6 +500,7 @@ std::vector<Patch> TreeMatchGPU::match_patch(const PatchRegion& region)
 	}
 	else
 	{
+		// TODO: More stuff
 		Patch p = match_patch_impl(region, region.mask());
 
 		/*
@@ -893,6 +899,7 @@ static void mask_patch(cv::Mat mask, const Patch& p, cv::Mat transform)
 	cv::fillConvexPoly(mask, points_transformed, 255);
 }
 
+// TODO: whats this for?
 std::vector<cv::Mat> TreeMatchGPU::draw_masked_textures_patch_last(const std::vector<Patch>& patches, cv::Scalar color_1, double alpha_1, cv::Scalar color_2, double alpha_2, double scale) const
 {
 	std::vector<cv::Mat> textures, masks;
@@ -1449,7 +1456,6 @@ TreeMatchGPU TreeMatchGPU::load(const boost::filesystem::path& path, bool load_t
 
 	TreeMatchGPU matcher(min_patch_size, patch_levels, patch_quality_factor, filter_resolution, filter_bandwidth_octaves, num_filter_directions);
 
-	// TODO: wtf is happeneing here?
 	for(const target_json_t& t : targets_json)
 	{
 		matcher.add_target(t.path, t.dpi, t.scale);
@@ -1463,7 +1469,6 @@ TreeMatchGPU TreeMatchGPU::load(const boost::filesystem::path& path, bool load_t
 		}
 	}
 
-	// TODO: ?
 	if(load_textures)
 	{
 		for(const texture_json_t& t : sources_json)

@@ -1,11 +1,11 @@
 // sampler (maybe a constant border color would be better? don't know yet..)
 const sampler_t input_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_LINEAR;
-const sampler_t mask_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
+const sampler_t kernel_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
 
-__kernel void sqdiff_naive_masked(
+__kernel void sqdiff_constant_masked(
 	__read_only image2d_t input_tex,
-	__read_only image2d_t kernel_tex,
-	__read_only image2d_t kernel_mask,
+	__constant float4* kernel_tex,
+	__constant float* kernel_mask,
 	__write_only image2d_t response_tex,
 	int2 input_size,
 	int2 kernel_size,
@@ -23,18 +23,14 @@ __kernel void sqdiff_naive_masked(
 		(float)(kernel_pivot_idx.x + gid_x) + 0.5f,
 		(float)(kernel_pivot_idx.y + gid_y) + 0.5f
 	);
-	const float2 kernel_pivot = (float2)(
-		(float)kernel_pivot_idx.x + 0.5f,
-		(float)kernel_pivot_idx.y + 0.5f
-	);
 	
 	float sqdiff = 0.0f;
 	float4 diff;
 	float2 cdelta = (float2)(0.0f);
 	float2 image_coord;
-	float2 kernel_coord;
 	
 	// iterate over kernel area
+	int kernel_pix_idx;
 	for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 	{
 		for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
@@ -47,28 +43,36 @@ __kernel void sqdiff_naive_masked(
 			image_coord.y = rotation_sincos.x * image_coord.x + rotation_sincos.y * image_coord.y;
 			image_coord += input_pivot;
 
-			// calculate kernel coord
-			kernel_coord = kernel_pivot + cdelta;
-
 			// squared difference
-			diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, input_sampler, kernel_coord));
-			sqdiff += dot(diff, diff) * read_imagef(kernel_mask, mask_sampler, kernel_coord).x;
+			kernel_pix_idx = (kernel_pivot_idx.y + dy) * kernel_size.x + (kernel_pivot_idx.x + dx);
+			diff = read_imagef(input_tex, input_sampler, image_coord) - kernel_tex[kernel_pix_idx];
+			sqdiff += dot(diff, diff) * kernel_mask[kernel_pix_idx];
 		}
 	}
 	
 	// write result
 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(sqdiff, 0.0f, 0.0f, 0.0f));
+	// debug output
+	// if(gid_x < kernel_size.x && gid_y < kernel_size.y)
+	// {
+	// 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(kernel_tex[gid_y * kernel_size.x + gid_x].x, 0.0f, 0.0f, 0.0f));
+	// }
+	// else
+	// {
+	// 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(0.0f, 0.0f, 0.0f, 0.0f));
+	// }
 }
 
-__kernel void sqdiff_naive_masked_nth_pass(
+__kernel void sqdiff_constant_masked_nth_pass(
 	__read_only image2d_t input_tex,
-	__read_only image2d_t kernel_tex,
-	__read_only image2d_t kernel_mask,
+	__constant float4* kernel_tex,
+	__constant float* kernel_mask,
 	__read_only image2d_t prev_response_tex,
 	__write_only image2d_t response_tex,
 	int2 input_size,
 	int2 kernel_size,
-	float2 rotation_sincos)
+	float2 rotation_sincos,
+	int kernel_offset)
 {
 	const int gid_x = get_global_id(0);
 	const int gid_y = get_global_id(1);
@@ -82,18 +86,14 @@ __kernel void sqdiff_naive_masked_nth_pass(
 		(float)(kernel_pivot_idx.x + gid_x) + 0.5f,
 		(float)(kernel_pivot_idx.y + gid_y) + 0.5f
 	);
-	const float2 kernel_pivot = (float2)(
-		(float)kernel_pivot_idx.x + 0.5f,
-		(float)kernel_pivot_idx.y + 0.5f
-	);
 	
 	float sqdiff = 0.0f;
 	float4 diff;
 	float2 cdelta = (float2)(0.0f);
 	float2 image_coord;
-	float2 kernel_coord;
 	
 	// iterate over kernel area
+	int kernel_pix_idx;
 	for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 	{
 		for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
@@ -106,23 +106,21 @@ __kernel void sqdiff_naive_masked_nth_pass(
 			image_coord.y = rotation_sincos.x * image_coord.x + rotation_sincos.y * image_coord.y;
 			image_coord += input_pivot;
 
-			// calculate kernel coord
-			kernel_coord = kernel_pivot + cdelta;
-
 			// squared difference
-			diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, input_sampler, kernel_coord));
-			sqdiff += dot(diff, diff) * read_imagef(kernel_mask, mask_sampler, kernel_coord).x;
+			kernel_pix_idx = (kernel_pivot_idx.y + dy) * kernel_size.x + (kernel_pivot_idx.x + dx) + kernel_offset;
+			diff = read_imagef(input_tex, input_sampler, image_coord) - kernel_tex[kernel_pix_idx];
+			sqdiff += dot(diff, diff) * kernel_mask[kernel_pix_idx];
 		}
 	}
 	
 	// write result
 	int2 out_coord = (int2)(gid_x, gid_y);
-	write_imagef(response_tex, out_coord, (float4)(sqdiff, 0.0f, 0.0f, 0.0f) + read_imagef(prev_response_tex, mask_sampler, out_coord));
+	write_imagef(response_tex, out_coord, (float4)(sqdiff, 0.0f, 0.0f, 0.0f) + read_imagef(prev_response_tex, kernel_sampler, out_coord));
 }
 
-__kernel void sqdiff_naive(
+__kernel void sqdiff_constant(
 	__read_only image2d_t input_tex,
-	__read_only image2d_t kernel_tex,
+	__constant float4* kernel_tex,
 	__write_only image2d_t response_tex,
 	int2 input_size,
 	int2 kernel_size,
@@ -140,18 +138,14 @@ __kernel void sqdiff_naive(
 		(float)(kernel_pivot_idx.x + gid_x) + 0.5f,
 		(float)(kernel_pivot_idx.y + gid_y) + 0.5f
 	);
-	const float2 kernel_pivot = (float2)(
-		(float)kernel_pivot_idx.x + 0.5f,
-		(float)kernel_pivot_idx.y + 0.5f
-	);
 	
 	float sqdiff = 0.0f;
 	float4 diff;
 	float2 cdelta = (float2)(0.0f);
 	float2 image_coord;
-	float2 kernel_coord;
 	
 	// iterate over kernel area
+	int kernel_pix_idx;
 	for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 	{
 		for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
@@ -164,27 +158,35 @@ __kernel void sqdiff_naive(
 			image_coord.y = rotation_sincos.x * image_coord.x + rotation_sincos.y * image_coord.y;
 			image_coord += input_pivot;
 
-			// calculate kernel coord
-			kernel_coord = kernel_pivot + cdelta;
-
 			// squared difference
-			diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, input_sampler, kernel_coord));
+			kernel_pix_idx = (kernel_pivot_idx.y + dy) * kernel_size.x + (kernel_pivot_idx.x + dx);
+			diff = read_imagef(input_tex, input_sampler, image_coord) - kernel_tex[kernel_pix_idx];
 			sqdiff += dot(diff, diff);
 		}
 	}
 
 	// write result
 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(sqdiff, 0.0f, 0.0f, 0.0f));
+	// debug output
+	// if(gid_x < kernel_size.x && gid_y < kernel_size.y)
+	// {
+	// 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(kernel_tex[gid_y * kernel_size.x + gid_x].x, 0.0f, 0.0f, 0.0f));
+	// }
+	// else
+	// {
+	// 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(0.0f, 0.0f, 0.0f, 0.0f));
+	// }
 }
 
-__kernel void sqdiff_naive_nth_pass(
+__kernel void sqdiff_constant_nth_pass(
 	__read_only image2d_t input_tex,
-	__read_only image2d_t kernel_tex,
+	__constant float4* kernel_tex,
 	__read_only image2d_t prev_response_tex,
 	__write_only image2d_t response_tex,
 	int2 input_size,
 	int2 kernel_size,
-	float2 rotation_sincos)
+	float2 rotation_sincos,
+	int kernel_offset)
 {
 	const int gid_x = get_global_id(0);
 	const int gid_y = get_global_id(1);
@@ -198,18 +200,14 @@ __kernel void sqdiff_naive_nth_pass(
 		(float)(kernel_pivot_idx.x + gid_x) + 0.5f,
 		(float)(kernel_pivot_idx.y + gid_y) + 0.5f
 	);
-	const float2 kernel_pivot = (float2)(
-		(float)kernel_pivot_idx.x + 0.5f,
-		(float)kernel_pivot_idx.y + 0.5f
-	);
 	
 	float sqdiff = 0.0f;
 	float4 diff;
 	float2 cdelta = (float2)(0.0f);
 	float2 image_coord;
-	float2 kernel_coord;
 	
 	// iterate over kernel area
+	int kernel_pix_idx;
 	for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 	{
 		for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
@@ -222,16 +220,14 @@ __kernel void sqdiff_naive_nth_pass(
 			image_coord.y = rotation_sincos.x * image_coord.x + rotation_sincos.y * image_coord.y;
 			image_coord += input_pivot;
 
-			// calculate kernel coord
-			kernel_coord = kernel_pivot + cdelta;
-
 			// squared difference
-			diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, input_sampler, kernel_coord));
+			kernel_pix_idx = (kernel_pivot_idx.y + dy) * kernel_size.x + (kernel_pivot_idx.x + dx) + kernel_offset;
+			diff = read_imagef(input_tex, input_sampler, image_coord) - kernel_tex[kernel_pix_idx];
 			sqdiff += dot(diff, diff);
 		}
 	}
 
 	// write result
 	int2 out_coord = (int2)(gid_x, gid_y);
-	write_imagef(response_tex, out_coord, (float4)(sqdiff, 0.0f, 0.0f, 0.0f) + read_imagef(prev_response_tex, mask_sampler, out_coord));
+	write_imagef(response_tex, out_coord, (float4)(sqdiff, 0.0f, 0.0f, 0.0f) + read_imagef(prev_response_tex, kernel_sampler, out_coord));
 }

@@ -19,7 +19,7 @@ namespace ocl_template_matching
 			class CLMatcherImpl
 			{
 			public:
-				CLMatcherImpl(ocl_template_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size);
+				CLMatcherImpl(ocl_template_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels);
 				~CLMatcherImpl() noexcept;
 				CLMatcherImpl(const CLMatcherImpl&) = delete;
 				CLMatcherImpl(CLMatcherImpl&&) = delete;
@@ -90,6 +90,10 @@ namespace ocl_template_matching
 				// resource handling
 				void invalidate_input_texture(const std::string& texid);
 
+				// decide if we should use constant memory kernel or images
+				bool use_constant_kernel(const Texture& kernel, const cv::Mat& kernel_mask) const;
+				bool use_constant_kernel(const Texture& kernel) const;
+
 				// get results
 				simple_cl::cl::Event read_output_image(cv::Mat& out_mat, const cv::Vec3i& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a);
 
@@ -129,6 +133,8 @@ namespace ocl_template_matching
 				std::size_t m_max_tex_cache_size;
 				// size of local work groups (square blocks)
 				std::size_t m_local_block_size;
+				// maximum width and height for a kernelfor which we use constant memory
+				std::size_t m_constant_kernel_max_pixels;
 
 				// Output buffer. Only use a single output image and enlarge it when necessary.
 				std::unique_ptr<simple_cl::cl::Image> m_output_buffer_a;
@@ -168,6 +174,11 @@ namespace ocl_template_matching
 				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_nth_pass;
 				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_masked;
 				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_masked_nth_pass;
+
+				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff;
+				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_nth_pass;
+				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_masked;
+				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_masked_nth_pass;
 			};
 			#pragma endregion
 
@@ -341,11 +352,13 @@ namespace ocl_template_matching
 			inline ocl_template_matching::matching_policies::impl::CLMatcherImpl::CLMatcherImpl(
 				ocl_template_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy,
 				std::size_t max_texture_cache_memory,
-				std::size_t local_block_size) :
+				std::size_t local_block_size,
+				std::size_t constant_kernel_maxdim) :
 					m_selection_policy(device_selection_policy),
 					m_max_tex_cache_size(max_texture_cache_memory),
 					m_kernel_image{std::vector<std::unique_ptr<simple_cl::cl::Image>>(), 0ull},
-					m_local_block_size{local_block_size}
+					m_local_block_size{local_block_size},
+					m_constant_kernel_max_pixels{constant_kernel_maxdim}
 			{
 			}
 
@@ -429,6 +442,11 @@ namespace ocl_template_matching
 				m_kernel_naive_sqdiff_nth_pass = m_program_naive_sqdiff->getKernel("sqdiff_naive_nth_pass");
 				m_kernel_naive_sqdiff_masked = m_program_naive_sqdiff->getKernel("sqdiff_naive_masked");
 				m_kernel_naive_sqdiff_masked_nth_pass = m_program_naive_sqdiff->getKernel("sqdiff_naive_masked_nth_pass");
+
+				m_kernel_constant_sqdiff = m_program_sqdiff_constant_kernel->getKernel("sqdiff_constant");
+				m_kernel_constant_sqdiff_nth_pass = m_program_sqdiff_constant_kernel->getKernel("sqdiff_constant_nth_pass");
+				m_kernel_constant_sqdiff_masked = m_program_sqdiff_constant_kernel->getKernel("sqdiff_constant_masked");
+				m_kernel_constant_sqdiff_masked_nth_pass = m_program_sqdiff_constant_kernel->getKernel("sqdiff_constant_masked_nth_pass");
 			}
 
 			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::cleanup_opencl_state()
@@ -919,7 +937,7 @@ namespace ocl_template_matching
 				}
 			}
 
-			simple_cl::cl::Event CLMatcherImpl::clear_output_image_a(float value)
+			inline simple_cl::cl::Event CLMatcherImpl::clear_output_image_a(float value)
 			{
 				simple_cl::cl::Image::ImageRegion region{
 					simple_cl::cl::Image::ImageOffset{0ull, 0ull, 0ull},
@@ -928,7 +946,7 @@ namespace ocl_template_matching
 				return m_output_buffer_a->fill(simple_cl::cl::Image::FillColor{value}, region);
 			}
 
-			simple_cl::cl::Event CLMatcherImpl::clear_output_image_b(float value)
+			inline simple_cl::cl::Event CLMatcherImpl::clear_output_image_b(float value)
 			{
 				simple_cl::cl::Image::ImageRegion region{
 					simple_cl::cl::Image::ImageOffset{0ull, 0ull, 0ull},
@@ -937,7 +955,25 @@ namespace ocl_template_matching
 				return m_output_buffer_b->fill(simple_cl::cl::Image::FillColor{value}, region);
 			}
 
-			simple_cl::cl::Event ocl_template_matching::matching_policies::impl::CLMatcherImpl::read_output_image(cv::Mat& out_mat, const cv::Vec3i& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a)
+			inline bool ocl_template_matching::matching_policies::impl::CLMatcherImpl::use_constant_kernel(const Texture& kernel, const cv::Mat& kernel_mask) const
+			{
+				std::size_t num_feature_maps{static_cast<std::size_t>(kernel.response.num_channels())};
+				std::size_t num_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
+				std::size_t kernel_pixels{static_cast<std::size_t>(kernel.response.cols()) * static_cast<std::size_t>(kernel.response.rows())};
+				std::size_t total_size{(sizeof(cl_float4) + sizeof(cl_float)) * kernel_pixels * num_batches};
+				return (kernel_pixels <= m_constant_kernel_max_pixels && total_size <= m_cl_context->get_selected_device().max_constant_buffer_size);
+			}
+
+			inline bool ocl_template_matching::matching_policies::impl::CLMatcherImpl::use_constant_kernel(const Texture& kernel) const
+			{
+				std::size_t num_feature_maps{static_cast<std::size_t>(kernel.response.num_channels())};
+				std::size_t num_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
+				std::size_t kernel_pixels{static_cast<std::size_t>(kernel.response.cols()) * static_cast<std::size_t>(kernel.response.rows())};
+				std::size_t total_size{(sizeof(cl_float4)) * kernel_pixels * num_batches};
+				return (kernel_pixels <= m_constant_kernel_max_pixels && total_size <= m_cl_context->get_selected_device().max_constant_buffer_size);
+			}
+			
+			inline simple_cl::cl::Event ocl_template_matching::matching_policies::impl::CLMatcherImpl::read_output_image(cv::Mat& out_mat, const cv::Vec3i& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a)
 			{
 				// resize output if necessary
 				if((output_size[0] != out_mat.cols) ||
@@ -978,8 +1014,17 @@ namespace ocl_template_matching
 				pre_compute_events.clear();
 				// prepare all input data
 				prepare_input_image(texture, pre_compute_events, false, false);
-				prepare_kernel_image(kernel, pre_compute_events, false);
-				prepare_kernel_mask(kernel_mask, pre_compute_events, false);
+				bool use_constant{use_constant_kernel(kernel, kernel_mask)};
+				if(use_constant)
+				{
+					prepare_kernel_buffer(kernel, pre_compute_events, false);
+					prepare_kernel_mask_buffer(kernel_mask, pre_compute_events, false);
+				}
+				else
+				{
+					prepare_kernel_image(kernel, pre_compute_events, false);
+					prepare_kernel_mask(kernel_mask, pre_compute_events, false);
+				}				
 				prepare_output_image(texture, kernel);
 				// get input image from map
 				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
@@ -994,66 +1039,139 @@ namespace ocl_template_matching
 					{static_cast<std::size_t>(response_dims[0]), static_cast<std::size_t>(response_dims[1]), 1ull},
 					{m_local_block_size, m_local_block_size, 1ull}
 				};
-				// other arguments
-				cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-				cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-				cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-				// first pass
-				simple_cl::cl::Event first_event{(*m_program_naive_sqdiff)(
-					m_kernel_naive_sqdiff_masked,
-					pre_compute_events.begin(),
-					pre_compute_events.end(),
-					exec_params,
-					*(input_image.images[0]),
-					*(m_kernel_image.images[0]),
-					*(m_kernel_mask),
-					*(m_output_buffer_a),
-					input_size,
-					kernel_size,
-					rotation_sincos)
-				};
-				pre_compute_events.clear();
-				pre_compute_events.push_back(std::move(first_event));
-				// if necessary, more passes
-				for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
+				if(!use_constant)
 				{
-					if(batch % 2ull == 0)
+					// other arguments
+					cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+					cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
+					cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
+					// first pass
+					simple_cl::cl::Event first_event{(*m_program_naive_sqdiff)(
+						m_kernel_naive_sqdiff_masked,
+						pre_compute_events.begin(),
+						pre_compute_events.end(),
+						exec_params,
+						*(input_image.images[0]),
+						*(m_kernel_image.images[0]),
+						*(m_kernel_mask),
+						*(m_output_buffer_a),
+						input_size,
+						kernel_size,
+						rotation_sincos)
+					};
+					pre_compute_events.clear();
+					pre_compute_events.push_back(std::move(first_event));
+					// if necessary, more passes
+					for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
 					{
-						simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
-							m_kernel_naive_sqdiff_masked_nth_pass,
-							pre_compute_events.begin(),
-							pre_compute_events.end(),
-							exec_params,
-							*(input_image.images[0]),
-							*(m_kernel_image.images[0]),
-							*(m_kernel_mask),
-							*(m_output_buffer_b),
-							*(m_output_buffer_a),
-							input_size,
-							kernel_size,
-							rotation_sincos)
-						};
-						pre_compute_events.clear();
-						pre_compute_events.push_back(std::move(event));
+						if(batch % 2ull == 0)
+						{
+							simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
+								m_kernel_naive_sqdiff_masked_nth_pass,
+								pre_compute_events.begin(),
+								pre_compute_events.end(),
+								exec_params,
+								*(input_image.images[batch]),
+								*(m_kernel_image.images[batch]),
+								*(m_kernel_mask),
+								*(m_output_buffer_b),
+								*(m_output_buffer_a),
+								input_size,
+								kernel_size,
+								rotation_sincos)
+							};
+							pre_compute_events.clear();
+							pre_compute_events.push_back(std::move(event));
+						}
+						else
+						{
+							simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
+								m_kernel_naive_sqdiff_masked_nth_pass,
+								pre_compute_events.begin(),
+								pre_compute_events.end(),
+								exec_params,
+								*(input_image.images[batch]),
+								*(m_kernel_image.images[batch]),
+								*(m_kernel_mask),
+								*(m_output_buffer_a),
+								*(m_output_buffer_b),
+								input_size,
+								kernel_size,
+								rotation_sincos)
+							};
+							pre_compute_events.clear();
+							pre_compute_events.push_back(std::move(event));
+						}
 					}
-					else
+				}
+				else
+				{
+					// other arguments
+					cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+					cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
+					cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
+					cl_int kernel_offset{0};
+					cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
+					// first pass
+					simple_cl::cl::Event first_event{(*m_program_sqdiff_constant_kernel)(
+						m_kernel_constant_sqdiff_masked,
+						pre_compute_events.begin(),
+						pre_compute_events.end(),
+						exec_params,
+						*(input_image.images[0]),
+						*(m_kernel_buffer.buffer),
+						*(m_kernel_mask_buffer.buffer),
+						*(m_output_buffer_a),
+						input_size,
+						kernel_size,
+						rotation_sincos)
+					};
+					pre_compute_events.clear();
+					pre_compute_events.push_back(std::move(first_event));
+					// if necessary, more passes
+					for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
 					{
-						simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
-							m_kernel_naive_sqdiff_masked_nth_pass,
-							pre_compute_events.begin(),
-							pre_compute_events.end(),
-							exec_params,
-							*(input_image.images[0]),
-							*(m_kernel_image.images[0]),
-							*(m_kernel_mask),
-							*(m_output_buffer_a),
-							*(m_output_buffer_b),
-							input_size,
-							kernel_size,
-							rotation_sincos)
-						};
-						pre_compute_events.clear();
-						pre_compute_events.push_back(std::move(event));
+						kernel_offset += num_kernel_pixels;
+						if(batch % 2ull == 0)
+						{
+							simple_cl::cl::Event event{(*m_program_sqdiff_constant_kernel)(
+								m_kernel_constant_sqdiff_masked_nth_pass,
+								pre_compute_events.begin(),
+								pre_compute_events.end(),
+								exec_params,
+								*(input_image.images[batch]),
+								*(m_kernel_buffer.buffer),
+								*(m_kernel_mask_buffer.buffer),
+								*(m_output_buffer_b),
+								*(m_output_buffer_a),
+								input_size,
+								kernel_size,
+								rotation_sincos,
+								kernel_offset)
+							};
+							pre_compute_events.clear();
+							pre_compute_events.push_back(std::move(event));
+						}
+						else
+						{
+							simple_cl::cl::Event event{(*m_program_sqdiff_constant_kernel)(
+								m_kernel_constant_sqdiff_masked_nth_pass,
+								pre_compute_events.begin(),
+								pre_compute_events.end(),
+								exec_params,
+								*(input_image.images[batch]),
+								*(m_kernel_buffer.buffer),
+								*(m_kernel_mask_buffer.buffer),
+								*(m_output_buffer_a),
+								*(m_output_buffer_b),
+								input_size,
+								kernel_size,
+								rotation_sincos,
+								kernel_offset)
+							};
+							pre_compute_events.clear();
+							pre_compute_events.push_back(std::move(event));
+						}
 					}
 				}
 				// read result and wait for command chain to finish execution. If num_batches is odd, read output a, else b.
@@ -1069,8 +1187,15 @@ namespace ocl_template_matching
 				static std::vector<simple_cl::cl::Event> pre_compute_events;
 				pre_compute_events.clear();
 				// prepare all input data
+				// upload input image
 				prepare_input_image(texture, pre_compute_events, false, false);
-				prepare_kernel_image(kernel, pre_compute_events, false);
+				// upload kernel data
+				bool use_constant{use_constant_kernel(kernel)};
+				if(use_constant)
+					prepare_kernel_buffer(kernel, pre_compute_events, false);
+				else
+					prepare_kernel_image(kernel, pre_compute_events, false);
+				// output images
 				prepare_output_image(texture, kernel);
 				// get input image from map
 				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
@@ -1085,63 +1210,133 @@ namespace ocl_template_matching
 					{static_cast<std::size_t>(response_dims[0]), static_cast<std::size_t>(response_dims[1]), 1ull},
 					{m_local_block_size, m_local_block_size, 1ull}
 				};
-				// other arguments
-				cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-				cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-				cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-				// first pass
-				simple_cl::cl::Event first_event{(*m_program_naive_sqdiff)(
-					m_kernel_naive_sqdiff,
-					pre_compute_events.begin(),
-					pre_compute_events.end(),
-					exec_params,
-					*(input_image.images[0]),
-					*(m_kernel_image.images[0]),
-					*(m_output_buffer_a),
-					input_size,
-					kernel_size,
-					rotation_sincos)
-				};
-				pre_compute_events.clear();
-				pre_compute_events.push_back(std::move(first_event));
-				// if necessary, more passes
-				for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
+				if(!use_constant)
 				{
-					if(batch % 2ull == 0)
+					// other arguments
+					cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+					cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
+					cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
+					// first pass
+					simple_cl::cl::Event first_event{(*m_program_naive_sqdiff)(
+						m_kernel_naive_sqdiff,
+						pre_compute_events.begin(),
+						pre_compute_events.end(),
+						exec_params,
+						*(input_image.images[0]),
+						*(m_kernel_image.images[0]),
+						*(m_output_buffer_a),
+						input_size,
+						kernel_size,
+						rotation_sincos)
+					};
+					pre_compute_events.clear();
+					pre_compute_events.push_back(std::move(first_event));
+					// if necessary, more passes
+					for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
 					{
-						simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
-							m_kernel_naive_sqdiff_nth_pass,
-							pre_compute_events.begin(),
-							pre_compute_events.end(),
-							exec_params,
-							*(input_image.images[0]),
-							*(m_kernel_image.images[0]),
-							*(m_output_buffer_b),
-							*(m_output_buffer_a),
-							input_size,
-							kernel_size,
-							rotation_sincos)
-						};
-						pre_compute_events.clear();
-						pre_compute_events.push_back(std::move(event));
+						if(batch % 2ull == 0)
+						{
+							simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
+								m_kernel_naive_sqdiff_nth_pass,
+								pre_compute_events.begin(),
+								pre_compute_events.end(),
+								exec_params,
+								*(input_image.images[batch]),
+								*(m_kernel_image.images[batch]),
+								*(m_output_buffer_b),
+								*(m_output_buffer_a),
+								input_size,
+								kernel_size,
+								rotation_sincos)
+							};
+							pre_compute_events.clear();
+							pre_compute_events.push_back(std::move(event));
+						}
+						else
+						{
+							simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
+								m_kernel_naive_sqdiff_nth_pass,
+								pre_compute_events.begin(),
+								pre_compute_events.end(),
+								exec_params,
+								*(input_image.images[batch]),
+								*(m_kernel_image.images[batch]),
+								*(m_output_buffer_a),
+								*(m_output_buffer_b),
+								input_size,
+								kernel_size,
+								rotation_sincos)
+							};
+							pre_compute_events.clear();
+							pre_compute_events.push_back(std::move(event));
+						}
 					}
-					else
+				}
+				else
+				{
+					// other arguments
+					cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+					cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
+					cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
+					cl_int kernel_offset{0};
+					cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
+					// first pass
+					simple_cl::cl::Event first_event{(*m_program_sqdiff_constant_kernel)(
+						m_kernel_constant_sqdiff,
+						pre_compute_events.begin(),
+						pre_compute_events.end(),
+						exec_params,
+						*(input_image.images[0]),
+						*(m_kernel_buffer.buffer),
+						*(m_output_buffer_a),
+						input_size,
+						kernel_size,
+						rotation_sincos)
+					};
+					pre_compute_events.clear();
+					pre_compute_events.push_back(std::move(first_event));
+					// if necessary, more passes
+					for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
 					{
-						simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
-							m_kernel_naive_sqdiff_nth_pass,
-							pre_compute_events.begin(),
-							pre_compute_events.end(),
-							exec_params,
-							*(input_image.images[0]),
-							*(m_kernel_image.images[0]),
-							*(m_output_buffer_a),
-							*(m_output_buffer_b),
-							input_size,
-							kernel_size,
-							rotation_sincos)
-						};
-						pre_compute_events.clear();
-						pre_compute_events.push_back(std::move(event));
+						kernel_offset += num_kernel_pixels;
+						if(batch % 2ull == 0)
+						{
+							simple_cl::cl::Event event{(*m_program_sqdiff_constant_kernel)(
+								m_kernel_constant_sqdiff_nth_pass,
+								pre_compute_events.begin(),
+								pre_compute_events.end(),
+								exec_params,
+								*(input_image.images[batch]),
+								*(m_kernel_buffer.buffer),
+								*(m_output_buffer_b),
+								*(m_output_buffer_a),
+								input_size,
+								kernel_size,
+								rotation_sincos,
+								kernel_offset)
+							};
+							pre_compute_events.clear();
+							pre_compute_events.push_back(std::move(event));
+						}
+						else
+						{
+							simple_cl::cl::Event event{(*m_program_sqdiff_constant_kernel)(
+								m_kernel_constant_sqdiff_nth_pass,
+								pre_compute_events.begin(),
+								pre_compute_events.end(),
+								exec_params,
+								*(input_image.images[batch]),
+								*(m_kernel_buffer.buffer),
+								*(m_output_buffer_a),
+								*(m_output_buffer_b),
+								input_size,
+								kernel_size,
+								rotation_sincos,
+								kernel_offset)
+							};
+							pre_compute_events.clear();
+							pre_compute_events.push_back(std::move(event));
+						}
 					}
 				}
 				// read result and wait for command chain to finish execution. If num_batches is odd, read output a, else b.
@@ -1183,8 +1378,8 @@ namespace ocl_template_matching
 // ----------------------------------------------------------------------- INTERFACE -----------------------------------------------------------------------
 
 // class CLMatcher
-ocl_template_matching::matching_policies::CLMatcher::CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size) :
-	m_impl(new impl::CLMatcherImpl(device_selection_policy, max_texture_cache_memory, local_block_size))
+ocl_template_matching::matching_policies::CLMatcher::CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels) :
+	m_impl(new impl::CLMatcherImpl(device_selection_policy, max_texture_cache_memory, local_block_size, constant_kernel_max_pixels))
 {
 }
 

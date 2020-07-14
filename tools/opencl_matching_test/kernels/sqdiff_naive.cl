@@ -1,6 +1,6 @@
 // sampler (maybe a constant border color would be better? don't know yet..)
 const sampler_t input_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_LINEAR;
-const sampler_t mask_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
+const sampler_t kernel_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
 
 __kernel void sqdiff_naive_masked(
 	__read_only image2d_t input_tex,
@@ -51,13 +51,22 @@ __kernel void sqdiff_naive_masked(
 			kernel_coord = kernel_pivot + cdelta;
 
 			// squared difference
-			diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, input_sampler, kernel_coord));
-			sqdiff += dot(diff, diff) * read_imagef(kernel_mask, mask_sampler, kernel_coord).x;
+			diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, kernel_sampler, kernel_coord));
+			sqdiff += dot(diff, diff) * read_imagef(kernel_mask, kernel_sampler, kernel_coord).x;
 		}
 	}
 	
 	// write result
 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(sqdiff, 0.0f, 0.0f, 0.0f));
+	// debug output
+	// if(gid_x < kernel_size.x && gid_y < kernel_size.y)
+	// {
+	// 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(read_imagef(kernel_tex, input_sampler, (float2)((float)gid_x + 0.5f, (float)gid_y + 0.5f)).x, 0.0f, 0.0f, 0.0f));
+	// }
+	// else
+	// {
+	// 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(0.0f, 0.0f, 0.0f, 0.0f));
+	// }
 }
 
 __kernel void sqdiff_naive_masked_nth_pass(
@@ -110,14 +119,14 @@ __kernel void sqdiff_naive_masked_nth_pass(
 			kernel_coord = kernel_pivot + cdelta;
 
 			// squared difference
-			diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, input_sampler, kernel_coord));
-			sqdiff += dot(diff, diff) * read_imagef(kernel_mask, mask_sampler, kernel_coord).x;
+			diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, kernel_sampler, kernel_coord));
+			sqdiff += dot(diff, diff) * read_imagef(kernel_mask, kernel_sampler, kernel_coord).x;
 		}
 	}
 	
 	// write result
 	int2 out_coord = (int2)(gid_x, gid_y);
-	write_imagef(response_tex, out_coord, (float4)(sqdiff, 0.0f, 0.0f, 0.0f) + read_imagef(prev_response_tex, mask_sampler, out_coord));
+	write_imagef(response_tex, out_coord, (float4)(sqdiff, 0.0f, 0.0f, 0.0f) + read_imagef(prev_response_tex, kernel_sampler, out_coord));
 }
 
 __kernel void sqdiff_naive(
@@ -168,13 +177,22 @@ __kernel void sqdiff_naive(
 			kernel_coord = kernel_pivot + cdelta;
 
 			// squared difference
-			diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, input_sampler, kernel_coord));
+			diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, kernel_sampler, kernel_coord));
 			sqdiff += dot(diff, diff);
 		}
 	}
 
 	// write result
 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(sqdiff, 0.0f, 0.0f, 0.0f));
+	// debug output
+	// if(gid_x < kernel_size.x && gid_y < kernel_size.y)
+	// {
+	// 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(read_imagef(kernel_tex, input_sampler, (float2)((float)gid_x + 0.5f, (float)gid_y + 0.5f)).x, 0.0f, 0.0f, 0.0f));
+	// }
+	// else
+	// {
+	// 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(0.0f, 0.0f, 0.0f, 0.0f));
+	// }
 }
 
 __kernel void sqdiff_naive_nth_pass(
@@ -226,12 +244,12 @@ __kernel void sqdiff_naive_nth_pass(
 			kernel_coord = kernel_pivot + cdelta;
 
 			// squared difference
-			diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, input_sampler, kernel_coord));
+			diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, kernel_sampler, kernel_coord));
 			sqdiff += dot(diff, diff);
 		}
 	}
 
 	// write result
 	int2 out_coord = (int2)(gid_x, gid_y);
-	write_imagef(response_tex, out_coord, (float4)(sqdiff, 0.0f, 0.0f, 0.0f) + read_imagef(prev_response_tex, mask_sampler, out_coord));
+	write_imagef(response_tex, out_coord, (float4)(sqdiff, 0.0f, 0.0f, 0.0f) + read_imagef(prev_response_tex, kernel_sampler, out_coord));
 }

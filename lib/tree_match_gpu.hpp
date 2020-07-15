@@ -28,6 +28,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include <boost/filesystem.hpp>
 #include <opencv2/opencv.hpp>
+#ifdef TRLIB_TREE_MATCH_USE_OPENCL
+#include <ocl_patch_matcher.hpp>
+#include <matching_policies.hpp>
+#endif
 
 #include "adaptive_patch.hpp"
 #include "feature_evaluator.hpp"
@@ -39,9 +43,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 class TreeMatchGPU
 {
 public:
+#ifdef TRLIB_TREE_MATCH_USE_OPENCL
+	struct GPUMatchingOptions
+	{
+		ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy = ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits;
+		std::size_t max_texture_cache_memory = 536870912ull;
+		std::size_t local_block_size = 16ull;
+		std::size_t constant_kernel_max_pixels = 50ull * 50ull;		
+	};
+#endif
+#ifdef TRLIB_TREE_MATCH_USE_OPENCL
+	TreeMatchGPU(int min_patch_size, int patch_levels, double patch_quality_factor, int filter_resolution, double frequency_octaves, int num_filter_directions, const GPUMatchingOptions& gpu_matching_options = GPUMatchingOptions{});
+#else
 	TreeMatchGPU(int min_patch_size, int patch_levels, double patch_quality_factor, int filter_resolution, double frequency_octaves, int num_filter_directions);
+#endif
 
+#ifdef TRLIB_TREE_MATCH_USE_OPENCL
+	static TreeMatchGPU load(const boost::filesystem::path& path, bool load_textures, const GPUMatchingOptions& gpu_matching_options = GPUMatchingOptions{});	
+#else
 	static TreeMatchGPU load(const boost::filesystem::path& path, bool load_textures);
+#endif
 
 	void add_target(const boost::filesystem::path& path, double dpi, double scale);
 	void add_texture(const boost::filesystem::path& path, double dpi, double scale, int num_rotations, const TextureMarker& marker = TextureMarker(), const std::string id = std::string());
@@ -145,6 +166,11 @@ private:
 
 	GaborFilterBank m_filter_bank;
 	std::vector<Patch> m_patches;
+
+	// OpenCL Matcher
+#ifdef TRLIB_TREE_MATCH_USE_OPENCL
+	ocl_patch_matching::Matcher m_cl_matcher;
+#endif
 };
 
 #endif /* TRLIB_TREE_MATCH_GPU_HPP_ */

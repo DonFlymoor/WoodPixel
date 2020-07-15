@@ -1,5 +1,5 @@
-#ifndef _OCL_TEMPLATE_MATCHER_H_
-#define _OCL_TEMPLATE_MATCHER_H_
+#ifndef _OCL_PATCH_MATCHER_H_
+#define _OCL_PATCH_MATCHER_H_
 
 #include <memory>
 #include <vector>
@@ -42,7 +42,7 @@
 // forward declarations for interfaces
 namespace simple_cl{namespace cl{class Context;}}
 
-namespace ocl_template_matching
+namespace ocl_patch_matching
 {
     struct Match
     {
@@ -87,7 +87,9 @@ namespace ocl_template_matching
         // report OpenCV datatype for response mat
         virtual match_response_cv_mat_t response_image_data_type(const Texture& texture, const Texture& kernel, double texture_rotation) const = 0;
 
-        // without opencl
+        // erode texture mask
+        virtual void erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation) {}
+
         // no masks
         virtual void compute_response(const Texture& texture, const Texture& kernel, double texture_rotation, MatchingResult& match_res_out) = 0;
         // with kernel mask
@@ -112,11 +114,15 @@ namespace ocl_template_matching
         Matcher& operator=(Matcher&& other) noexcept;
         ~Matcher() noexcept;
 
+        void erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation);
+
         void match(const Texture& texture,const Texture& kernel,double texture_rotation, MatchingResult& result);
         void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& result);
         void match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result);
         void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result);
 
+       /* void erode(cv::Mat& texture_mask, )*/
+        
         template <typename ConcretePolicy>
         ConcretePolicy& get_policy()
         {

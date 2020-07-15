@@ -53,11 +53,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 namespace fs = boost::filesystem;
 namespace pt = boost::property_tree;
+namespace cltm = ocl_patch_matching;
 
+#ifdef TRLIB_TREE_MATCHING_USE_OPENCL
 TreeMatchGPU::TreeMatchGPU(int min_patch_size, int patch_levels, double patch_quality_factor, int filter_resolution, double frequency_octaves, int num_filter_directions) :
 	m_patch_quality_factor(patch_quality_factor),
 	m_subpatch_size(min_patch_size / 4, min_patch_size / 4),
 	m_filter_bank(filter_resolution, frequency_octaves, num_filter_directions)
+#else
+TreeMatchGPU::TreeMatchGPU(int min_patch_size, int patch_levels, double patch_quality_factor, int filter_resolution, double frequency_octaves, int num_filter_directions, const GPUMatchingOptions& gpu_matching_options) :
+	m_patch_quality_factor(patch_quality_factor),
+	m_subpatch_size(min_patch_size / 4, min_patch_size / 4),
+	m_filter_bank(filter_resolution, frequency_octaves, num_filter_directions),
+	m_cl_matcher(std::unique_ptr<cltm::matching_policies::CLMatcher>(new cltm::matching_policies::CLMatcher(gpu_matching_options.device_selection_policy, gpu_matching_options.max_texture_cache_memory, gpu_matching_options.local_block_size, gpu_matching_options.constant_kernel_max_pixels)))
+#endif
 {
 	cv::Point boundary_size(min_patch_size / 4, min_patch_size / 4);
 	cv::Point current_patch_size(min_patch_size, min_patch_size);
@@ -431,12 +440,16 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 	}
 // TODO OpenCL impl here
 
-#pragma omp parallel for
+//#pragma omp parallel for
 	for(int i = 0; i < static_cast<int>(results.size()); ++i)
 	{
 		// TODO: not exactly sure what happens here
 		cv::Mat texture_mask;
+		cv::imshow("Mask before eroding", m_textures[results[i].texture_index][results[i].texture_rot].mask());
 		cv::erode(m_textures[results[i].texture_index][results[i].texture_rot].mask(), texture_mask, region.mask(), cv::Point(0, 0), 1, cv::BORDER_CONSTANT, 0);
+		cv::imshow("Mask after eroding", texture_mask);
+		cv::imshow("Erode mask", region.mask());
+		cv::waitKey();
 		texture_mask = texture_mask(cv::Rect(0, 0, texture_mask.cols - kernel.response.cols() + 1, texture_mask.rows - kernel.response.rows() + 1));
 
 		// TODO: all of this stuff is going to be replaced by the cl implementation
@@ -1225,7 +1238,11 @@ std::pair<cv::Mat, cv::Mat> TreeMatchGPU::draw_saliency(int target_index) const
 	return std::make_pair(image, color_map);
 }
 
+#ifdef TRLIB_TREE_MATCH_USE_OPENCL
+TreeMatchGPU TreeMatchGPU::load(const boost::filesystem::path& path, bool load_textures, const GPUMatchingOptions& gpu_matching_options)
+#else
 TreeMatchGPU TreeMatchGPU::load(const boost::filesystem::path& path, bool load_textures)
+#endif
 {
 	pt::ptree root;
 	pt::read_json(path.string(), root);
@@ -1454,7 +1471,11 @@ TreeMatchGPU TreeMatchGPU::load(const boost::filesystem::path& path, bool load_t
 		std::exit(EXIT_FAILURE);
 	}
 
+#ifdef TRLIB_TREE_MATCH_USE_OPENCL
+	TreeMatchGPU matcher(min_patch_size, patch_levels, patch_quality_factor, filter_resolution, filter_bandwidth_octaves, num_filter_directions, gpu_matching_options);
+#else
 	TreeMatchGPU matcher(min_patch_size, patch_levels, patch_quality_factor, filter_resolution, filter_bandwidth_octaves, num_filter_directions);
+#endif
 
 	for(const target_json_t& t : targets_json)
 	{

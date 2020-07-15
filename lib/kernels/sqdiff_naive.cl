@@ -42,10 +42,8 @@ __kernel void sqdiff_naive_masked(
 			cdelta = (float2)((float)dx, (float)dy);
 			
 			// calculate image coord (applies rotation around current texel!)
-			image_coord = cdelta;
-			image_coord.x = rotation_sincos.y * image_coord.x - rotation_sincos.x * image_coord.y;
-			image_coord.y = rotation_sincos.x * image_coord.x + rotation_sincos.y * image_coord.y;
-			image_coord += input_pivot;
+			image_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + input_pivot.x;
+			image_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + input_pivot.y;
 
 			// calculate kernel coord
 			kernel_coord = kernel_pivot + cdelta;
@@ -58,15 +56,6 @@ __kernel void sqdiff_naive_masked(
 	
 	// write result
 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(sqdiff, 0.0f, 0.0f, 0.0f));
-	// debug output
-	// if(gid_x < kernel_size.x && gid_y < kernel_size.y)
-	// {
-	// 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(read_imagef(kernel_tex, input_sampler, (float2)((float)gid_x + 0.5f, (float)gid_y + 0.5f)).x, 0.0f, 0.0f, 0.0f));
-	// }
-	// else
-	// {
-	// 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(0.0f, 0.0f, 0.0f, 0.0f));
-	// }
 }
 
 __kernel void sqdiff_naive_masked_nth_pass(
@@ -110,10 +99,8 @@ __kernel void sqdiff_naive_masked_nth_pass(
 			cdelta = (float2)((float)dx, (float)dy);
 			
 			// calculate image coord (applies rotation around current texel!)
-			image_coord = cdelta;
-			image_coord.x = rotation_sincos.y * image_coord.x - rotation_sincos.x * image_coord.y;
-			image_coord.y = rotation_sincos.x * image_coord.x + rotation_sincos.y * image_coord.y;
-			image_coord += input_pivot;
+			image_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + input_pivot.x;
+			image_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + input_pivot.y;
 
 			// calculate kernel coord
 			kernel_coord = kernel_pivot + cdelta;
@@ -168,10 +155,8 @@ __kernel void sqdiff_naive(
 			cdelta = (float2)((float)dx, (float)dy);
 			
 			// calculate image coord (applies rotation around current texel!)
-			image_coord = cdelta;
-			image_coord.x = rotation_sincos.y * image_coord.x - rotation_sincos.x * image_coord.y;
-			image_coord.y = rotation_sincos.x * image_coord.x + rotation_sincos.y * image_coord.y;
-			image_coord += input_pivot;
+			image_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + input_pivot.x;
+			image_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + input_pivot.y;
 
 			// calculate kernel coord
 			kernel_coord = kernel_pivot + cdelta;
@@ -183,16 +168,7 @@ __kernel void sqdiff_naive(
 	}
 
 	// write result
-	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(sqdiff, 0.0f, 0.0f, 0.0f));
-	// debug output
-	// if(gid_x < kernel_size.x && gid_y < kernel_size.y)
-	// {
-	// 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(read_imagef(kernel_tex, input_sampler, (float2)((float)gid_x + 0.5f, (float)gid_y + 0.5f)).x, 0.0f, 0.0f, 0.0f));
-	// }
-	// else
-	// {
-	// 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(0.0f, 0.0f, 0.0f, 0.0f));
-	// }
+	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(sqdiff, 0.0f, 0.0f, 0.0f));	
 }
 
 __kernel void sqdiff_naive_nth_pass(
@@ -235,10 +211,8 @@ __kernel void sqdiff_naive_nth_pass(
 			cdelta = (float2)((float)dx, (float)dy);
 			
 			// calculate image coord (applies rotation around current texel!)
-			image_coord = cdelta;
-			image_coord.x = rotation_sincos.y * image_coord.x - rotation_sincos.x * image_coord.y;
-			image_coord.y = rotation_sincos.x * image_coord.x + rotation_sincos.y * image_coord.y;
-			image_coord += input_pivot;
+			image_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + input_pivot.x;
+			image_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + input_pivot.y;
 
 			// calculate kernel coord
 			kernel_coord = kernel_pivot + cdelta;

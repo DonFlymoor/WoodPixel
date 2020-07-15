@@ -82,6 +82,8 @@ SET(SRC
 	transformations.hpp
 	tree_match.cpp
 	tree_match.hpp
+	tree_match_gpu.hpp
+	tree_match_gpu.cpp
 	vector.hpp
 	vector_graphics_saver.cpp
 	vector_graphics_saver.hpp
@@ -89,13 +91,11 @@ SET(SRC
 	${PROJECT_SOURCE_DIR}/config.h
 )
 
-SET(trlib_enable_opencl_template_matching OFF CACHE BOOL "Enables or disables opencl template matching features.")
+SET(trlib_enable_opencl_template_matching OFF CACHE BOOL "Enables or disables opencl patch matching features.")
 if(${trlib_enable_opencl_template_matching})
 	list(APPEND SRC
-		tree_match_gpu.hpp
-		tree_match_gpu.cpp
-		ocl_template_matcher.hpp
-		ocl_template_matcher.cpp
+		ocl_patch_matcher.hpp
+		ocl_patch_matcher.cpp
 		matching_policies.hpp
 		matching_policies.cpp
 	)
@@ -103,6 +103,7 @@ if(${trlib_enable_opencl_template_matching})
 	include(include_cl_kernel)
 	include_cl_kernel("kernels/sqdiff_naive.cl" "kernels/cl_kernel.hpp.in" "kernels/kernel_sqdiff_naive.hpp" "-cl-std=CL1.2")
 	include_cl_kernel("kernels/sqdiff_constant_kernel.cl" "kernels/cl_kernel.hpp.in" "kernels/kernel_sqdiff_constant_kernel.hpp" "-cl-std=CL1.2")
+	include_cl_kernel("kernels/erode.cl" "kernels/cl_kernel.hpp.in" "kernels/kernel_erode.hpp" "-cl-std=CL1.2")
 endif()
 
 ADD_LIBRARY(${LIB_NAME} ${SRC})
@@ -113,4 +114,5 @@ TARGET_LINK_LIBRARIES(${LIB_NAME} PUBLIC LIBS_ALLDEPS)
 if(${trlib_enable_opencl_template_matching})
 	TARGET_LINK_LIBRARIES(${LIB_NAME} PUBLIC simple_cl)
 	TARGET_INCLUDE_DIRECTORIES(${LIB_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+	TARGET_COMPILE_DEFINITIONS(${LIB_NAME} PUBLIC TRLIB_TREE_MATCH_USE_OPENCL)
 endif()

@@ -1,16 +1,16 @@
 #ifndef _MATCHING_POLICIES_HPP_
 #define _MATCHING_POLICIES_HPP_
 
-#include <ocl_template_matcher.hpp>
+#include <ocl_patch_matcher.hpp>
 #include <memory>
 
-namespace ocl_template_matching
+namespace ocl_patch_matching
 {
 	namespace matching_policies
 	{
 		// Implements template matching via OpenCL capabilities
 		namespace impl { class CLMatcherImpl; }
-		class CLMatcher : public ocl_template_matching::MatchingPolicyBase
+		class CLMatcher : public ocl_patch_matching::MatchingPolicyBase
 		{
 		public:
 			enum class DeviceSelectionPolicy
@@ -45,6 +45,8 @@ namespace ocl_template_matching
 				MatchingResult& match_res_out
 			) override;
 
+			void erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation) override;
+
 			void find_best_matches(MatchingResult& match_res_out) override;
 			void find_best_matches(MatchingResult& match_res_out, const cv::Mat& texture_mask) override;
 
@@ -67,14 +69,14 @@ namespace ocl_template_matching
 		};
 
 		//// Uses OpenCV for template matching
-		//class OpenCVMatcher : public ocl_template_matching::MatchingPolicyBase
+		//class OpenCVMatcher : public ocl_patch_matching::MatchingPolicyBase
 		//{
 
 		//};
 
 		//// Hybrid approach which chooses between two matchers based on the template size
 		//template<typename MatcherA, typename MatcherB>
-		//class HybridMatcher : public ocl_template_matching::MatchingPolicyBase
+		//class HybridMatcher : public ocl_patch_matching::MatchingPolicyBase
 		//{
 
 		//};

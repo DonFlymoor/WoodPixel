@@ -5,7 +5,7 @@
 #include <vector>
 #include <stack>
 
-namespace ocl_template_matching
+namespace ocl_patch_matching
 {
 	namespace matching_policies
 	{
@@ -14,12 +14,13 @@ namespace ocl_template_matching
 			#pragma region CLMatcherImpl declaration
 			// include the kernel files
 			#include <kernels/kernel_sqdiff_naive.hpp>
-			#include <kernels/kernel_sqdiff_constant_kernel.hpp>	
+			#include <kernels/kernel_sqdiff_constant_kernel.hpp>
+			#include <kernels/kernel_erode.hpp>
 
 			class CLMatcherImpl
 			{
 			public:
-				CLMatcherImpl(ocl_template_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels);
+				CLMatcherImpl(ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels);
 				~CLMatcherImpl() noexcept;
 				CLMatcherImpl(const CLMatcherImpl&) = delete;
 				CLMatcherImpl(CLMatcherImpl&&) = delete;
@@ -47,6 +48,14 @@ namespace ocl_template_matching
 					MatchingResult& match_res_out
 				);
 
+				void erode_texture_mask(
+					const cv::Mat& texture_mask,
+					cv::Mat& texture_mask_eroded,
+					const cv::Mat& kernel_mask,
+					const cv::Point& kernel_anchor,
+					double texture_rotation
+				);
+
 				void find_best_matches(MatchingResult& match_res_out);
 				void find_best_matches(MatchingResult& match_res_out, const cv::Mat& texture_mask);
 
@@ -70,6 +79,7 @@ namespace ocl_template_matching
 				static simple_cl::cl::Image::ImageDesc make_output_image_desc(const Texture& input_tex, const Texture& kernel_tex);
 				static simple_cl::cl::Image::ImageDesc make_kernel_image_desc(const Texture& kernel_tex);
 				static simple_cl::cl::Image::ImageDesc make_mask_image_desc(const cv::Mat& texture_mask);
+				static simple_cl::cl::Image::ImageDesc make_mask_output_image_desc(const cv::Mat& texture_mask);
 				static simple_cl::cl::Image::ImageDesc make_kernel_mask_image_desc(const cv::Mat& kernel_mask);
 
 				static cv::Vec3i get_response_dimensions(const Texture& texture, const Texture& kernel);
@@ -84,6 +94,7 @@ namespace ocl_template_matching
 				void prepare_kernel_mask_buffer(const cv::Mat& kernel_mask, std::vector<simple_cl::cl::Event>& event_list, bool blocking = true);
 
 				void prepare_output_image(const Texture& input, const Texture& kernel);
+				void prepare_erode_output_image(const cv::Mat& texture_mask);
 				simple_cl::cl::Event clear_output_image_a(float value = 0.0f);
 				simple_cl::cl::Event clear_output_image_b(float value = 0.0f);
 
@@ -93,9 +104,11 @@ namespace ocl_template_matching
 				// decide if we should use constant memory kernel or images
 				bool use_constant_kernel(const Texture& kernel, const cv::Mat& kernel_mask) const;
 				bool use_constant_kernel(const Texture& kernel) const;
+				bool use_constant_kernel(const cv::Mat& kernel_mask) const;
 
 				// get results
 				simple_cl::cl::Event read_output_image(cv::Mat& out_mat, const cv::Vec3i& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a);
+				simple_cl::cl::Event read_eroded_texture_mask_image(cv::Mat& out_mat, const cv::Size& output_size, const std::vector<simple_cl::cl::Event>& wait_for);
 
 				// ------------------------------------------------------------ data members ----------------------------------------------------------------
 				struct InputTextureData
@@ -128,7 +141,7 @@ namespace ocl_template_matching
 					std::unique_ptr<simple_cl::cl::Buffer> buffer;
 				};
 
-				ocl_template_matching::matching_policies::CLMatcher::DeviceSelectionPolicy m_selection_policy;
+				ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy m_selection_policy;
 				// ignored for now
 				std::size_t m_max_tex_cache_size;
 				// size of local work groups (square blocks)
@@ -141,6 +154,9 @@ namespace ocl_template_matching
 				// Second output buffer in case we have more than 4 feature maps. This is used to ping-pong the result between batches
 				// of four feature maps, accumulating the total error.
 				std::unique_ptr<simple_cl::cl::Image> m_output_buffer_b;
+
+				// output buffer for erode
+				std::unique_ptr<simple_cl::cl::Image> m_output_buffer_erode;
 
 				// input textures
 				// used to manage indices of textures which became invalid. Instead of deleting from the vectors, create new resources at the free indices.
@@ -168,6 +184,7 @@ namespace ocl_template_matching
 				// OpenCL programs
 				std::unique_ptr<simple_cl::cl::Program> m_program_naive_sqdiff;
 				std::unique_ptr<simple_cl::cl::Program> m_program_sqdiff_constant_kernel;
+				std::unique_ptr<simple_cl::cl::Program> m_program_erode;
 
 				// Kernel handles
 				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff;	
@@ -179,13 +196,16 @@ namespace ocl_template_matching
 				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_nth_pass;
 				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_masked;
 				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_masked_nth_pass;
+
+				simple_cl::cl::Program::CLKernelHandle m_kernel_erode;
+				simple_cl::cl::Program::CLKernelHandle m_kernel_erode_constant;
 			};
 			#pragma endregion
 
 			#pragma region CLMatcherImpl implementation
 
 			// static functions
-			inline cv::Vec3i ocl_template_matching::matching_policies::impl::CLMatcherImpl::get_response_dimensions(const Texture& texture, const Texture& kernel)
+			inline cv::Vec3i ocl_patch_matching::matching_policies::impl::CLMatcherImpl::get_response_dimensions(const Texture& texture, const Texture& kernel)
 			{
 				return cv::Vec3i{
 					texture.response.cols() - kernel.response.cols() + 1,
@@ -194,7 +214,7 @@ namespace ocl_template_matching
 				};
 			}
 
-			inline simple_cl::cl::Image::ImageDesc ocl_template_matching::matching_policies::impl::CLMatcherImpl::make_input_image_desc(const Texture& input_tex)
+			inline simple_cl::cl::Image::ImageDesc ocl_patch_matching::matching_policies::impl::CLMatcherImpl::make_input_image_desc(const Texture& input_tex)
 			{
   				return simple_cl::cl::Image::ImageDesc{
 					simple_cl::cl::Image::ImageType::Image2D,	// One array slice per response channel
@@ -218,7 +238,7 @@ namespace ocl_template_matching
 				};
 			}
 
-			inline simple_cl::cl::Image::ImageDesc ocl_template_matching::matching_policies::impl::CLMatcherImpl::make_output_image_desc(const Texture& input_tex, const Texture& kernel_tex)
+			inline simple_cl::cl::Image::ImageDesc ocl_patch_matching::matching_policies::impl::CLMatcherImpl::make_output_image_desc(const Texture& input_tex, const Texture& kernel_tex)
 			{
 				auto output_dims{get_response_dimensions(input_tex, kernel_tex)};
 				return simple_cl::cl::Image::ImageDesc{
@@ -243,7 +263,7 @@ namespace ocl_template_matching
 				};
 			}
 
-			inline simple_cl::cl::Image::ImageDesc ocl_template_matching::matching_policies::impl::CLMatcherImpl::make_kernel_image_desc(const Texture& kernel_tex)
+			inline simple_cl::cl::Image::ImageDesc ocl_patch_matching::matching_policies::impl::CLMatcherImpl::make_kernel_image_desc(const Texture& kernel_tex)
 			{
 				return simple_cl::cl::Image::ImageDesc{
 					simple_cl::cl::Image::ImageType::Image2D,	// One array slice per response channel
@@ -267,7 +287,7 @@ namespace ocl_template_matching
 				};
 			}
 
-			inline simple_cl::cl::Image::ImageDesc ocl_template_matching::matching_policies::impl::CLMatcherImpl::make_mask_image_desc(const cv::Mat& texture_mask)
+			inline simple_cl::cl::Image::ImageDesc ocl_patch_matching::matching_policies::impl::CLMatcherImpl::make_mask_image_desc(const cv::Mat& texture_mask)
 			{
 				return simple_cl::cl::Image::ImageDesc{
 					simple_cl::cl::Image::ImageType::Image2D,		// One response channel
@@ -291,7 +311,31 @@ namespace ocl_template_matching
 				};
 			}
 
-			inline simple_cl::cl::Image::ImageDesc ocl_template_matching::matching_policies::impl::CLMatcherImpl::make_kernel_mask_image_desc(const cv::Mat& kernel_mask)
+			inline simple_cl::cl::Image::ImageDesc ocl_patch_matching::matching_policies::impl::CLMatcherImpl::make_mask_output_image_desc(const cv::Mat& texture_mask)
+			{
+				return simple_cl::cl::Image::ImageDesc{
+					simple_cl::cl::Image::ImageType::Image2D,		// One response channel
+					simple_cl::cl::Image::ImageDimensions{
+						static_cast<std::size_t>(texture_mask.cols),				// width
+						static_cast<std::size_t>(texture_mask.rows),				// height
+						1ull														// number of slices
+					},
+					simple_cl::cl::Image::ImageChannelOrder::R,		// One red channel
+					simple_cl::cl::Image::ImageChannelType::FLOAT,	// Single precision floating point data
+					simple_cl::cl::MemoryFlags{
+						simple_cl::cl::DeviceAccess::WriteOnly,		// Kernel may only write
+						simple_cl::cl::HostAccess::ReadOnly,		// Host may only read
+						simple_cl::cl::HostPointerOption::None		// No host pointer stuff
+					},
+					simple_cl::cl::Image::HostPitch{
+						0ull,										// No host pointer is given so host pitch is ignored
+						0ull
+					},
+					nullptr											// no host pointer
+				};
+			}
+			
+			inline simple_cl::cl::Image::ImageDesc ocl_patch_matching::matching_policies::impl::CLMatcherImpl::make_kernel_mask_image_desc(const cv::Mat& kernel_mask)
 			{
 				return simple_cl::cl::Image::ImageDesc{
 					simple_cl::cl::Image::ImageType::Image2D,		// One response channel
@@ -315,7 +359,7 @@ namespace ocl_template_matching
 				};
 			}
 
-			inline cv::Vec2d ocl_template_matching::matching_policies::impl::CLMatcherImpl::get_cv_image_normalizer(const cv::Mat& img)
+			inline cv::Vec2d ocl_patch_matching::matching_policies::impl::CLMatcherImpl::get_cv_image_normalizer(const cv::Mat& img)
 			{
 				// normalize signed integer values to [-1, 1] and unsigned values to [0, 1]
 				switch(img.depth())
@@ -349,8 +393,8 @@ namespace ocl_template_matching
 
 			// ctors and stuff
 
-			inline ocl_template_matching::matching_policies::impl::CLMatcherImpl::CLMatcherImpl(
-				ocl_template_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy,
+			inline ocl_patch_matching::matching_policies::impl::CLMatcherImpl::CLMatcherImpl(
+				ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy,
 				std::size_t max_texture_cache_memory,
 				std::size_t local_block_size,
 				std::size_t constant_kernel_maxdim) :
@@ -362,17 +406,17 @@ namespace ocl_template_matching
 			{
 			}
 
-			inline ocl_template_matching::matching_policies::impl::CLMatcherImpl::~CLMatcherImpl() noexcept
+			inline ocl_patch_matching::matching_policies::impl::CLMatcherImpl::~CLMatcherImpl() noexcept
 			{
 			}
 
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::select_platform_and_device(std::size_t& platform_idx, std::size_t& device_idx) const
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::select_platform_and_device(std::size_t& platform_idx, std::size_t& device_idx) const
 			{
 				auto pdevinfo = simple_cl::cl::Context::read_platform_and_device_info();
 				std::size_t plat_idx{0ull};
 				std::size_t dev_idx{0ull};
 
-				if(m_selection_policy == ocl_template_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::FirstSuitableDevice)
+				if(m_selection_policy == ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::FirstSuitableDevice)
 				{
 					platform_idx = plat_idx;
 					device_idx = dev_idx;
@@ -385,14 +429,14 @@ namespace ocl_template_matching
 					{
 						switch(m_selection_policy)
 						{
-							case ocl_template_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits:
+							case ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits:
 								if(pdevinfo[p].devices[d].max_compute_units > pdevinfo[plat_idx].devices[dev_idx].max_compute_units) 
 								{ 
 									plat_idx = p;
 									dev_idx = d;
 								}
 								break;
-							case ocl_template_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostGPUThreads:
+							case ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostGPUThreads:
 								if(pdevinfo[p].devices[d].max_compute_units * pdevinfo[p].devices[d].max_work_group_size > pdevinfo[plat_idx].devices[dev_idx].max_compute_units * pdevinfo[plat_idx].devices[dev_idx].max_work_group_size)
 								{
 									plat_idx = p;
@@ -409,34 +453,36 @@ namespace ocl_template_matching
 				device_idx = dev_idx;
 			}
 
-			inline std::size_t ocl_template_matching::matching_policies::impl::CLMatcherImpl::platform_id() const
+			inline std::size_t ocl_patch_matching::matching_policies::impl::CLMatcherImpl::platform_id() const
 			{
 				std::size_t pidx, didx;
 				select_platform_and_device(pidx, didx);
 				return pidx;
 			}
 
-			inline std::size_t ocl_template_matching::matching_policies::impl::CLMatcherImpl::device_id() const
+			inline std::size_t ocl_patch_matching::matching_policies::impl::CLMatcherImpl::device_id() const
 			{
 				std::size_t pidx, didx;
 				select_platform_and_device(pidx, didx);
 				return didx;
 			}
 
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::invalidate_input_texture(const std::string& texid)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::invalidate_input_texture(const std::string& texid)
 			{
 				std::size_t index{m_texture_index_map.at(texid)};
 				m_texture_index_map.erase(texid);
 				m_free_indices.push(index);
 			}
 
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::initialize_opencl_state(const std::shared_ptr<simple_cl::cl::Context>& clcontext)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::initialize_opencl_state(const std::shared_ptr<simple_cl::cl::Context>& clcontext)
 			{
 				// save context
 				m_cl_context = clcontext;
 				// create and compile programs
 				m_program_naive_sqdiff.reset(new simple_cl::cl::Program(kernels::sqdiff_naive_src, kernels::sqdiff_naive_copt, m_cl_context));
 				m_program_sqdiff_constant_kernel.reset(new simple_cl::cl::Program(kernels::sqdiff_constant_kernel_src, kernels::sqdiff_constant_kernel_copt, m_cl_context));
+				m_program_erode.reset(new simple_cl::cl::Program(kernels::erode_src, kernels::erode_copt, m_cl_context));
+				
 				// retrieve kernel handles
 				m_kernel_naive_sqdiff = m_program_naive_sqdiff->getKernel("sqdiff_naive");
 				m_kernel_naive_sqdiff_nth_pass = m_program_naive_sqdiff->getKernel("sqdiff_naive_nth_pass");
@@ -447,13 +493,16 @@ namespace ocl_template_matching
 				m_kernel_constant_sqdiff_nth_pass = m_program_sqdiff_constant_kernel->getKernel("sqdiff_constant_nth_pass");
 				m_kernel_constant_sqdiff_masked = m_program_sqdiff_constant_kernel->getKernel("sqdiff_constant_masked");
 				m_kernel_constant_sqdiff_masked_nth_pass = m_program_sqdiff_constant_kernel->getKernel("sqdiff_constant_masked_nth_pass");
+
+				m_kernel_erode = m_program_erode->getKernel("erode");
+				m_kernel_erode_constant = m_program_erode->getKernel("erode_constant");
 			}
 
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::cleanup_opencl_state()
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::cleanup_opencl_state()
 			{
 			}
 
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::prepare_input_image(const Texture& input, std::vector<simple_cl::cl::Event>& event_list, bool invalidate, bool blocking)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_input_image(const Texture& input, std::vector<simple_cl::cl::Event>& event_list, bool invalidate, bool blocking)
 			{
 				// use async api calls where possible to reduce gpu bubbles. WHY TF DOES OPENCV NOT HAVE MOVE CONTRUCTORS???
 				static std::vector<simple_cl::cl::Event> events;
@@ -646,7 +695,7 @@ namespace ocl_template_matching
 				}
 			}
 						
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::prepare_texture_mask(const cv::Mat& texture_mask, std::vector<simple_cl::cl::Event>& event_list, bool blocking)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_texture_mask(const cv::Mat& texture_mask, std::vector<simple_cl::cl::Event>& event_list, bool blocking)
 			{
 				cv::Mat mask_data(texture_mask.rows, texture_mask.cols, CV_32FC1);
 				auto normalizer{get_cv_image_normalizer(texture_mask)};
@@ -679,7 +728,7 @@ namespace ocl_template_matching
 					event_list.push_back(m_texture_mask->write(img_region, host_fmt, mask_data_binary.data, false));				
 			}
 
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::prepare_kernel_image(const Texture& kernel_texture, std::vector<simple_cl::cl::Event>& event_list, bool blocking)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_kernel_image(const Texture& kernel_texture, std::vector<simple_cl::cl::Event>& event_list, bool blocking)
 			{
 				// avoid too many heap allocations
 				static std::vector<cv::Mat> kernel_data;
@@ -766,7 +815,7 @@ namespace ocl_template_matching
 					event_list.insert(event_list.end(), events.begin(), events.end());
 			}
 
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::prepare_kernel_mask(const cv::Mat& kernel_mask, std::vector<simple_cl::cl::Event>& event_list, bool blocking)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_kernel_mask(const cv::Mat& kernel_mask, std::vector<simple_cl::cl::Event>& event_list, bool blocking)
 			{
 				cv::Mat mask_data(kernel_mask.rows, kernel_mask.cols, CV_32FC1);
 				auto normalizer{get_cv_image_normalizer(kernel_mask)};
@@ -799,7 +848,7 @@ namespace ocl_template_matching
 					event_list.push_back(m_kernel_mask->write(img_region, host_fmt, mask_data_binary.data, false));
 			}
 
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::prepare_kernel_buffer(const Texture& kernel_texture, std::vector<simple_cl::cl::Event>& event_list, bool blocking)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_kernel_buffer(const Texture& kernel_texture, std::vector<simple_cl::cl::Event>& event_list, bool blocking)
 			{
 				// avoid too many heap allocations
 				static std::vector<cv::Mat> kernel_data;
@@ -870,7 +919,7 @@ namespace ocl_template_matching
 					event_list.insert(event_list.end(), events.begin(), events.end());
 			}
 
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::prepare_kernel_mask_buffer(const cv::Mat& kernel_mask, std::vector<simple_cl::cl::Event>& event_list, bool blocking)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_kernel_mask_buffer(const cv::Mat& kernel_mask, std::vector<simple_cl::cl::Event>& event_list, bool blocking)
 			{
 				cv::Mat mask_data(kernel_mask.rows, kernel_mask.cols, CV_32FC1);
 				auto normalizer{get_cv_image_normalizer(kernel_mask)};
@@ -899,7 +948,7 @@ namespace ocl_template_matching
 					event_list.push_back(std::move(m_kernel_mask_buffer.buffer->write_bytes(mask_data_binary.data, kernel_mask_size, 0ull, true)));
 			}
 
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::prepare_output_image(const Texture& input, const Texture& kernel)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_output_image(const Texture& input, const Texture& kernel)
 			{
 				auto dims{get_response_dimensions(input, kernel)};
 				if(m_output_buffer_a) // if output image already exists
@@ -937,6 +986,24 @@ namespace ocl_template_matching
 				}
 			}
 
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_erode_output_image(const cv::Mat& texture_mask)
+			{
+				if(m_output_buffer_erode) // if output image already exists
+				{
+					// recreate output image only if it is too small for the new input - kernel combination
+					if(static_cast<std::size_t>(texture_mask.cols) > m_output_buffer_a->width() || static_cast<std::size_t>(texture_mask.rows) > m_output_buffer_a->height())
+					{
+						auto output_desc{make_mask_output_image_desc(texture_mask)};
+						m_output_buffer_erode.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
+					}
+				}
+				else
+				{
+					auto output_desc{make_mask_output_image_desc(texture_mask)};
+					m_output_buffer_erode.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
+				}
+			}
+
 			inline simple_cl::cl::Event CLMatcherImpl::clear_output_image_a(float value)
 			{
 				simple_cl::cl::Image::ImageRegion region{
@@ -955,7 +1022,7 @@ namespace ocl_template_matching
 				return m_output_buffer_b->fill(simple_cl::cl::Image::FillColor{value}, region);
 			}
 
-			inline bool ocl_template_matching::matching_policies::impl::CLMatcherImpl::use_constant_kernel(const Texture& kernel, const cv::Mat& kernel_mask) const
+			inline bool ocl_patch_matching::matching_policies::impl::CLMatcherImpl::use_constant_kernel(const Texture& kernel, const cv::Mat& kernel_mask) const
 			{
 				std::size_t num_feature_maps{static_cast<std::size_t>(kernel.response.num_channels())};
 				std::size_t num_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
@@ -964,7 +1031,7 @@ namespace ocl_template_matching
 				return (kernel_pixels <= m_constant_kernel_max_pixels && total_size <= m_cl_context->get_selected_device().max_constant_buffer_size);
 			}
 
-			inline bool ocl_template_matching::matching_policies::impl::CLMatcherImpl::use_constant_kernel(const Texture& kernel) const
+			inline bool ocl_patch_matching::matching_policies::impl::CLMatcherImpl::use_constant_kernel(const Texture& kernel) const
 			{
 				std::size_t num_feature_maps{static_cast<std::size_t>(kernel.response.num_channels())};
 				std::size_t num_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
@@ -972,8 +1039,15 @@ namespace ocl_template_matching
 				std::size_t total_size{(sizeof(cl_float4)) * kernel_pixels * num_batches};
 				return (kernel_pixels <= m_constant_kernel_max_pixels && total_size <= m_cl_context->get_selected_device().max_constant_buffer_size);
 			}
+
+			inline bool ocl_patch_matching::matching_policies::impl::CLMatcherImpl::use_constant_kernel(const cv::Mat& kernel_mask) const
+			{
+				std::size_t kernel_pixels{static_cast<std::size_t>(kernel_mask.cols) * static_cast<std::size_t>(kernel_mask.cols)};
+				std::size_t total_size{sizeof(cl_float) * kernel_pixels};
+				return (kernel_pixels <= m_constant_kernel_max_pixels && total_size <= m_cl_context->get_selected_device().max_constant_buffer_size);
+			}
 			
-			inline simple_cl::cl::Event ocl_template_matching::matching_policies::impl::CLMatcherImpl::read_output_image(cv::Mat& out_mat, const cv::Vec3i& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a)
+			inline simple_cl::cl::Event ocl_patch_matching::matching_policies::impl::CLMatcherImpl::read_output_image(cv::Mat& out_mat, const cv::Vec3i& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a)
 			{
 				// resize output if necessary
 				if((output_size[0] != out_mat.cols) ||
@@ -1003,7 +1077,32 @@ namespace ocl_template_matching
 					return m_output_buffer_b->read(region, hostfmt, out_mat.data, wait_for.begin(), wait_for.end());
 			}
 
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::compute_response(
+			inline simple_cl::cl::Event ocl_patch_matching::matching_policies::impl::CLMatcherImpl::read_eroded_texture_mask_image(cv::Mat& out_mat, const cv::Size& output_size, const std::vector<simple_cl::cl::Event>& wait_for)
+			{
+				// resize output if necessary
+				if((output_size.width != out_mat.cols) || (output_size.height != out_mat.rows))
+				{
+					out_mat = cv::Mat(output_size.height, output_size.width, CV_32FC1);
+				}
+
+				// image region
+				simple_cl::cl::Image::ImageRegion region{
+					simple_cl::cl::Image::ImageOffset{0ull, 0ull, 0ull},
+					simple_cl::cl::Image::ImageDimensions{static_cast<std::size_t>(output_size.width), static_cast<std::size_t>(output_size.height), 1ull}
+				};
+
+				// host format
+				simple_cl::cl::Image::HostFormat hostfmt{
+					simple_cl::cl::Image::HostChannelOrder{1ull, {simple_cl::cl::Image::ColorChannel::R, simple_cl::cl::Image::ColorChannel::R, simple_cl::cl::Image::ColorChannel::R, simple_cl::cl::Image::ColorChannel::R}},
+					simple_cl::cl::Image::HostDataType::FLOAT,
+					simple_cl::cl::Image::HostPitch{static_cast<std::size_t>(out_mat.step[0]), 0ull}
+				};
+
+				// read output and return event				
+				return m_output_buffer_erode->read(region, hostfmt, out_mat.data, wait_for.begin(), wait_for.end());
+			}
+			
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::compute_response(
 				const Texture& texture,
 				const Texture& kernel,
 				const cv::Mat& kernel_mask,
@@ -1178,7 +1277,7 @@ namespace ocl_template_matching
 				read_output_image(match_res_out.total_cost_matrix, get_response_dimensions(texture, kernel), pre_compute_events, num_batches % 2ull).wait();
 			}
 
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::compute_response(
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::compute_response(
 				const Texture& texture,
 				const Texture& kernel,
 				double texture_rotation,
@@ -1342,18 +1441,88 @@ namespace ocl_template_matching
 				// read result and wait for command chain to finish execution. If num_batches is odd, read output a, else b.
 				read_output_image(match_res_out.total_cost_matrix, get_response_dimensions(texture, kernel), pre_compute_events, num_batches % 2ull).wait();
 			}
+
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::erode_texture_mask(
+				const cv::Mat& texture_mask,
+				cv::Mat& texture_mask_eroded,
+				const cv::Mat& kernel_mask,
+				const cv::Point& kernel_anchor,
+				double texture_rotation)
+			{
+				static std::vector<simple_cl::cl::Event> pre_compute_events;
+				pre_compute_events.clear();
+				// prepare all input data
+				prepare_texture_mask(texture_mask, pre_compute_events, false);
+				bool use_constant{use_constant_kernel(kernel_mask)};
+				if(use_constant)
+					prepare_kernel_mask_buffer(kernel_mask, pre_compute_events, false);
+				else
+					prepare_kernel_mask(kernel_mask, pre_compute_events, false);
+				prepare_erode_output_image(texture_mask);
+				// execution params for kernel
+				simple_cl::cl::Program::ExecParams exec_params{
+					2ull,
+					{0ull, 0ull, 0ull},
+					{static_cast<std::size_t>(texture_mask.cols), static_cast<std::size_t>(texture_mask.rows), 1ull},
+					{m_local_block_size, m_local_block_size, 1ull}
+				};
+				if(use_constant)
+				{
+					simple_cl::cl::Event event{(*m_program_erode)(m_kernel_erode_constant,
+						pre_compute_events.begin(),
+						pre_compute_events.end(),
+						exec_params,
+						*m_texture_mask,
+						*(m_kernel_mask_buffer.buffer),
+						*m_output_buffer_erode,
+						cl_int2{texture_mask.cols, texture_mask.rows},
+						cl_int2{kernel_mask.cols, kernel_mask.rows},
+						cl_int2{kernel_anchor.x, kernel_anchor.y},
+						cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
+					)};
+					pre_compute_events.clear();
+					pre_compute_events.push_back(event);
+				}
+				else
+				{
+					simple_cl::cl::Event event{(*m_program_erode)(m_kernel_erode,
+						pre_compute_events.begin(),
+						pre_compute_events.end(),
+						exec_params,
+						*m_texture_mask,
+						*(m_kernel_mask),
+						*m_output_buffer_erode,
+						cl_int2{texture_mask.cols, texture_mask.rows},
+						cl_int2{kernel_mask.cols, kernel_mask.rows},
+						cl_int2{kernel_anchor.x, kernel_anchor.y},
+						cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
+					)};
+					pre_compute_events.clear();
+					pre_compute_events.push_back(event);
+				}
+				// read back output
+				read_eroded_texture_mask_image(texture_mask_eroded, cv::Size{texture_mask.cols, texture_mask.rows}, pre_compute_events).wait();
+			}
 			
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::find_best_matches(MatchingResult& match_res_out)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::find_best_matches(MatchingResult& match_res_out)
 			{
-				// TODO: Implement parallel extraction of best match
+				double minval, maxval;
+				cv::Point minloc, maxloc;
+				cv::minMaxLoc(match_res_out.total_cost_matrix, &minval, &maxval, &minloc, &maxloc);
+				match_res_out.matches.clear();
+				match_res_out.matches.push_back(ocl_patch_matching::Match{minloc, minval});
 			}
 
-			inline void ocl_template_matching::matching_policies::impl::CLMatcherImpl::find_best_matches(MatchingResult& match_res_out, const cv::Mat& texture_mask)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::find_best_matches(MatchingResult& match_res_out, const cv::Mat& texture_mask)
 			{
-				// TODO: Implement parallel extraction of best match
+				double minval, maxval;
+				cv::Point minloc, maxloc;
+				cv::minMaxLoc(match_res_out.total_cost_matrix, &minval, &maxval, &minloc, &maxloc, texture_mask);
+				match_res_out.matches.clear();
+				match_res_out.matches.push_back(ocl_patch_matching::Match{minloc, minval});
 			}
 
-			inline cv::Vec3i ocl_template_matching::matching_policies::impl::CLMatcherImpl::response_dimensions(
+			inline cv::Vec3i ocl_patch_matching::matching_policies::impl::CLMatcherImpl::response_dimensions(
 				const Texture& texture,
 				const Texture& kernel,
 				double texture_rotation) const
@@ -1361,7 +1530,7 @@ namespace ocl_template_matching
 				return get_response_dimensions(texture, kernel);
 			}
 
-			inline match_response_cv_mat_t ocl_template_matching::matching_policies::impl::CLMatcherImpl::response_image_data_type(
+			inline match_response_cv_mat_t ocl_patch_matching::matching_policies::impl::CLMatcherImpl::response_image_data_type(
 				const Texture& texture,
 				const Texture& kernel,
 				double texture_rotation) const
@@ -1378,36 +1547,41 @@ namespace ocl_template_matching
 // ----------------------------------------------------------------------- INTERFACE -----------------------------------------------------------------------
 
 // class CLMatcher
-ocl_template_matching::matching_policies::CLMatcher::CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels) :
+ocl_patch_matching::matching_policies::CLMatcher::CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels) :
 	m_impl(new impl::CLMatcherImpl(device_selection_policy, max_texture_cache_memory, local_block_size, constant_kernel_max_pixels))
 {
 }
 
-ocl_template_matching::matching_policies::CLMatcher::~CLMatcher() noexcept
+ocl_patch_matching::matching_policies::CLMatcher::~CLMatcher() noexcept
 {
 }
 
-std::size_t ocl_template_matching::matching_policies::CLMatcher::platform_id() const
+std::size_t ocl_patch_matching::matching_policies::CLMatcher::platform_id() const
 {
 	return impl()->platform_id();
 }
 
-std::size_t ocl_template_matching::matching_policies::CLMatcher::device_id() const
+std::size_t ocl_patch_matching::matching_policies::CLMatcher::device_id() const
 {
 	return impl()->device_id();
 }
 
-void ocl_template_matching::matching_policies::CLMatcher::initialize_opencl_state(const std::shared_ptr<simple_cl::cl::Context>& clcontext)
+void ocl_patch_matching::matching_policies::CLMatcher::initialize_opencl_state(const std::shared_ptr<simple_cl::cl::Context>& clcontext)
 {
 	impl()->initialize_opencl_state(clcontext);
 }
 
-void ocl_template_matching::matching_policies::CLMatcher::cleanup_opencl_state()
+void ocl_patch_matching::matching_policies::CLMatcher::cleanup_opencl_state()
 {
 	impl()->cleanup_opencl_state();
 }
 
-void ocl_template_matching::matching_policies::CLMatcher::compute_response(
+void ocl_patch_matching::matching_policies::CLMatcher::erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation)
+{
+	impl()->erode_texture_mask(texture_mask, texture_mask_eroded, kernel_mask, kernel_anchor, texture_rotation);
+}
+
+void ocl_patch_matching::matching_policies::CLMatcher::compute_response(
 	const Texture& texture,
 	const Texture& kernel,
 	const cv::Mat& kernel_mask,
@@ -1417,7 +1591,7 @@ void ocl_template_matching::matching_policies::CLMatcher::compute_response(
 	impl()->compute_response(texture, kernel, kernel_mask, texture_rotation, match_res_out);
 }
 
-void ocl_template_matching::matching_policies::CLMatcher::compute_response(
+void ocl_patch_matching::matching_policies::CLMatcher::compute_response(
 	const Texture& texture,
 	const Texture& kernel,
 	double texture_rotation,
@@ -1426,17 +1600,17 @@ void ocl_template_matching::matching_policies::CLMatcher::compute_response(
 	impl()->compute_response(texture, kernel, texture_rotation, match_res_out);
 }
 
-void ocl_template_matching::matching_policies::CLMatcher::find_best_matches(MatchingResult& match_res_out)
+void ocl_patch_matching::matching_policies::CLMatcher::find_best_matches(MatchingResult& match_res_out)
 {
 	impl()->find_best_matches(match_res_out);
 }
 
-void ocl_template_matching::matching_policies::CLMatcher::find_best_matches(MatchingResult& match_res_out, const cv::Mat& texture_mask)
+void ocl_patch_matching::matching_policies::CLMatcher::find_best_matches(MatchingResult& match_res_out, const cv::Mat& texture_mask)
 {
 	impl()->find_best_matches(match_res_out, texture_mask);
 }
 
-cv::Vec3i ocl_template_matching::matching_policies::CLMatcher::response_dimensions(
+cv::Vec3i ocl_patch_matching::matching_policies::CLMatcher::response_dimensions(
 	const Texture& texture,
 	const Texture& kernel,
 	double texture_rotation) const
@@ -1444,7 +1618,7 @@ cv::Vec3i ocl_template_matching::matching_policies::CLMatcher::response_dimensio
 	return impl()->response_dimensions(texture, kernel, texture_rotation);
 }
 
-ocl_template_matching::match_response_cv_mat_t ocl_template_matching::matching_policies::CLMatcher::response_image_data_type(
+ocl_patch_matching::match_response_cv_mat_t ocl_patch_matching::matching_policies::CLMatcher::response_image_data_type(
 	const Texture& texture,
 	const Texture& kernel,
 	double texture_rotation) const

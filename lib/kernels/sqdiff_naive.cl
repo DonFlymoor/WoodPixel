@@ -49,8 +49,12 @@ __kernel void sqdiff_naive_masked(
 			kernel_coord = kernel_pivot + cdelta;
 
 			// squared difference
-			diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, kernel_sampler, kernel_coord));
-			sqdiff += dot(diff, diff) * read_imagef(kernel_mask, kernel_sampler, kernel_coord).x;
+			float mask_val = read_imagef(kernel_mask, kernel_sampler, kernel_coord).x;
+			if(mask_val > 0.5f)
+			{
+				diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, kernel_sampler, kernel_coord));
+				sqdiff += dot(diff, diff);
+			}
 		}
 	}
 	
@@ -106,8 +110,12 @@ __kernel void sqdiff_naive_masked_nth_pass(
 			kernel_coord = kernel_pivot + cdelta;
 
 			// squared difference
-			diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, kernel_sampler, kernel_coord));
-			sqdiff += dot(diff, diff) * read_imagef(kernel_mask, kernel_sampler, kernel_coord).x;
+			float mask_val = read_imagef(kernel_mask, kernel_sampler, kernel_coord).x;
+			if(mask_val > 0.5f)
+			{
+				diff = (read_imagef(input_tex, input_sampler, image_coord) - read_imagef(kernel_tex, kernel_sampler, kernel_coord));
+				sqdiff += dot(diff, diff);
+			}
 		}
 	}
 	

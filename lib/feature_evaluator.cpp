@@ -33,7 +33,7 @@ FeatureVector FeatureEvaluator::evaluate(cv::Mat texture, cv::Mat mask) const
   mat<cv::Mat> gabor_response;
   if (m_weight_gabor > 0.0)
   {
-    gabor_response = m_filter_bank.compute_response(texture);
+    gabor_response = m_filter_bank.compute_matches(texture);
   }
 
   cv::Mat texture_conv;
@@ -73,7 +73,7 @@ FeatureVector FeatureEvaluator::evaluate_with_histogram_matching(cv::Mat texture
   mat<cv::Mat> gabor_response;
   if (m_weight_gabor > 0.0)
   {
-    gabor_response = m_filter_bank.compute_response(texture);
+    gabor_response = m_filter_bank.compute_matches(texture);
   }
 
   cv::Mat texture_gray;

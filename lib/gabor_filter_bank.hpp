@@ -34,7 +34,7 @@ class GaborFilterBank
 public:
   GaborFilterBank(int filter_resolution, double frequency_octaves, int num_directions);
 
-  mat<cv::Mat> compute_response(cv::Mat texture) const;
+  mat<cv::Mat> compute_matches(cv::Mat texture) const;
 
   cv::Mat draw() const;
 

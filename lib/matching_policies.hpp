@@ -30,14 +30,22 @@ namespace ocl_patch_matching
 			void initialize_opencl_state(const std::shared_ptr<simple_cl::cl::Context>& clcontext) override;
 			void cleanup_opencl_state() override;
 
-			void compute_response(
+			void compute_matches(
 				const Texture& texture,
 				const Texture& kernel,
 				double texture_rotation,
 				MatchingResult& match_res_out
 			) override;
 
-			void compute_response(
+			void compute_matches(
+				const Texture& texture,
+				const cv::Mat& texture_mask,
+				const Texture& kernel,
+				double texture_rotation,
+				MatchingResult& match_res_out
+			) override;
+
+			void compute_matches(
 				const Texture& texture,
 				const Texture& kernel,
 				const cv::Mat& kernel_mask,
@@ -45,10 +53,16 @@ namespace ocl_patch_matching
 				MatchingResult& match_res_out
 			) override;
 
-			void erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation) override;
+			void compute_matches(
+				const Texture& texture,
+				const cv::Mat& texture_mask,
+				const Texture& kernel,
+				const cv::Mat& kernel_mask,
+				double texture_rotation,
+				MatchingResult& match_res_out
+			) override;
 
-			void find_best_matches(MatchingResult& match_res_out) override;
-			void find_best_matches(MatchingResult& match_res_out, const cv::Mat& texture_mask) override;
+			void erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation) override;
 
 			cv::Vec3i response_dimensions(
 				const Texture& texture,

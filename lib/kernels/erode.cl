@@ -45,8 +45,11 @@ __kernel void erode(
 			kernel_coord = kernel_pivot + cdelta;
 
 			float kernel_val = read_imagef(kernel_tex, mask_sampler, kernel_coord).x; // 1.0 or 0.0
-			float image_val = read_imagef(input_tex, mask_sampler, image_coord).x; // 1.0 or 0.0
-			minval = min(minval, mix(1.0f, image_val, kernel_val));
+			if(kernel_val > 0.5f) // no divergence because kernel values are the same for every thread
+			{
+				float image_val = step(0.5f, read_imagef(input_tex, mask_sampler, image_coord).x); // 1.0 or 0.0
+				minval = min(minval, image_val);
+			}			
 		}
 	}
 	// write result
@@ -90,9 +93,12 @@ __kernel void erode_constant(
 
 			// squared difference
 			kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx);
-			float image_val = read_imagef(input_tex, mask_sampler, image_coord).x;
 			float kernel_val = kernel_tex[kernel_pix_idx];
-			minval = min(minval, mix(1.0f, image_val, kernel_val));
+			if(kernel_val > 0.5f) // no divergence because kernel values are the same for every thread
+			{
+				float image_val = step(0.5f, read_imagef(input_tex, mask_sampler, image_coord).x);			
+				minval = min(minval, image_val);
+			}
 		}
 	}
 	// write result

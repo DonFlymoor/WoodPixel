@@ -1941,7 +1941,7 @@ namespace simple_cl
 			for(DepIterator it{dep_begin}; it != dep_end; ++it)
 				if(it->m_event)
 					m_event_cache.push_back(it->m_event);
-			return img_write_mapped(img_region, format, data_ptr, default_value);
+			return img_write(img_region, format, data_ptr, blocking, default_value);
 		}
 
 		template<typename DepIterator>
@@ -1952,7 +1952,7 @@ namespace simple_cl
 			for(DepIterator it{dep_begin}; it != dep_end; ++it)
 				if(it->m_event)
 					m_event_cache.push_back(it->m_event);
-			return img_read_mapped(img_region, format, data_ptr, default_value);
+			return img_read(img_region, format, data_ptr, blocking, default_value);
 		}
 
 		inline std::size_t Image::get_image_channel_type_size(const Image::ImageChannelType type)

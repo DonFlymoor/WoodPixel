@@ -104,6 +104,7 @@ if(${trlib_enable_opencl_template_matching})
 	include_cl_kernel("kernels/sqdiff_naive.cl" "kernels/cl_kernel.hpp.in" "kernels/kernel_sqdiff_naive.hpp" "-cl-std=CL1.2")
 	include_cl_kernel("kernels/sqdiff_constant_kernel.cl" "kernels/cl_kernel.hpp.in" "kernels/kernel_sqdiff_constant_kernel.hpp" "-cl-std=CL1.2")
 	include_cl_kernel("kernels/erode.cl" "kernels/cl_kernel.hpp.in" "kernels/kernel_erode.hpp" "-cl-std=CL1.2")
+	include_cl_kernel("kernels/find_min.cl" "kernels/cl_kernel.hpp.in" "kernels/find_min.hpp" "-cl-std=CL1.2")
 endif()
 
 ADD_LIBRARY(${LIB_NAME} ${SRC})

@@ -51,6 +51,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "texture.hpp"
 #include "timer.hpp"
 
+#define PI 3.14159265359
+
 namespace fs = boost::filesystem;
 namespace pt = boost::property_tree;
 namespace cltm = ocl_patch_matching;
@@ -439,17 +441,55 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 		}
 	}
 // TODO OpenCL impl here
-
-//#pragma omp parallel for
+// idea pull out that erode call and do it on the cpu in parallel for all rotations
+#ifdef TRLIB_TREE_MATCH_USE_OPENCL
 	for(int i = 0; i < static_cast<int>(results.size()); ++i)
 	{
-		// TODO: not exactly sure what happens here
+		double rotation = m_textures[results[i].texture_index][results[i].texture_rot].angle_rad;
+
 		cv::Mat texture_mask;
-		cv::imshow("Mask before eroding", m_textures[results[i].texture_index][results[i].texture_rot].mask());
+		//cv::erode(m_textures[results[i].texture_index][0].mask(), texture_mask, region.mask(), cv::Point(0, 0), 1, cv::BORDER_CONSTANT, 0);
+		//m_cl_matcher.erode_texture_mask(m_textures[results[i].texture_index][0].mask(), texture_mask, region.mask(), cv::Point(0, 0), rotation);
+		texture_mask = texture_mask(cv::Rect(0, 0, texture_mask.cols - kernel.response.cols() + 1, texture_mask.rows - kernel.response.rows() + 1));
+
+		ocl_patch_matching::MatchingResult matching_result;
+		if(cv::countNonZero(texture_mask) > 0)
+		{
+			
+			if(is_rectangular)
+			{
+				m_cl_matcher.match(m_textures[results[i].texture_index][0], texture_mask, kernel, rotation, matching_result);
+			}
+			else
+			{
+				m_cl_matcher.match(m_textures[results[i].texture_index][0], texture_mask, kernel, region.mask(), rotation, matching_result);
+			}
+		}
+		results[i].cost = matching_result.matches[0].match_cost;
+		results[i].texture_pos = matching_result.matches[0].match_pos;
+	}
+
+	MatchPatchResult result_min = *std::min_element(results.begin(), results.end(), [](const MatchPatchResult& lhs, const MatchPatchResult& rhs) { return lhs.cost < rhs.cost; });
+
+
+	if(result_min.cost == std::numeric_limits<double>::max())
+	{
+		std::cout << "Finished. No more texture samples available." << std::endl;
+	}
+
+	// TODO: This needs fixing
+	const cv::Mat error_mat = m_targets[region.target_index()].response(region.bounding_box()).dist_sqr_mat(m_textures[result_min.texture_index][result_min.texture_rot].response(cv::Rect(result_min.texture_pos, region.bounding_box().size())));
+
+	Patch patch(region, result_min.texture_pos, m_textures[result_min.texture_index][result_min.texture_rot].transformation_matrix, result_min.texture_index, result_min.texture_rot, error_mat, result_min.cost);
+	add_patch(patch);
+
+	return patch;
+#else
+#pragma omp parallel for
+	for(int i = 0; i < static_cast<int>(results.size()); ++i)
+	{
+		cv::Mat texture_mask;
 		cv::erode(m_textures[results[i].texture_index][results[i].texture_rot].mask(), texture_mask, region.mask(), cv::Point(0, 0), 1, cv::BORDER_CONSTANT, 0);
-		cv::imshow("Mask after eroding", texture_mask);
-		cv::imshow("Erode mask", region.mask());
-		cv::waitKey();
 		texture_mask = texture_mask(cv::Rect(0, 0, texture_mask.cols - kernel.response.cols() + 1, texture_mask.rows - kernel.response.rows() + 1));
 
 		// TODO: all of this stuff is going to be replaced by the cl implementation
@@ -483,6 +523,7 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 	add_patch(patch);
 
 	return patch;
+#endif
 }
 
 

@@ -79,7 +79,7 @@ namespace ocl_patch_matching
         virtual void cleanup_opencl_state() {}
 
         //// matching functions
-        //virtual void compute_response(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& match_res_out, const std::shared_ptr<simple_cl::cl::Context>&) {}
+        //virtual void compute_matches(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& match_res_out, const std::shared_ptr<simple_cl::cl::Context>&) {}
         //virtual void find_best_matches(MatchingResult& match_res_out, const std::shared_ptr<simple_cl::cl::Context>&) {}
 
         // calculate response dimensions
@@ -90,14 +90,37 @@ namespace ocl_patch_matching
         // erode texture mask
         virtual void erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation) {}
 
-        // no masks
-        virtual void compute_response(const Texture& texture, const Texture& kernel, double texture_rotation, MatchingResult& match_res_out) = 0;
-        // with kernel mask
-        virtual void compute_response(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& match_res_out) = 0;
-        // find best matches
-        virtual void find_best_matches(MatchingResult& match_res_out) {}
-        // with texture mask
-        virtual void find_best_matches(MatchingResult& match_res_out, const cv::Mat& texture_mask) {}
+        virtual void compute_matches(
+            const Texture& texture,
+            const Texture& kernel,
+            double texture_rotation,
+            MatchingResult& match_res_out
+        ) {};
+
+        virtual void compute_matches(
+            const Texture& texture,
+            const cv::Mat& texture_mask,
+            const Texture& kernel,
+            double texture_rotation,
+            MatchingResult& match_res_out
+        ) {};
+
+        virtual void compute_matches(
+            const Texture& texture,
+            const Texture& kernel,
+            const cv::Mat& kernel_mask,
+            double texture_rotation,
+            MatchingResult& match_res_out
+        ) {};
+
+        virtual void compute_matches(
+            const Texture& texture,
+            const cv::Mat& texture_mask,
+            const Texture& kernel,
+            const cv::Mat& kernel_mask,
+            double texture_rotation,
+            MatchingResult& match_res_out
+        ) {};
     };
     MatchingPolicyBase::~MatchingPolicyBase() noexcept { cleanup_opencl_state(); }
 

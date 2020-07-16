@@ -57,7 +57,7 @@ GaborFilterBank::GaborFilterBank(int filter_resolution, double frequency_octaves
   }
 }
 
-mat<cv::Mat> GaborFilterBank::compute_response(cv::Mat texture) const
+mat<cv::Mat> GaborFilterBank::compute_matches(cv::Mat texture) const
 {
   const double gabor_max = 0.2;
   mat<cv::Mat> response(m_gabor_filters.height(), m_gabor_filters.width());

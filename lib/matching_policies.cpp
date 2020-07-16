@@ -14,7 +14,9 @@ namespace ocl_patch_matching
 			#pragma region CLMatcherImpl declaration
 			// include the kernel files
 			#include <kernels/kernel_sqdiff_naive.hpp>
-			#include <kernels/kernel_sqdiff_constant_kernel.hpp>
+			#include <kernels/kernel_sqdiff_constant.hpp>
+			#include <kernels/kernel_sqdiff_naive_local.hpp>
+			#include <kernels/kernel_sqdiff_constant_local.hpp>
 			#include <kernels/kernel_erode.hpp>
 			#include <kernels/find_min.hpp>
 
@@ -210,7 +212,9 @@ namespace ocl_patch_matching
 
 				// OpenCL programs
 				std::unique_ptr<simple_cl::cl::Program> m_program_naive_sqdiff;
-				std::unique_ptr<simple_cl::cl::Program> m_program_sqdiff_constant_kernel;
+				std::unique_ptr<simple_cl::cl::Program> m_program_sqdiff_constant;
+				std::unique_ptr<simple_cl::cl::Program> m_program_naive_sqdiff_local;
+				std::unique_ptr<simple_cl::cl::Program> m_program_sqdiff_constant_local;
 				std::unique_ptr<simple_cl::cl::Program> m_program_erode;
 				std::unique_ptr<simple_cl::cl::Program> m_program_find_min;
 
@@ -220,10 +224,20 @@ namespace ocl_patch_matching
 				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_masked;
 				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_masked_nth_pass;
 
+				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_local;
+				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_local_nth_pass;
+				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_local_masked;
+				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_local_masked_nth_pass;
+
 				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff;
 				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_nth_pass;
 				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_masked;
 				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_masked_nth_pass;
+
+				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_local;
+				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_local_nth_pass;
+				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_local_masked;
+				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_local_masked_nth_pass;
 
 				simple_cl::cl::Program::CLKernelHandle m_kernel_erode;
 				simple_cl::cl::Program::CLKernelHandle m_kernel_erode_constant;
@@ -511,7 +525,9 @@ namespace ocl_patch_matching
 				m_cl_context = clcontext;
 				// create and compile programs
 				m_program_naive_sqdiff.reset(new simple_cl::cl::Program(kernels::sqdiff_naive_src, kernels::sqdiff_naive_copt, m_cl_context));
-				m_program_sqdiff_constant_kernel.reset(new simple_cl::cl::Program(kernels::sqdiff_constant_kernel_src, kernels::sqdiff_constant_kernel_copt, m_cl_context));
+				m_program_sqdiff_constant.reset(new simple_cl::cl::Program(kernels::sqdiff_constant_src, kernels::sqdiff_constant_copt, m_cl_context));
+				m_program_naive_sqdiff_local.reset(new simple_cl::cl::Program(kernels::sqdiff_naive_local_src, kernels::sqdiff_naive_local_copt, m_cl_context));
+				m_program_sqdiff_constant_local.reset(new simple_cl::cl::Program(kernels::sqdiff_constant_local_src, kernels::sqdiff_constant_local_copt, m_cl_context));
 				m_program_erode.reset(new simple_cl::cl::Program(kernels::erode_src, kernels::erode_copt, m_cl_context));
 				m_program_find_min.reset(new simple_cl::cl::Program(kernels::find_min_src, kernels::find_min_copt, m_cl_context));
 				
@@ -521,10 +537,20 @@ namespace ocl_patch_matching
 				m_kernel_naive_sqdiff_masked = m_program_naive_sqdiff->getKernel("sqdiff_naive_masked");
 				m_kernel_naive_sqdiff_masked_nth_pass = m_program_naive_sqdiff->getKernel("sqdiff_naive_masked_nth_pass");
 
-				m_kernel_constant_sqdiff = m_program_sqdiff_constant_kernel->getKernel("sqdiff_constant");
-				m_kernel_constant_sqdiff_nth_pass = m_program_sqdiff_constant_kernel->getKernel("sqdiff_constant_nth_pass");
-				m_kernel_constant_sqdiff_masked = m_program_sqdiff_constant_kernel->getKernel("sqdiff_constant_masked");
-				m_kernel_constant_sqdiff_masked_nth_pass = m_program_sqdiff_constant_kernel->getKernel("sqdiff_constant_masked_nth_pass");
+				m_kernel_constant_sqdiff = m_program_sqdiff_constant->getKernel("sqdiff_constant");
+				m_kernel_constant_sqdiff_nth_pass = m_program_sqdiff_constant->getKernel("sqdiff_constant_nth_pass");
+				m_kernel_constant_sqdiff_masked = m_program_sqdiff_constant->getKernel("sqdiff_constant_masked");
+				m_kernel_constant_sqdiff_masked_nth_pass = m_program_sqdiff_constant->getKernel("sqdiff_constant_masked_nth_pass");
+
+				m_kernel_naive_sqdiff_local = m_program_naive_sqdiff_local->getKernel("sqdiff_naive");
+				m_kernel_naive_sqdiff_local_nth_pass = m_program_naive_sqdiff_local->getKernel("sqdiff_naive_nth_pass");
+				m_kernel_naive_sqdiff_local_masked = m_program_naive_sqdiff_local->getKernel("sqdiff_naive_masked");
+				m_kernel_naive_sqdiff_local_masked_nth_pass = m_program_naive_sqdiff_local->getKernel("sqdiff_naive_masked_nth_pass");
+
+				m_kernel_constant_sqdiff_local = m_program_sqdiff_constant_local->getKernel("sqdiff_constant");
+				m_kernel_constant_sqdiff_local_nth_pass = m_program_sqdiff_constant_local->getKernel("sqdiff_constant_nth_pass");
+				m_kernel_constant_sqdiff_local_masked = m_program_sqdiff_constant_local->getKernel("sqdiff_constant_masked");
+				m_kernel_constant_sqdiff_local_masked_nth_pass = m_program_sqdiff_constant_local->getKernel("sqdiff_constant_masked_nth_pass");
 
 				m_kernel_erode = m_program_erode->getKernel("erode");
 				m_kernel_erode_constant = m_program_erode->getKernel("erode_constant");
@@ -1288,7 +1314,7 @@ namespace ocl_patch_matching
 					cl_int kernel_offset{0};
 					cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
 					// first pass
-					simple_cl::cl::Event first_event{(*m_program_sqdiff_constant_kernel)(
+					simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
 						m_kernel_constant_sqdiff_masked,
 						pre_compute_events.begin(),
 						pre_compute_events.end(),
@@ -1309,7 +1335,7 @@ namespace ocl_patch_matching
 						kernel_offset += num_kernel_pixels;
 						if(batch % 2ull == 0)
 						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant_kernel)(
+							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
 								m_kernel_constant_sqdiff_masked_nth_pass,
 								pre_compute_events.begin(),
 								pre_compute_events.end(),
@@ -1329,7 +1355,7 @@ namespace ocl_patch_matching
 						}
 						else
 						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant_kernel)(
+							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
 								m_kernel_constant_sqdiff_masked_nth_pass,
 								pre_compute_events.begin(),
 								pre_compute_events.end(),
@@ -1484,7 +1510,7 @@ namespace ocl_patch_matching
 					cl_int kernel_offset{0};
 					cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
 					// first pass
-					simple_cl::cl::Event first_event{(*m_program_sqdiff_constant_kernel)(
+					simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
 						m_kernel_constant_sqdiff,
 						pre_compute_events.begin(),
 						pre_compute_events.end(),
@@ -1504,7 +1530,7 @@ namespace ocl_patch_matching
 						kernel_offset += num_kernel_pixels;
 						if(batch % 2ull == 0)
 						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant_kernel)(
+							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
 								m_kernel_constant_sqdiff_nth_pass,
 								pre_compute_events.begin(),
 								pre_compute_events.end(),
@@ -1523,7 +1549,7 @@ namespace ocl_patch_matching
 						}
 						else
 						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant_kernel)(
+							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
 								m_kernel_constant_sqdiff_nth_pass,
 								pre_compute_events.begin(),
 								pre_compute_events.end(),
@@ -1678,7 +1704,7 @@ namespace ocl_patch_matching
 					cl_int kernel_offset{0};
 					cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
 					// first pass
-					simple_cl::cl::Event first_event{(*m_program_sqdiff_constant_kernel)(
+					simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
 						m_kernel_constant_sqdiff,
 						pre_compute_events.begin(),
 						pre_compute_events.end(),
@@ -1698,7 +1724,7 @@ namespace ocl_patch_matching
 						kernel_offset += num_kernel_pixels;
 						if(batch % 2ull == 0)
 						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant_kernel)(
+							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
 								m_kernel_constant_sqdiff_nth_pass,
 								pre_compute_events.begin(),
 								pre_compute_events.end(),
@@ -1717,7 +1743,7 @@ namespace ocl_patch_matching
 						}
 						else
 						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant_kernel)(
+							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
 								m_kernel_constant_sqdiff_nth_pass,
 								pre_compute_events.begin(),
 								pre_compute_events.end(),
@@ -1886,7 +1912,7 @@ namespace ocl_patch_matching
 					cl_int kernel_offset{0};
 					cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
 					// first pass
-					simple_cl::cl::Event first_event{(*m_program_sqdiff_constant_kernel)(
+					simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
 						m_kernel_constant_sqdiff_masked,
 						pre_compute_events.begin(),
 						pre_compute_events.end(),
@@ -1907,7 +1933,7 @@ namespace ocl_patch_matching
 						kernel_offset += num_kernel_pixels;
 						if(batch % 2ull == 0)
 						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant_kernel)(
+							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
 								m_kernel_constant_sqdiff_masked_nth_pass,
 								pre_compute_events.begin(),
 								pre_compute_events.end(),
@@ -1927,7 +1953,7 @@ namespace ocl_patch_matching
 						}
 						else
 						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant_kernel)(
+							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
 								m_kernel_constant_sqdiff_masked_nth_pass,
 								pre_compute_events.begin(),
 								pre_compute_events.end(),

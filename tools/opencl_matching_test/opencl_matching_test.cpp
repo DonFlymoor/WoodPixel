@@ -65,7 +65,7 @@ int main()
 
 	double scale{0.16666};
 	Texture input_tex("img/furnier.jpg", 96.0, scale);
-	cv::Mat texture_mask_big{cv::imread("img/furnier_texture_mask.png", CV_LOAD_IMAGE_GRAYSCALE)};
+	cv::Mat texture_mask_big{cv::imread("img/furnier_texture_mask2.png", CV_LOAD_IMAGE_GRAYSCALE)};
 	cv::Mat texture_mask;
 	cv::resize(texture_mask_big, texture_mask, cv::Size{}, scale, scale);
 	Texture kernel_tex("img/furnier_kernel.jpg", 96.0, scale);

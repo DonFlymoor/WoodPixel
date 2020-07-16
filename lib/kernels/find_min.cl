@@ -18,8 +18,8 @@ __kernel void find_min_masked(
     // first collect data in local memory (cost value, mask value, minpos_x, minpos_y)
     float costval = read_imagef(input_tex, mask_sampler, gid).x;
     float maskval = read_imagef(texture_mask, mask_sampler, gid).x;
-    // valid texel?
-    local_buffer[local_index] = ((gid.x < input_size.x && gid.y < input_size.y) && (maskval > 0.5f)) ? (float4)(costval, maskval, imcoord.x, imcoord.y) : (float4)(FLT_MAX, 0.0f, 0.0f, 0.0f);
+    // valid texel?  && (maskval > 0.5f)
+    local_buffer[local_index] = (gid.x < input_size.x && gid.y < input_size.y) ? (float4)(costval, maskval, imcoord.x, imcoord.y) : (float4)(FLT_MAX, 0.0f, 0.0f, 0.0f);
     // parallel reduction
     for(int stride = group_size / 2; stride > 0; stride /= 2)
     {

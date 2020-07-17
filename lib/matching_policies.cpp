@@ -15,8 +15,8 @@ namespace ocl_patch_matching
 			// include the kernel files
 			#include <kernels/kernel_sqdiff_naive.hpp>
 			#include <kernels/kernel_sqdiff_constant.hpp>
-			#include <kernels/kernel_sqdiff_naive_local.hpp>
 			#include <kernels/kernel_sqdiff_constant_local.hpp>
+			#include <kernels/kernel_sqdiff_constant_local_masked.hpp>
 			#include <kernels/kernel_erode.hpp>
 			#include <kernels/find_min.hpp>
 
@@ -125,6 +125,12 @@ namespace ocl_patch_matching
 				bool use_constant_kernel(const Texture& kernel) const;
 				bool use_constant_kernel(const cv::Mat& kernel_mask) const;
 
+				// decide when to use local memory optimization
+				bool use_local_mem(const cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps);
+
+				// calculate rotated kernel bounding box and padding sizes
+				void calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps, const Texture& kernel, double texture_rotation);
+
 				// get results
 				simple_cl::cl::Event read_output_image(cv::Mat& out_mat, const cv::Vec3i& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a);
 				simple_cl::cl::Event read_eroded_texture_mask_image(cv::Mat& out_mat, const cv::Size& output_size, const std::vector<simple_cl::cl::Event>& wait_for);
@@ -213,8 +219,8 @@ namespace ocl_patch_matching
 				// OpenCL programs
 				std::unique_ptr<simple_cl::cl::Program> m_program_naive_sqdiff;
 				std::unique_ptr<simple_cl::cl::Program> m_program_sqdiff_constant;
-				std::unique_ptr<simple_cl::cl::Program> m_program_naive_sqdiff_local;
 				std::unique_ptr<simple_cl::cl::Program> m_program_sqdiff_constant_local;
+				std::unique_ptr<simple_cl::cl::Program> m_program_sqdiff_constant_local_masked;
 				std::unique_ptr<simple_cl::cl::Program> m_program_erode;
 				std::unique_ptr<simple_cl::cl::Program> m_program_find_min;
 
@@ -223,11 +229,6 @@ namespace ocl_patch_matching
 				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_nth_pass;
 				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_masked;
 				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_masked_nth_pass;
-
-				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_local;
-				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_local_nth_pass;
-				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_local_masked;
-				simple_cl::cl::Program::CLKernelHandle m_kernel_naive_sqdiff_local_masked_nth_pass;
 
 				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff;
 				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_nth_pass;
@@ -526,8 +527,8 @@ namespace ocl_patch_matching
 				// create and compile programs
 				m_program_naive_sqdiff.reset(new simple_cl::cl::Program(kernels::sqdiff_naive_src, kernels::sqdiff_naive_copt, m_cl_context));
 				m_program_sqdiff_constant.reset(new simple_cl::cl::Program(kernels::sqdiff_constant_src, kernels::sqdiff_constant_copt, m_cl_context));
-				m_program_naive_sqdiff_local.reset(new simple_cl::cl::Program(kernels::sqdiff_naive_local_src, kernels::sqdiff_naive_local_copt, m_cl_context));
 				m_program_sqdiff_constant_local.reset(new simple_cl::cl::Program(kernels::sqdiff_constant_local_src, kernels::sqdiff_constant_local_copt, m_cl_context));
+				m_program_sqdiff_constant_local_masked.reset(new simple_cl::cl::Program(kernels::sqdiff_constant_local_masked_src, kernels::sqdiff_constant_local_masked_copt, m_cl_context));
 				m_program_erode.reset(new simple_cl::cl::Program(kernels::erode_src, kernels::erode_copt, m_cl_context));
 				m_program_find_min.reset(new simple_cl::cl::Program(kernels::find_min_src, kernels::find_min_copt, m_cl_context));
 				
@@ -542,15 +543,10 @@ namespace ocl_patch_matching
 				m_kernel_constant_sqdiff_masked = m_program_sqdiff_constant->getKernel("sqdiff_constant_masked");
 				m_kernel_constant_sqdiff_masked_nth_pass = m_program_sqdiff_constant->getKernel("sqdiff_constant_masked_nth_pass");
 
-				m_kernel_naive_sqdiff_local = m_program_naive_sqdiff_local->getKernel("sqdiff_naive");
-				m_kernel_naive_sqdiff_local_nth_pass = m_program_naive_sqdiff_local->getKernel("sqdiff_naive_nth_pass");
-				m_kernel_naive_sqdiff_local_masked = m_program_naive_sqdiff_local->getKernel("sqdiff_naive_masked");
-				m_kernel_naive_sqdiff_local_masked_nth_pass = m_program_naive_sqdiff_local->getKernel("sqdiff_naive_masked_nth_pass");
-
 				m_kernel_constant_sqdiff_local = m_program_sqdiff_constant_local->getKernel("sqdiff_constant");
 				m_kernel_constant_sqdiff_local_nth_pass = m_program_sqdiff_constant_local->getKernel("sqdiff_constant_nth_pass");
-				m_kernel_constant_sqdiff_local_masked = m_program_sqdiff_constant_local->getKernel("sqdiff_constant_masked");
-				m_kernel_constant_sqdiff_local_masked_nth_pass = m_program_sqdiff_constant_local->getKernel("sqdiff_constant_masked_nth_pass");
+				m_kernel_constant_sqdiff_local_masked = m_program_sqdiff_constant_local_masked->getKernel("sqdiff_constant_masked");
+				m_kernel_constant_sqdiff_local_masked_nth_pass = m_program_sqdiff_constant_local_masked->getKernel("sqdiff_constant_masked_nth_pass");
 
 				m_kernel_erode = m_program_erode->getKernel("erode");
 				m_kernel_erode_constant = m_program_erode->getKernel("erode_constant");
@@ -1129,6 +1125,66 @@ namespace ocl_patch_matching
 				std::size_t kernel_pixels{static_cast<std::size_t>(kernel_mask.cols) * static_cast<std::size_t>(kernel_mask.cols)};
 				std::size_t total_size{sizeof(cl_float) * kernel_pixels};
 				return (kernel_pixels <= m_constant_kernel_max_pixels && total_size <= m_cl_context->get_selected_device().max_constant_buffer_size);
+			}
+			
+			inline bool ocl_patch_matching::matching_policies::impl::CLMatcherImpl::use_local_mem(const cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps)
+			{
+				return false;
+			}
+			
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps, const Texture& kernel, double texture_rotation)
+			{
+				float pivot_x = static_cast<float>((kernel.response.cols() - 1) / 2) + 0.5f;
+				float pivot_y = static_cast<float>((kernel.response.rows() - 1) / 2) + 0.5f;
+				// two corners (sampling coordinates!) of the unrotated kernel
+				float top_left_x = 0.5f - pivot_x;
+				float top_left_y = 0.5f - pivot_y;
+				float bottom_right_x = static_cast<float>(kernel.response.cols() - 1) + 0.5f - pivot_x;
+				float bottom_right_y = static_cast<float>(kernel.response.rows() - 1) + 0.5f - pivot_y;
+
+				// cosine and sine of the rotation angle (texture rotates negatively => we must positively rotate the samples)
+				float c = cosf(static_cast<float>(texture_rotation));
+				float s = sinf(static_cast<float>(texture_rotation));
+
+				// four rotated corners
+				float rotated_top_left_x = c * top_left_x - s * top_left_y;
+				float rotated_top_left_y = s * top_left_x + c * top_left_y;
+
+				float rotated_top_right_x = c * bottom_right_x - s * top_left_y;
+				float rotated_top_right_y = s * bottom_right_x + c * top_left_y;
+
+				float rotated_bottom_left_x = c * top_left_x - s * bottom_right_y;
+				float rotated_bottom_left_y = s * top_left_x + c * bottom_right_y;
+
+				float rotated_bottom_right_x = c * bottom_right_x - s * bottom_right_y;
+				float rotated_bottom_right_y = s * bottom_right_x + c * bottom_right_y;
+
+				// min and max sample coords for kernel bounding box
+				float min_x = std::min({rotated_top_left_x, rotated_top_right_x, rotated_bottom_left_x, rotated_bottom_right_x});
+				float min_y = std::min({rotated_top_left_y, rotated_top_right_y, rotated_bottom_left_y, rotated_bottom_right_y});
+				float max_x = std::max({rotated_top_left_x, rotated_top_right_x, rotated_bottom_left_x, rotated_bottom_right_x});
+				float max_y = std::max({rotated_top_left_y, rotated_top_right_y, rotated_bottom_left_y, rotated_bottom_right_y});
+
+				// rotated bounding box width / height in pixels
+				int rbb_width = static_cast<int>(floorf(max_x)) - static_cast<int>(floorf(min_x)) + 1;
+				int rbb_height = static_cast<int>(floorf(max_y)) - static_cast<int>(floorf(min_y)) + 1;
+
+				// new pivot of the rotated thingy
+				int new_pivot_x = static_cast<int>(floorf(-min_x + 0.5f));
+				int new_pivot_y = static_cast<int>(floorf(-min_y + 0.5f));
+
+				// overlaps of the new kernel thingy
+				// left
+				rotated_kernel_overlaps[0] = new_pivot_x;
+				// right
+				rotated_kernel_overlaps[1] = rbb_width - 1 - new_pivot_x;
+				// top
+				rotated_kernel_overlaps[2] = new_pivot_y;
+				// bottom
+				rotated_kernel_overlaps[3] = rbb_height - 1 - new_pivot_y;
+				// rotated kernel size
+				rotated_kernel_size[0] = rbb_width;
+				rotated_kernel_size[1] = rbb_height;
 			}
 			
 			inline simple_cl::cl::Event ocl_patch_matching::matching_policies::impl::CLMatcherImpl::read_output_image(cv::Mat& out_mat, const cv::Vec3i& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a)

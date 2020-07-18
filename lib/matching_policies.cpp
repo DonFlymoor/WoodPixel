@@ -126,7 +126,10 @@ namespace ocl_patch_matching
 				bool use_constant_kernel(const cv::Mat& kernel_mask) const;
 
 				// decide when to use local memory optimization
-				bool use_local_mem(const cv::Size& local_buffer_size);
+				bool use_local_mem(const cv::Size& local_buffer_size, const cv::Vec4i& kernel_overlaps, std::size_t used_local_mem, std::size_t local_work_size);
+
+				// decide which work group size to use, the passed local_block_size parameter is the maximum
+				std::size_t get_local_work_size(const simple_cl::cl::Program::CLKernelHandle& kernel) const;
 
 				// calculate rotated kernel bounding box and padding sizes
 				void calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Size& local_buffer_size, cv::Vec4i& rotated_kernel_overlaps, const Texture& kernel, double texture_rotation);
@@ -1132,11 +1135,22 @@ namespace ocl_patch_matching
 				return (kernel_pixels <= m_constant_kernel_max_pixels && total_size <= m_cl_context->get_selected_device().max_constant_buffer_size);
 			}
 			
-			inline bool ocl_patch_matching::matching_policies::impl::CLMatcherImpl::use_local_mem(const cv::Size& local_buffer_size)
+			inline bool ocl_patch_matching::matching_policies::impl::CLMatcherImpl::use_local_mem(const cv::Size& local_buffer_size, const cv::Vec4i& kernel_overlaps, std::size_t used_local_mem, std::size_t local_work_size)
 			{
+				//TODO: Fix this
+				std::size_t max_overlap(static_cast<std::size_t>(std::max({kernel_overlaps[0], kernel_overlaps[1], kernel_overlaps[2], kernel_overlaps[3]})));
 				std::size_t num_pixels{static_cast<std::size_t>(local_buffer_size.width) * static_cast<std::size_t>(local_buffer_size.height)};
 				std::size_t total_size{num_pixels * sizeof(cl_float4)};
-				return (num_pixels <= m_local_buffer_max_pixels && total_size <= m_cl_context->get_selected_device().local_mem_size);
+				return (
+					num_pixels <= m_local_buffer_max_pixels && // less than num pixels threshold? (for control from outside)
+					total_size <= (m_cl_context->get_selected_device().local_mem_size - used_local_mem) && // less than or equal to free local memory?
+					max_overlap <= local_work_size // max overlap less than or equal to the local work size (work group diameter!)? If not we cannot load all pixels into local memory.
+					);
+			}
+
+			inline std::size_t ocl_patch_matching::matching_policies::impl::CLMatcherImpl::get_local_work_size(const simple_cl::cl::Program::CLKernelHandle& kernel) const
+			{
+				//TODO: return optimal local work size
 			}
 			
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Size& local_buffer_size, cv::Vec4i& rotated_kernel_overlaps, const Texture& kernel, double texture_rotation)

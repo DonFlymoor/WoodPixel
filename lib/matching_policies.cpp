@@ -23,7 +23,7 @@ namespace ocl_patch_matching
 			class CLMatcherImpl
 			{
 			public:
-				CLMatcherImpl(ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels);
+				CLMatcherImpl(ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels, std::size_t local_buffer_max_pixels);
 				~CLMatcherImpl() noexcept;
 				CLMatcherImpl(const CLMatcherImpl&) = delete;
 				CLMatcherImpl(CLMatcherImpl&&) = delete;
@@ -126,10 +126,10 @@ namespace ocl_patch_matching
 				bool use_constant_kernel(const cv::Mat& kernel_mask) const;
 
 				// decide when to use local memory optimization
-				bool use_local_mem(const cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps);
+				bool use_local_mem(const cv::Size& local_buffer_size, std::size_t& total_size);
 
 				// calculate rotated kernel bounding box and padding sizes
-				void calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps, const Texture& kernel, double texture_rotation);
+				void calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Size& local_buffer_size, cv::Vec4i& rotated_kernel_overlaps, const Texture& kernel, double texture_rotation);
 
 				// get results
 				simple_cl::cl::Event read_output_image(cv::Mat& out_mat, const cv::Vec3i& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a);
@@ -178,8 +178,11 @@ namespace ocl_patch_matching
 				std::size_t m_max_tex_cache_size;
 				// size of local work groups (square blocks)
 				std::size_t m_local_block_size;
-				// maximum width and height for a kernelfor which we use constant memory
+				// maximum number of pixels of a kernel for which we use constant memory
 				std::size_t m_constant_kernel_max_pixels;
+				// maximum number of pixels of the workgroup + kernel overlap region for which we use local memory buffers
+				std::size_t m_local_buffer_max_pixels;
+
 
 				// Output buffer. Only use a single output image and enlarge it when necessary.
 				std::unique_ptr<simple_cl::cl::Image> m_output_buffer_a;
@@ -443,12 +446,14 @@ namespace ocl_patch_matching
 				ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy,
 				std::size_t max_texture_cache_memory,
 				std::size_t local_block_size,
-				std::size_t constant_kernel_maxdim) :
+				std::size_t constant_kernel_maxdim,
+				std::size_t local_buffer_max_pixels) :
 					m_selection_policy(device_selection_policy),
 					m_max_tex_cache_size(max_texture_cache_memory),
 					m_kernel_image{std::vector<std::unique_ptr<simple_cl::cl::Image>>(), 0ull},
 					m_local_block_size{local_block_size},
-					m_constant_kernel_max_pixels{constant_kernel_maxdim}
+					m_constant_kernel_max_pixels{constant_kernel_maxdim},
+					m_local_buffer_max_pixels{local_buffer_max_pixels}
 			{
 			}
 
@@ -1127,12 +1132,14 @@ namespace ocl_patch_matching
 				return (kernel_pixels <= m_constant_kernel_max_pixels && total_size <= m_cl_context->get_selected_device().max_constant_buffer_size);
 			}
 			
-			inline bool ocl_patch_matching::matching_policies::impl::CLMatcherImpl::use_local_mem(const cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps)
+			inline bool ocl_patch_matching::matching_policies::impl::CLMatcherImpl::use_local_mem(const cv::Size& local_buffer_size, std::size_t& total_size)
 			{
-				return false;
+				std::size_t num_pixels{static_cast<std::size_t>(local_buffer_size.width) * static_cast<std::size_t>(local_buffer_size.height)};
+				total_size = num_pixels * sizeof(cl_float4);
+				return (num_pixels <= m_local_buffer_max_pixels && total_size <= m_cl_context->get_selected_device().local_mem_size);
 			}
 			
-			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps, const Texture& kernel, double texture_rotation)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Size& local_buffer_size, cv::Vec4i& rotated_kernel_overlaps, const Texture& kernel, double texture_rotation)
 			{
 				float pivot_x = static_cast<float>((kernel.response.cols() - 1) / 2) + 0.5f;
 				float pivot_y = static_cast<float>((kernel.response.rows() - 1) / 2) + 0.5f;
@@ -1183,8 +1190,11 @@ namespace ocl_patch_matching
 				// bottom
 				rotated_kernel_overlaps[3] = rbb_height - 1 - new_pivot_y;
 				// rotated kernel size
-				rotated_kernel_size[0] = rbb_width;
-				rotated_kernel_size[1] = rbb_height;
+				rotated_kernel_size.width = rbb_width;
+				rotated_kernel_size.height = rbb_height;
+				// size (in pixels) of the local buffer
+				local_buffer_size.width = rotated_kernel_overlaps[0] + static_cast<int>(m_local_block_size) + rotated_kernel_overlaps[1];
+				local_buffer_size.height = rotated_kernel_overlaps[2] + static_cast<int>(m_local_block_size) + rotated_kernel_overlaps[3];
 			}
 			
 			inline simple_cl::cl::Event ocl_patch_matching::matching_policies::impl::CLMatcherImpl::read_output_image(cv::Mat& out_mat, const cv::Vec3i& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a)
@@ -1363,72 +1373,85 @@ namespace ocl_patch_matching
 				}
 				else
 				{
-					// other arguments
-					cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-					cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-					cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-					cl_int kernel_offset{0};
-					cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
-					// first pass
-					simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
-						m_kernel_constant_sqdiff_masked,
-						pre_compute_events.begin(),
-						pre_compute_events.end(),
-						exec_params,
-						*(input_image.images[0]),
-						*(m_kernel_buffer.buffer),
-						*(m_kernel_mask_buffer.buffer),
-						*(m_output_buffer_a),
-						input_size,
-						kernel_size,
-						rotation_sincos)
-					};
-					pre_compute_events.clear();
-					pre_compute_events.push_back(std::move(first_event));
-					// if necessary, more passes
-					for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
+					cv::Size rotated_kernel_size;
+					cv::Size local_buffer_size;
+					cv::Vec4i rotated_kernel_overlaps;
+					calculate_rotated_kernel_dims(rotated_kernel_size, local_buffer_size, rotated_kernel_overlaps, kernel, texture_rotation);
+					std::size_t local_buffer_total_size;
+					bool use_local{use_local_mem(local_buffer_size, local_buffer_total_size)};
+					if(!use_local)
 					{
-						kernel_offset += num_kernel_pixels;
-						if(batch % 2ull == 0)
+					// other arguments
+						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
+						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
+						cl_int kernel_offset{0};
+						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
+						// first pass
+						simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
+							m_kernel_constant_sqdiff_masked,
+							pre_compute_events.begin(),
+							pre_compute_events.end(),
+							exec_params,
+							*(input_image.images[0]),
+							*(m_kernel_buffer.buffer),
+							*(m_kernel_mask_buffer.buffer),
+							*(m_output_buffer_a),
+							input_size,
+							kernel_size,
+							rotation_sincos)
+						};
+						pre_compute_events.clear();
+						pre_compute_events.push_back(std::move(first_event));
+						// if necessary, more passes
+						for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
 						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-								m_kernel_constant_sqdiff_masked_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
-								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_buffer.buffer),
-								*(m_kernel_mask_buffer.buffer),
-								*(m_output_buffer_b),
-								*(m_output_buffer_a),
-								input_size,
-								kernel_size,
-								rotation_sincos,
-								kernel_offset)
-							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
+							kernel_offset += num_kernel_pixels;
+							if(batch % 2ull == 0)
+							{
+								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+									m_kernel_constant_sqdiff_masked_nth_pass,
+									pre_compute_events.begin(),
+									pre_compute_events.end(),
+									exec_params,
+									*(input_image.images[batch]),
+									*(m_kernel_buffer.buffer),
+									*(m_kernel_mask_buffer.buffer),
+									*(m_output_buffer_b),
+									*(m_output_buffer_a),
+									input_size,
+									kernel_size,
+									rotation_sincos,
+									kernel_offset)
+								};
+								pre_compute_events.clear();
+								pre_compute_events.push_back(std::move(event));
+							}
+							else
+							{
+								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+									m_kernel_constant_sqdiff_masked_nth_pass,
+									pre_compute_events.begin(),
+									pre_compute_events.end(),
+									exec_params,
+									*(input_image.images[batch]),
+									*(m_kernel_buffer.buffer),
+									*(m_kernel_mask_buffer.buffer),
+									*(m_output_buffer_a),
+									*(m_output_buffer_b),
+									input_size,
+									kernel_size,
+									rotation_sincos,
+									kernel_offset)
+								};
+								pre_compute_events.clear();
+								pre_compute_events.push_back(std::move(event));
+							}
 						}
-						else
-						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-								m_kernel_constant_sqdiff_masked_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
-								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_buffer.buffer),
-								*(m_kernel_mask_buffer.buffer),
-								*(m_output_buffer_a),
-								*(m_output_buffer_b),
-								input_size,
-								kernel_size,
-								rotation_sincos,
-								kernel_offset)
-							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
-						}
+					}
+					else
+					{
+						//TODO: Implement this
 					}
 				}
 				// prepare stuff for minimum extraction while kernel is running
@@ -1559,69 +1582,82 @@ namespace ocl_patch_matching
 				}
 				else
 				{
-					// other arguments
-					cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-					cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-					cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-					cl_int kernel_offset{0};
-					cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
-					// first pass
-					simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
-						m_kernel_constant_sqdiff,
-						pre_compute_events.begin(),
-						pre_compute_events.end(),
-						exec_params,
-						*(input_image.images[0]),
-						*(m_kernel_buffer.buffer),
-						*(m_output_buffer_a),
-						input_size,
-						kernel_size,
-						rotation_sincos)
-					};
-					pre_compute_events.clear();
-					pre_compute_events.push_back(std::move(first_event));
-					// if necessary, more passes
-					for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
+					cv::Size rotated_kernel_size;
+					cv::Size local_buffer_size;
+					cv::Vec4i rotated_kernel_overlaps;
+					calculate_rotated_kernel_dims(rotated_kernel_size, local_buffer_size, rotated_kernel_overlaps, kernel, texture_rotation);
+					std::size_t local_buffer_total_size;
+					bool use_local{use_local_mem(local_buffer_size, local_buffer_total_size)};
+					if(!use_local)
 					{
-						kernel_offset += num_kernel_pixels;
-						if(batch % 2ull == 0)
+					// other arguments
+						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
+						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
+						cl_int kernel_offset{0};
+						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
+						// first pass
+						simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
+							m_kernel_constant_sqdiff,
+							pre_compute_events.begin(),
+							pre_compute_events.end(),
+							exec_params,
+							*(input_image.images[0]),
+							*(m_kernel_buffer.buffer),
+							*(m_output_buffer_a),
+							input_size,
+							kernel_size,
+							rotation_sincos)
+						};
+						pre_compute_events.clear();
+						pre_compute_events.push_back(std::move(first_event));
+						// if necessary, more passes
+						for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
 						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-								m_kernel_constant_sqdiff_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
-								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_buffer.buffer),
-								*(m_output_buffer_b),
-								*(m_output_buffer_a),
-								input_size,
-								kernel_size,
-								rotation_sincos,
-								kernel_offset)
-							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
+							kernel_offset += num_kernel_pixels;
+							if(batch % 2ull == 0)
+							{
+								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+									m_kernel_constant_sqdiff_nth_pass,
+									pre_compute_events.begin(),
+									pre_compute_events.end(),
+									exec_params,
+									*(input_image.images[batch]),
+									*(m_kernel_buffer.buffer),
+									*(m_output_buffer_b),
+									*(m_output_buffer_a),
+									input_size,
+									kernel_size,
+									rotation_sincos,
+									kernel_offset)
+								};
+								pre_compute_events.clear();
+								pre_compute_events.push_back(std::move(event));
+							}
+							else
+							{
+								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+									m_kernel_constant_sqdiff_nth_pass,
+									pre_compute_events.begin(),
+									pre_compute_events.end(),
+									exec_params,
+									*(input_image.images[batch]),
+									*(m_kernel_buffer.buffer),
+									*(m_output_buffer_a),
+									*(m_output_buffer_b),
+									input_size,
+									kernel_size,
+									rotation_sincos,
+									kernel_offset)
+								};
+								pre_compute_events.clear();
+								pre_compute_events.push_back(std::move(event));
+							}
 						}
-						else
-						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-								m_kernel_constant_sqdiff_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
-								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_buffer.buffer),
-								*(m_output_buffer_a),
-								*(m_output_buffer_b),
-								input_size,
-								kernel_size,
-								rotation_sincos,
-								kernel_offset)
-							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
-						}
+					}
+					else
+					{
+
 					}
 				}
 				// prepare stuff for minimum extraction while kernel is running
@@ -1753,69 +1789,82 @@ namespace ocl_patch_matching
 				}
 				else
 				{
-					// other arguments
-					cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-					cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-					cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-					cl_int kernel_offset{0};
-					cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
-					// first pass
-					simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
-						m_kernel_constant_sqdiff,
-						pre_compute_events.begin(),
-						pre_compute_events.end(),
-						exec_params,
-						*(input_image.images[0]),
-						*(m_kernel_buffer.buffer),
-						*(m_output_buffer_a),
-						input_size,
-						kernel_size,
-						rotation_sincos)
-					};
-					pre_compute_events.clear();
-					pre_compute_events.push_back(std::move(first_event));
-					// if necessary, more passes
-					for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
+					cv::Size rotated_kernel_size;
+					cv::Size local_buffer_size;
+					cv::Vec4i rotated_kernel_overlaps;
+					calculate_rotated_kernel_dims(rotated_kernel_size, local_buffer_size, rotated_kernel_overlaps, kernel, texture_rotation);
+					std::size_t local_buffer_total_size;
+					bool use_local{use_local_mem(local_buffer_size, local_buffer_total_size)};
+					if(!use_local)
 					{
-						kernel_offset += num_kernel_pixels;
-						if(batch % 2ull == 0)
+					// other arguments
+						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
+						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
+						cl_int kernel_offset{0};
+						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
+						// first pass
+						simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
+							m_kernel_constant_sqdiff,
+							pre_compute_events.begin(),
+							pre_compute_events.end(),
+							exec_params,
+							*(input_image.images[0]),
+							*(m_kernel_buffer.buffer),
+							*(m_output_buffer_a),
+							input_size,
+							kernel_size,
+							rotation_sincos)
+						};
+						pre_compute_events.clear();
+						pre_compute_events.push_back(std::move(first_event));
+						// if necessary, more passes
+						for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
 						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-								m_kernel_constant_sqdiff_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
-								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_buffer.buffer),
-								*(m_output_buffer_b),
-								*(m_output_buffer_a),
-								input_size,
-								kernel_size,
-								rotation_sincos,
-								kernel_offset)
-							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
+							kernel_offset += num_kernel_pixels;
+							if(batch % 2ull == 0)
+							{
+								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+									m_kernel_constant_sqdiff_nth_pass,
+									pre_compute_events.begin(),
+									pre_compute_events.end(),
+									exec_params,
+									*(input_image.images[batch]),
+									*(m_kernel_buffer.buffer),
+									*(m_output_buffer_b),
+									*(m_output_buffer_a),
+									input_size,
+									kernel_size,
+									rotation_sincos,
+									kernel_offset)
+								};
+								pre_compute_events.clear();
+								pre_compute_events.push_back(std::move(event));
+							}
+							else
+							{
+								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+									m_kernel_constant_sqdiff_nth_pass,
+									pre_compute_events.begin(),
+									pre_compute_events.end(),
+									exec_params,
+									*(input_image.images[batch]),
+									*(m_kernel_buffer.buffer),
+									*(m_output_buffer_a),
+									*(m_output_buffer_b),
+									input_size,
+									kernel_size,
+									rotation_sincos,
+									kernel_offset)
+								};
+								pre_compute_events.clear();
+								pre_compute_events.push_back(std::move(event));
+							}
 						}
-						else
-						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-								m_kernel_constant_sqdiff_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
-								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_buffer.buffer),
-								*(m_output_buffer_a),
-								*(m_output_buffer_b),
-								input_size,
-								kernel_size,
-								rotation_sincos,
-								kernel_offset)
-							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
-						}
+					}
+					else
+					{
+
 					}
 				}
 				// prepare stuff for minimum extraction while kernel is running
@@ -1961,72 +2010,85 @@ namespace ocl_patch_matching
 				}
 				else
 				{
-					// other arguments
-					cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-					cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-					cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-					cl_int kernel_offset{0};
-					cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
-					// first pass
-					simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
-						m_kernel_constant_sqdiff_masked,
-						pre_compute_events.begin(),
-						pre_compute_events.end(),
-						exec_params,
-						*(input_image.images[0]),
-						*(m_kernel_buffer.buffer),
-						*(m_kernel_mask_buffer.buffer),
-						*(m_output_buffer_a),
-						input_size,
-						kernel_size,
-						rotation_sincos)
-					};
-					pre_compute_events.clear();
-					pre_compute_events.push_back(std::move(first_event));
-					// if necessary, more passes
-					for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
+					cv::Size rotated_kernel_size;
+					cv::Size local_buffer_size;
+					cv::Vec4i rotated_kernel_overlaps;
+					calculate_rotated_kernel_dims(rotated_kernel_size, local_buffer_size, rotated_kernel_overlaps, kernel, texture_rotation);
+					std::size_t local_buffer_total_size;
+					bool use_local{use_local_mem(local_buffer_size, local_buffer_total_size)};
+					if(!use_local)
 					{
-						kernel_offset += num_kernel_pixels;
-						if(batch % 2ull == 0)
+					// other arguments
+						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
+						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
+						cl_int kernel_offset{0};
+						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
+						// first pass
+						simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
+							m_kernel_constant_sqdiff_masked,
+							pre_compute_events.begin(),
+							pre_compute_events.end(),
+							exec_params,
+							*(input_image.images[0]),
+							*(m_kernel_buffer.buffer),
+							*(m_kernel_mask_buffer.buffer),
+							*(m_output_buffer_a),
+							input_size,
+							kernel_size,
+							rotation_sincos)
+						};
+						pre_compute_events.clear();
+						pre_compute_events.push_back(std::move(first_event));
+						// if necessary, more passes
+						for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
 						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-								m_kernel_constant_sqdiff_masked_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
-								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_buffer.buffer),
-								*(m_kernel_mask_buffer.buffer),
-								*(m_output_buffer_b),
-								*(m_output_buffer_a),
-								input_size,
-								kernel_size,
-								rotation_sincos,
-								kernel_offset)
-							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
+							kernel_offset += num_kernel_pixels;
+							if(batch % 2ull == 0)
+							{
+								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+									m_kernel_constant_sqdiff_masked_nth_pass,
+									pre_compute_events.begin(),
+									pre_compute_events.end(),
+									exec_params,
+									*(input_image.images[batch]),
+									*(m_kernel_buffer.buffer),
+									*(m_kernel_mask_buffer.buffer),
+									*(m_output_buffer_b),
+									*(m_output_buffer_a),
+									input_size,
+									kernel_size,
+									rotation_sincos,
+									kernel_offset)
+								};
+								pre_compute_events.clear();
+								pre_compute_events.push_back(std::move(event));
+							}
+							else
+							{
+								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+									m_kernel_constant_sqdiff_masked_nth_pass,
+									pre_compute_events.begin(),
+									pre_compute_events.end(),
+									exec_params,
+									*(input_image.images[batch]),
+									*(m_kernel_buffer.buffer),
+									*(m_kernel_mask_buffer.buffer),
+									*(m_output_buffer_a),
+									*(m_output_buffer_b),
+									input_size,
+									kernel_size,
+									rotation_sincos,
+									kernel_offset)
+								};
+								pre_compute_events.clear();
+								pre_compute_events.push_back(std::move(event));
+							}
 						}
-						else
-						{
-							simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-								m_kernel_constant_sqdiff_masked_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
-								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_buffer.buffer),
-								*(m_kernel_mask_buffer.buffer),
-								*(m_output_buffer_a),
-								*(m_output_buffer_b),
-								input_size,
-								kernel_size,
-								rotation_sincos,
-								kernel_offset)
-							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
-						}
+					}
+					else
+					{
+
 					}
 				}
 				// prepare stuff for minimum extraction while kernel is running
@@ -2155,8 +2217,8 @@ namespace ocl_patch_matching
 // ----------------------------------------------------------------------- INTERFACE -----------------------------------------------------------------------
 
 // class CLMatcher
-ocl_patch_matching::matching_policies::CLMatcher::CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels) :
-	m_impl(new impl::CLMatcherImpl(device_selection_policy, max_texture_cache_memory, local_block_size, constant_kernel_max_pixels))
+ocl_patch_matching::matching_policies::CLMatcher::CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels, std::size_t local_buffer_max_pixels) :
+	m_impl(new impl::CLMatcherImpl(device_selection_policy, max_texture_cache_memory, local_block_size, constant_kernel_max_pixels, local_buffer_max_pixels))
 {
 }
 

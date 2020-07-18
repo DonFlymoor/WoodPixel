@@ -15,7 +15,7 @@ __kernel void sqdiff_constant_masked(
 {
 	const int gid_x = get_global_id(0);
 	const int gid_y = get_global_id(1);
-	const int lid_x = get_local_id(1);
+	const int lid_x = get_local_id(0);
 	const int lid_y = get_local_id(1);
 	const int ls_x = get_local_size(0);
 	const int ls_y = get_local_size(1);
@@ -47,21 +47,21 @@ __kernel void sqdiff_constant_masked(
 	// vertical edges
 	if(lid_x < hl)
 		image_local_buffer[(ht + lid_y) * local_buffer_width + (lid_x)] = read_imagef(input_tex, input_sampler, input_pivot - (float2)((float)hl, 0.0f));
-	else if(lid_x >= (ls_x - hr))
+	if(lid_x >= (ls_x - hr))
 		image_local_buffer[(ht + lid_y) * local_buffer_width + (hl + lid_x + hr)] = read_imagef(input_tex, input_sampler, input_pivot + (float2)((float)hr, 0.0f));
-	// horizontal edges
+	// horizontal edges 
 	if(lid_y < ht)
 		image_local_buffer[(lid_y) * local_buffer_width + (hl + lid_x)] = read_imagef(input_tex, input_sampler, input_pivot - (float2)(0.0f, (float)ht));
-	else if(lid_y >= (ls_y - hb))
+	if(lid_y >= (ls_y - hb))
 		image_local_buffer[(ht + lid_y + hb) * local_buffer_width + (hl + lid_x)] = read_imagef(input_tex, input_sampler, input_pivot + (float2)(0.0f, (float)hb));
-	// four corners
+	// // four corners
 	if((lid_x < hl) && (lid_y < ht)) // upper left corner
 		image_local_buffer[(lid_y) * local_buffer_width + (lid_x)] = read_imagef(input_tex, input_sampler, input_pivot - (float2)((float)hl, (float)ht));
-	else if((lid_x >= (ls_x - hr)) && (lid_y < ht)) // upper right corner
+	if((lid_x >= (ls_x - hr)) && (lid_y < ht)) // upper right corner
 		image_local_buffer[(lid_y) * local_buffer_width + (hl + lid_x + hr)] = read_imagef(input_tex, input_sampler, input_pivot + (float2)((float)hr, (float)-ht));
-	else if((lid_x < hl) && (lid_y >= (ls_y - hb))) // lower left corner
+	if((lid_x < hl) && (lid_y >= (ls_y - hb))) // lower left corner
 		image_local_buffer[(ht + lid_y + hb) * local_buffer_width + (lid_x)] = read_imagef(input_tex, input_sampler, input_pivot + (float2)((float)-hl, (float)hb));
-	else if((lid_x >= (ls_x - hr)) && (lid_y >= (ls_y - hb))) // lower right corner
+	if((lid_x >= (ls_x - hr)) && (lid_y >= (ls_y - hb))) // lower right corner
 		image_local_buffer[(ht + lid_y + hb) * local_buffer_width + (hl + lid_x + hr)] = read_imagef(input_tex, input_sampler, input_pivot + (float2)((float)hr, (float)hb));
 
 	// synchronize all local buffer writes
@@ -114,7 +114,7 @@ __kernel void sqdiff_constant_masked_nth_pass(
 {
 	const int gid_x = get_global_id(0);
 	const int gid_y = get_global_id(1);
-	const int lid_x = get_local_id(1);
+	const int lid_x = get_local_id(0);
 	const int lid_y = get_local_id(1);
 	const int ls_x = get_local_size(0);
 	const int ls_y = get_local_size(1);
@@ -146,21 +146,21 @@ __kernel void sqdiff_constant_masked_nth_pass(
 	// vertical edges
 	if(lid_x < hl)
 		image_local_buffer[(ht + lid_y) * local_buffer_width + (lid_x)] = read_imagef(input_tex, input_sampler, input_pivot - (float2)((float)hl, 0.0f));
-	else if(lid_x >= (ls_x - hr))
+	if(lid_x >= (ls_x - hr))
 		image_local_buffer[(ht + lid_y) * local_buffer_width + (hl + lid_x + hr)] = read_imagef(input_tex, input_sampler, input_pivot + (float2)((float)hr, 0.0f));
-	// horizontal edges
+	// horizontal edges 
 	if(lid_y < ht)
 		image_local_buffer[(lid_y) * local_buffer_width + (hl + lid_x)] = read_imagef(input_tex, input_sampler, input_pivot - (float2)(0.0f, (float)ht));
-	else if(lid_y >= (ls_y - hb))
+	if(lid_y >= (ls_y - hb))
 		image_local_buffer[(ht + lid_y + hb) * local_buffer_width + (hl + lid_x)] = read_imagef(input_tex, input_sampler, input_pivot + (float2)(0.0f, (float)hb));
-	// four corners
+	// // four corners
 	if((lid_x < hl) && (lid_y < ht)) // upper left corner
 		image_local_buffer[(lid_y) * local_buffer_width + (lid_x)] = read_imagef(input_tex, input_sampler, input_pivot - (float2)((float)hl, (float)ht));
-	else if((lid_x >= (ls_x - hr)) && (lid_y < ht)) // upper right corner
+	if((lid_x >= (ls_x - hr)) && (lid_y < ht)) // upper right corner
 		image_local_buffer[(lid_y) * local_buffer_width + (hl + lid_x + hr)] = read_imagef(input_tex, input_sampler, input_pivot + (float2)((float)hr, (float)-ht));
-	else if((lid_x < hl) && (lid_y >= (ls_y - hb))) // lower left corner
+	if((lid_x < hl) && (lid_y >= (ls_y - hb))) // lower left corner
 		image_local_buffer[(ht + lid_y + hb) * local_buffer_width + (lid_x)] = read_imagef(input_tex, input_sampler, input_pivot + (float2)((float)-hl, (float)hb));
-	else if((lid_x >= (ls_x - hr)) && (lid_y >= (ls_y - hb))) // lower right corner
+	if((lid_x >= (ls_x - hr)) && (lid_y >= (ls_y - hb))) // lower right corner
 		image_local_buffer[(ht + lid_y + hb) * local_buffer_width + (hl + lid_x + hr)] = read_imagef(input_tex, input_sampler, input_pivot + (float2)((float)hr, (float)hb));
 
 	// synchronize all local buffer writes

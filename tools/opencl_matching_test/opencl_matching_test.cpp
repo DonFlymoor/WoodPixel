@@ -39,7 +39,7 @@ int main()
 			new ocl_patch_matching::matching_policies::CLMatcher(
 				ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits,
 				2000000000,
-				16ull, 500ull * 500ull
+				16ull, 500ull * 500ull, 1024ull
 			)
 		));
 
@@ -122,7 +122,7 @@ int main()
 		auto mscl{std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - t1).count()};
 		std::cout << mscl << " us. Min pos: " << "x " << result.matches[0].match_pos.x << " y " << result.matches[0].match_pos.y << " cost " << result.matches[0].match_cost << "\n";
 	}
-	cv::drawMarker(result.total_cost_matrix, result.matches[0].match_pos, cv::Scalar(100.0));
+	//cv::drawMarker(result.total_cost_matrix, result.matches[0].match_pos, cv::Scalar(100.0));
 	display_intensity("ResultCL", result.total_cost_matrix, true);
 	cv::destroyAllWindows();
 

@@ -1,5 +1,5 @@
 const sampler_t mask_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
-
+// something is off here
 __kernel void erode(
 	__read_only image2d_t input_tex,
 	__read_only image2d_t kernel_tex,

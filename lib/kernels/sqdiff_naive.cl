@@ -9,6 +9,7 @@ __kernel void sqdiff_naive_masked(
 	__write_only image2d_t response_tex,
 	int2 input_size,
 	int2 kernel_size,
+	int2 input_piv,
 	float2 rotation_sincos)
 {
 	const int gid_x = get_global_id(0);
@@ -20,8 +21,8 @@ __kernel void sqdiff_naive_masked(
 	const int2 kernel_end_idx = kernel_size - kernel_pivot_idx - 1;
 	
 	const float2 input_pivot = (float2)(
-		(float)(kernel_pivot_idx.x + gid_x) + 0.5f,
-		(float)(kernel_pivot_idx.y + gid_y) + 0.5f
+		(float)(input_piv.x + gid_x) + 0.5f,
+		(float)(input_piv.y + gid_y) + 0.5f
 	);
 	const float2 kernel_pivot = (float2)(
 		(float)kernel_pivot_idx.x + 0.5f,
@@ -70,6 +71,7 @@ __kernel void sqdiff_naive_masked_nth_pass(
 	__write_only image2d_t response_tex,
 	int2 input_size,
 	int2 kernel_size,
+	int2 input_piv,
 	float2 rotation_sincos)
 {
 	const int gid_x = get_global_id(0);
@@ -81,8 +83,8 @@ __kernel void sqdiff_naive_masked_nth_pass(
 	const int2 kernel_end_idx = kernel_size - kernel_pivot_idx - 1;
 	
 	const float2 input_pivot = (float2)(
-		(float)(kernel_pivot_idx.x + gid_x) + 0.5f,
-		(float)(kernel_pivot_idx.y + gid_y) + 0.5f
+		(float)(input_piv.x + gid_x) + 0.5f,
+		(float)(input_piv.y + gid_y) + 0.5f
 	);
 	const float2 kernel_pivot = (float2)(
 		(float)kernel_pivot_idx.x + 0.5f,
@@ -130,6 +132,7 @@ __kernel void sqdiff_naive(
 	__write_only image2d_t response_tex,
 	int2 input_size,
 	int2 kernel_size,
+	int2 input_piv,
 	float2 rotation_sincos)
 {
 	const int gid_x = get_global_id(0);
@@ -141,8 +144,8 @@ __kernel void sqdiff_naive(
 	const int2 kernel_end_idx = kernel_size - kernel_pivot_idx - 1;
 	
 	const float2 input_pivot = (float2)(
-		(float)(kernel_pivot_idx.x + gid_x) + 0.5f,
-		(float)(kernel_pivot_idx.y + gid_y) + 0.5f
+		(float)(input_piv.x + gid_x) + 0.5f,
+		(float)(input_piv.y + gid_y) + 0.5f
 	);
 	const float2 kernel_pivot = (float2)(
 		(float)kernel_pivot_idx.x + 0.5f,
@@ -186,6 +189,7 @@ __kernel void sqdiff_naive_nth_pass(
 	__write_only image2d_t response_tex,
 	int2 input_size,
 	int2 kernel_size,
+	int2 input_piv,
 	float2 rotation_sincos)
 {
 	const int gid_x = get_global_id(0);
@@ -197,8 +201,8 @@ __kernel void sqdiff_naive_nth_pass(
 	const int2 kernel_end_idx = kernel_size - kernel_pivot_idx - 1;
 	
 	const float2 input_pivot = (float2)(
-		(float)(kernel_pivot_idx.x + gid_x) + 0.5f,
-		(float)(kernel_pivot_idx.y + gid_y) + 0.5f
+		(float)(input_piv.x + gid_x) + 0.5f,
+		(float)(input_piv.y + gid_y) + 0.5f
 	);
 	const float2 kernel_pivot = (float2)(
 		(float)kernel_pivot_idx.x + 0.5f,

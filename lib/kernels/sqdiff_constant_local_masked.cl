@@ -9,6 +9,7 @@ __kernel void sqdiff_constant_masked(
 	__constant float* kernel_mask,
 	__write_only image2d_t response_tex,
 	int2 input_size,
+	int2 output_size,
 	int2 kernel_size,
 	int2 input_piv,
 	int4 kernel_overlaps,
@@ -68,36 +69,39 @@ __kernel void sqdiff_constant_masked(
 	// synchronize all local buffer writes
 	barrier(CLK_LOCAL_MEM_FENCE);
 
-	float sqdiff = 0.0f;
-	float4 diff;
-	float2 cdelta = (float2)(0.0f);
-	float2 local_mem_coord;
-	int local_buffer_idx;
-	
-	// iterate over kernel area
-	int kernel_pix_idx;
-	for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
+	if(gid_x < output_size.x && gid_y < output_size.y)
 	{
-		for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
+		float sqdiff = 0.0f;
+		float4 diff;
+		float2 cdelta = (float2)(0.0f);
+		float2 local_mem_coord;
+		int local_buffer_idx;
+		
+		// iterate over kernel area
+		int kernel_pix_idx;
+		for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 		{
-			cdelta = (float2)((float)dx, (float)dy);
-			
-			// calculate image coord (applies rotation around current texel!)
-			local_mem_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + local_mem_pivot.x;
-			local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
-			local_buffer_idx = (int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x);
-			// squared difference
-			kernel_pix_idx = (kernel_pivot_idx.y + dy) * kernel_size.x + (kernel_pivot_idx.x + dx);
-			if(kernel_mask[kernel_pix_idx] > 0.5f)
+			for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
 			{
-				diff = image_local_buffer[local_buffer_idx] - kernel_tex[kernel_pix_idx];
-				sqdiff += dot(diff, diff);
+				cdelta = (float2)((float)dx, (float)dy);
+				
+				// calculate image coord (applies rotation around current texel!)
+				local_mem_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + local_mem_pivot.x;
+				local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
+				local_buffer_idx = (int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x);
+				// squared difference
+				kernel_pix_idx = (kernel_pivot_idx.y + dy) * kernel_size.x + (kernel_pivot_idx.x + dx);
+				if(kernel_mask[kernel_pix_idx] > 0.5f)
+				{
+					diff = image_local_buffer[local_buffer_idx] - kernel_tex[kernel_pix_idx];
+					sqdiff += dot(diff, diff);
+				}
 			}
 		}
+		
+		// write result
+		write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(sqdiff, 0.0f, 0.0f, 0.0f));
 	}
-	
-	// write result
-	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(sqdiff, 0.0f, 0.0f, 0.0f));
 }
 
 __kernel void sqdiff_constant_masked_nth_pass(
@@ -108,6 +112,7 @@ __kernel void sqdiff_constant_masked_nth_pass(
 	__read_only image2d_t prev_response_tex,
 	__write_only image2d_t response_tex,
 	int2 input_size,
+	int2 output_size,
 	int2 kernel_size,
 	int2 input_piv,
 	int4 kernel_overlaps,
@@ -168,35 +173,38 @@ __kernel void sqdiff_constant_masked_nth_pass(
 	// synchronize all local buffer writes
 	barrier(CLK_LOCAL_MEM_FENCE);
 
-	float sqdiff = 0.0f;
-	float4 diff;
-	float2 cdelta = (float2)(0.0f);
-	float2 local_mem_coord;
-	int local_buffer_idx;
-	
-	// iterate over kernel area
-	int kernel_pix_idx;
-	for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
+	if(gid_x < output_size.x && gid_y < output_size.y)
 	{
-		for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
+		float sqdiff = 0.0f;
+		float4 diff;
+		float2 cdelta = (float2)(0.0f);
+		float2 local_mem_coord;
+		int local_buffer_idx;
+		
+		// iterate over kernel area
+		int kernel_pix_idx;
+		for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 		{
-			cdelta = (float2)((float)dx, (float)dy);
-			
-			// calculate image coord (applies rotation around current texel!)
-			local_mem_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + local_mem_pivot.x;
-			local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
-			local_buffer_idx = (int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x);
-			// squared difference
-			kernel_pix_idx = (kernel_pivot_idx.y + dy) * kernel_size.x + (kernel_pivot_idx.x + dx);
-			if(kernel_mask[kernel_pix_idx] > 0.5f)
+			for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
 			{
-				diff = image_local_buffer[local_buffer_idx] - kernel_tex[kernel_pix_idx];
-				sqdiff += dot(diff, diff);
+				cdelta = (float2)((float)dx, (float)dy);
+				
+				// calculate image coord (applies rotation around current texel!)
+				local_mem_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + local_mem_pivot.x;
+				local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
+				local_buffer_idx = (int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x);
+				// squared difference
+				kernel_pix_idx = (kernel_pivot_idx.y + dy) * kernel_size.x + (kernel_pivot_idx.x + dx);
+				if(kernel_mask[kernel_pix_idx] > 0.5f)
+				{
+					diff = image_local_buffer[local_buffer_idx] - kernel_tex[kernel_pix_idx];
+					sqdiff += dot(diff, diff);
+				}
 			}
 		}
+		
+		// write result
+		int2 out_coord = (int2)(gid_x, gid_y);
+		write_imagef(response_tex, out_coord, (float4)(sqdiff, 0.0f, 0.0f, 0.0f) + read_imagef(prev_response_tex, kernel_sampler, out_coord));
 	}
-	
-	// write result
-	int2 out_coord = (int2)(gid_x, gid_y);
-	write_imagef(response_tex, out_coord, (float4)(sqdiff, 0.0f, 0.0f, 0.0f) + read_imagef(prev_response_tex, kernel_sampler, out_coord));
 }

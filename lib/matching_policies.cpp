@@ -1491,12 +1491,16 @@ namespace ocl_patch_matching
 						}
 					}
 					else
-					{
-						std::cout << "Using local memory optimization..." << std::endl;
+					{		
 						exec_params.local_work_size[0] = wg_size_local;
 						exec_params.local_work_size[1] = wg_size_local;
+						// pad global work size to a multiple of the work group size.
+						// this is necessary to make the local memory scheme work.
+						exec_params.global_work_size[0] = ((exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+						exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
 						// other arguments
 						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+						cl_int2 output_size{response_dims[0], response_dims[1]};
 						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
 						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
 						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
@@ -1514,6 +1518,7 @@ namespace ocl_patch_matching
 							*(m_kernel_mask_buffer.buffer),
 							*(m_output_buffer_a),
 							input_size,
+							output_size,
 							kernel_size,
 							input_piv,
 							cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
@@ -1539,6 +1544,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_b),
 									*(m_output_buffer_a),
 									input_size,
+									output_size,
 									kernel_size,
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
@@ -1562,6 +1568,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_a),
 									*(m_output_buffer_b),
 									input_size,
+									output_size,
 									kernel_size,
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
@@ -1800,11 +1807,15 @@ namespace ocl_patch_matching
 					}
 					else
 					{
-						std::cout << "Using local memory optimization..." << std::endl;
 						exec_params.local_work_size[0] = wg_size_local;
 						exec_params.local_work_size[1] = wg_size_local;
+						// pad global work size to a multiple of the work group size.
+						// this is necessary to make the local memory scheme work.
+						exec_params.global_work_size[0] = ((exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+						exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
 						// other arguments
 						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+						cl_int2 output_size{response_dims[0], response_dims[1]};
 						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
 						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
 						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
@@ -1821,6 +1832,7 @@ namespace ocl_patch_matching
 							*(m_kernel_buffer.buffer),
 							*(m_output_buffer_a),
 							input_size,
+							output_size,
 							kernel_size,
 							input_piv,
 							cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
@@ -1845,6 +1857,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_b),
 									*(m_output_buffer_a),
 									input_size,
+									output_size,
 									kernel_size,
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
@@ -1867,6 +1880,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_a),
 									*(m_output_buffer_b),
 									input_size,
+									output_size,
 									kernel_size,
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
@@ -2105,11 +2119,15 @@ namespace ocl_patch_matching
 					}
 					else
 					{
-						std::cout << "Using local memory optimization..." << std::endl;
 						exec_params.local_work_size[0] = wg_size_local;
 						exec_params.local_work_size[1] = wg_size_local;
+						// pad global work size to a multiple of the work group size.
+						// this is necessary to make the local memory scheme work.
+						exec_params.global_work_size[0] = ((exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+						exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
 						// other arguments
 						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+						cl_int2 output_size{response_dims[0], response_dims[1]};
 						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
 						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
 						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
@@ -2126,6 +2144,7 @@ namespace ocl_patch_matching
 							*(m_kernel_buffer.buffer),
 							*(m_output_buffer_a),
 							input_size,
+							output_size,
 							kernel_size,
 							input_piv,
 							cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
@@ -2150,6 +2169,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_b),
 									*(m_output_buffer_a),
 									input_size,
+									output_size,
 									kernel_size,
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
@@ -2172,6 +2192,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_a),
 									*(m_output_buffer_b),
 									input_size,
+									output_size,
 									kernel_size,
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
@@ -2429,11 +2450,15 @@ namespace ocl_patch_matching
 					}
 					else
 					{
-						std::cout << "Using local memory optimization..." << std::endl;
 						exec_params.local_work_size[0] = wg_size_local;
 						exec_params.local_work_size[1] = wg_size_local;
+						// pad global work size to a multiple of the work group size.
+						// this is necessary to make the local memory scheme work.
+						exec_params.global_work_size[0] = ((exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+						exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
 						// other arguments
 						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+						cl_int2 output_size{response_dims[0], response_dims[1]};
 						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
 						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
 						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
@@ -2451,6 +2476,7 @@ namespace ocl_patch_matching
 							*(m_kernel_mask_buffer.buffer),
 							*(m_output_buffer_a),
 							input_size,
+							output_size,
 							kernel_size,
 							input_piv,
 							cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
@@ -2476,6 +2502,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_b),
 									*(m_output_buffer_a),
 									input_size,
+									output_size,
 									kernel_size,
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
@@ -2499,6 +2526,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_a),
 									*(m_output_buffer_b),
 									input_size,
+									output_size,
 									kernel_size,
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},

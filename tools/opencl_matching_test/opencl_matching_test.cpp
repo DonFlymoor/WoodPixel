@@ -93,7 +93,7 @@ int main()
 	display_image("image_orig", input_tex.texture);
 
 	display_image("kernel_orig", kernel_tex.texture);
-	int num_iters{20};
+	int num_iters{200};
 
 	std::cout << "OpenCV without mask...\n";
 	cv::Mat rescv;

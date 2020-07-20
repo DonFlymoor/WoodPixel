@@ -39,7 +39,7 @@ int main()
 			new ocl_patch_matching::matching_policies::CLMatcher(
 				ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits,
 				2000000000,
-				16ull, 500ull * 500ull, 1024ull
+				16ull, 500ull * 500ull, 4096ull
 			)
 		));
 
@@ -65,12 +65,12 @@ int main()
 
 	double scale{0.16666};
 	double rotation{0.0};
-	Texture input_tex("img/lcds.jpg", 96.0, scale);
-	cv::Mat texture_mask_big{cv::imread("img/lcds_mask.jpg", CV_LOAD_IMAGE_GRAYSCALE)};
+	Texture input_tex("img/furnier.jpg", 96.0, scale);
+	cv::Mat texture_mask_big{cv::imread("img/furnier_texture_mask2.png", CV_LOAD_IMAGE_GRAYSCALE)};
 	cv::Mat texture_mask;
 	cv::resize(texture_mask_big, texture_mask, cv::Size{}, scale, scale);
-	Texture kernel_tex("img/lcds_res_kernel.jpg", 96.0, scale);
-	cv::Mat kernel_mask_big{cv::imread("img/lcds_res_kernel_mask.jpg", CV_LOAD_IMAGE_GRAYSCALE)};
+	Texture kernel_tex("img/furnier_kernel.jpg", 96.0, scale);
+	cv::Mat kernel_mask_big{cv::imread("img/furnier_kernel_mask.jpg", CV_LOAD_IMAGE_GRAYSCALE)};
 	cv::Mat kernel_mask;
 	cv::resize(kernel_mask_big, kernel_mask, cv::Size{}, scale, scale);
 	
@@ -93,7 +93,7 @@ int main()
 	display_image("image_orig", input_tex.texture);
 
 	display_image("kernel_orig", kernel_tex.texture);
-	int num_iters{200};
+	int num_iters{10};
 
 	std::cout << "OpenCV without mask...\n";
 	cv::Mat rescv;
@@ -167,7 +167,7 @@ int main()
 	for(int i = 0; i < num_iters; ++i)
 	{
 		auto t1 = std::chrono::high_resolution_clock::now();
-		matcher.match(input_tex, texture_mask, kernel_tex, kernel_mask, rotation, result);
+		matcher.match(input_tex, texture_mask, kernel_tex, kernel_mask, rotation, result, true);
 		auto mscl{std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - t1).count()};
 		std::cout << mscl << " us. Min pos: " << "x " << result.matches[0].match_pos.x << " y " << result.matches[0].match_pos.y << " cost " << result.matches[0].match_cost << "\n";
 	}

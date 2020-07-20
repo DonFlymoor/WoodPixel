@@ -102,7 +102,8 @@ namespace ocl_patch_matching
             const cv::Mat& texture_mask,
             const Texture& kernel,
             double texture_rotation,
-            MatchingResult& match_res_out
+            MatchingResult& match_res_out,
+            bool erode_texture_mask = true
         ) {};
 
         virtual void compute_matches(
@@ -119,7 +120,8 @@ namespace ocl_patch_matching
             const Texture& kernel,
             const cv::Mat& kernel_mask,
             double texture_rotation,
-            MatchingResult& match_res_out
+            MatchingResult& match_res_out,
+            bool erode_texture_mask = true
         ) {};
     };
     MatchingPolicyBase::~MatchingPolicyBase() noexcept { cleanup_opencl_state(); }
@@ -140,9 +142,9 @@ namespace ocl_patch_matching
         void erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation);
 
         void match(const Texture& texture,const Texture& kernel,double texture_rotation, MatchingResult& result);
-        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& result);
+        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& result, bool erode_texture_mask = true);
         void match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result);
-        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result);
+        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result, bool erode_texture_mask = true);
 
        /* void erode(cv::Mat& texture_mask, )*/
         

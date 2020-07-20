@@ -17,6 +17,7 @@ namespace ocl_patch_matching
 			#include <kernels/kernel_sqdiff_constant.hpp>
 			#include <kernels/kernel_sqdiff_constant_local.hpp>
 			#include <kernels/kernel_sqdiff_constant_local_masked.hpp>
+			#include <kernels/kernel_erode_masked.hpp>
 			#include <kernels/kernel_erode.hpp>
 			#include <kernels/find_min.hpp>
 
@@ -56,7 +57,8 @@ namespace ocl_patch_matching
 					const cv::Mat& texture_mask,
 					const Texture& kernel,
 					double texture_rotation,
-					MatchingResult& match_res_out
+					MatchingResult& match_res_out,
+					bool erode_texture_mask
 				);
 
 				void compute_matches(
@@ -65,7 +67,8 @@ namespace ocl_patch_matching
 					const Texture& kernel,
 					const cv::Mat& kernel_mask,
 					double texture_rotation,
-					MatchingResult& match_res_out
+					MatchingResult& match_res_out,
+					bool erode_texture_mask
 				);
 
 				void erode_texture_mask(
@@ -194,7 +197,7 @@ namespace ocl_patch_matching
 				std::unique_ptr<simple_cl::cl::Image> m_output_buffer_b;
 
 				// output buffer for erode
-				std::unique_ptr<simple_cl::cl::Image> m_output_buffer_erode;
+				std::unique_ptr<simple_cl::cl::Image> m_output_texture_mask_eroded;
 
 				// output buffer for find_min
 				FindMinBuffer m_output_buffer_find_min;
@@ -227,6 +230,7 @@ namespace ocl_patch_matching
 				std::unique_ptr<simple_cl::cl::Program> m_program_sqdiff_constant;
 				std::unique_ptr<simple_cl::cl::Program> m_program_sqdiff_constant_local;
 				std::unique_ptr<simple_cl::cl::Program> m_program_sqdiff_constant_local_masked;
+				std::unique_ptr<simple_cl::cl::Program> m_program_erode_masked;
 				std::unique_ptr<simple_cl::cl::Program> m_program_erode;
 				std::unique_ptr<simple_cl::cl::Program> m_program_find_min;
 
@@ -246,8 +250,10 @@ namespace ocl_patch_matching
 				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_local_masked;
 				simple_cl::cl::Program::CLKernelHandle m_kernel_constant_sqdiff_local_masked_nth_pass;
 
+				simple_cl::cl::Program::CLKernelHandle m_kernel_erode_masked;
+				simple_cl::cl::Program::CLKernelHandle m_kernel_erode_constant_masked;
+
 				simple_cl::cl::Program::CLKernelHandle m_kernel_erode;
-				simple_cl::cl::Program::CLKernelHandle m_kernel_erode_constant;
 
 				simple_cl::cl::Program::CLKernelHandle m_kernel_find_min;
 				simple_cl::cl::Program::CLKernelHandle m_kernel_find_min_masked;
@@ -379,7 +385,7 @@ namespace ocl_patch_matching
 					simple_cl::cl::Image::ImageChannelOrder::R,		// One red channel
 					simple_cl::cl::Image::ImageChannelType::FLOAT,	// Single precision floating point data
 					simple_cl::cl::MemoryFlags{
-						simple_cl::cl::DeviceAccess::WriteOnly,		// Kernel may only write
+						simple_cl::cl::DeviceAccess::ReadWrite,		// Kernel may only write
 						simple_cl::cl::HostAccess::ReadOnly,		// Host may only read
 						simple_cl::cl::HostPointerOption::None		// No host pointer stuff
 					},
@@ -543,6 +549,7 @@ namespace ocl_patch_matching
 				m_program_sqdiff_constant.reset(new simple_cl::cl::Program(kernels::sqdiff_constant_src, kernels::sqdiff_constant_copt, m_cl_context));
 				m_program_sqdiff_constant_local.reset(new simple_cl::cl::Program(kernels::sqdiff_constant_local_src, kernels::sqdiff_constant_local_copt, m_cl_context));
 				m_program_sqdiff_constant_local_masked.reset(new simple_cl::cl::Program(kernels::sqdiff_constant_local_masked_src, kernels::sqdiff_constant_local_masked_copt, m_cl_context));
+				m_program_erode_masked.reset(new simple_cl::cl::Program(kernels::erode_masked_src, kernels::erode_masked_copt, m_cl_context));
 				m_program_erode.reset(new simple_cl::cl::Program(kernels::erode_src, kernels::erode_copt, m_cl_context));
 				m_program_find_min.reset(new simple_cl::cl::Program(kernels::find_min_src, kernels::find_min_copt, m_cl_context));
 				
@@ -562,8 +569,10 @@ namespace ocl_patch_matching
 				m_kernel_constant_sqdiff_local_masked = m_program_sqdiff_constant_local_masked->getKernel("sqdiff_constant_masked");
 				m_kernel_constant_sqdiff_local_masked_nth_pass = m_program_sqdiff_constant_local_masked->getKernel("sqdiff_constant_masked_nth_pass");
 
+				m_kernel_erode_masked = m_program_erode_masked->getKernel("erode");
+				m_kernel_erode_constant_masked = m_program_erode_masked->getKernel("erode_constant");
+
 				m_kernel_erode = m_program_erode->getKernel("erode");
-				m_kernel_erode_constant = m_program_erode->getKernel("erode_constant");
 
 				m_kernel_find_min = m_program_find_min->getKernel("find_min");
 				m_kernel_find_min_masked = m_program_find_min->getKernel("find_min_masked");
@@ -1053,19 +1062,19 @@ namespace ocl_patch_matching
 
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_erode_output_image(const cv::Mat& texture_mask)
 			{
-				if(m_output_buffer_erode) // if output image already exists
+				if(m_output_texture_mask_eroded) // if output image already exists
 				{
 					// recreate output image only if it is too small for the new input - kernel combination
-					if(static_cast<std::size_t>(texture_mask.cols) > m_output_buffer_erode->width() || static_cast<std::size_t>(texture_mask.rows) > m_output_buffer_erode->height())
+					if(static_cast<std::size_t>(texture_mask.cols) > m_output_texture_mask_eroded->width() || static_cast<std::size_t>(texture_mask.rows) > m_output_texture_mask_eroded->height())
 					{
 						auto output_desc{make_mask_output_image_desc(texture_mask)};
-						m_output_buffer_erode.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
+						m_output_texture_mask_eroded.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
 					}
 				}
 				else
 				{
 					auto output_desc{make_mask_output_image_desc(texture_mask)};
-					m_output_buffer_erode.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
+					m_output_texture_mask_eroded.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
 				}
 			}
 
@@ -1268,7 +1277,7 @@ namespace ocl_patch_matching
 				};
 
 				// read output and return event				
-				return m_output_buffer_erode->read(region, hostfmt, out_mat.data, wait_for.begin(), wait_for.end());
+				return m_output_texture_mask_eroded->read(region, hostfmt, out_mat.data, wait_for.begin(), wait_for.end());
 			}
 			
 			void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::read_min_pos_and_cost(MatchingResult& res, const std::vector<simple_cl::cl::Event>& wait_for, const cv::Point& res_coord_offset)
@@ -1288,6 +1297,18 @@ namespace ocl_patch_matching
 				res.matches.clear();
 				res.matches.push_back(Match{cv::Point(static_cast<int>(std::roundf(minimum.z)) + res_coord_offset.x, static_cast<int>(std::roundf(minimum.w)) + res_coord_offset.y), minimum.x});
 			}
+			
+			void display_intensity(const std::string& name, const cv::Mat& mat, bool wait = false)
+			{
+				double maxval;
+				double minval;
+				cv::minMaxLoc(mat, &minval, &maxval);
+				cv::Mat newmat((mat - minval) / (maxval - minval));
+				cv::imshow(name, newmat);
+				if(wait)
+					cv::waitKey();
+			}
+			
 			
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::compute_matches(
 				const Texture& texture,
@@ -1587,7 +1608,7 @@ namespace ocl_patch_matching
 					2ull,
 					{0ull, 0ull, 0ull},
 					{0ull, 0ull, 1ull},
-					{find_min_local_work_size, find_min_local_work_size, 1ull} // TODO: Fix this
+					{find_min_local_work_size, find_min_local_work_size, 1ull}
 				};
 				std::size_t find_min_local_buffer_size;
 				prepare_find_min_output_buffer(cv::Size{response_dims[0], response_dims[1]}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
@@ -1931,7 +1952,8 @@ namespace ocl_patch_matching
 				const cv::Mat& texture_mask,
 				const Texture& kernel,
 				double texture_rotation,
-				MatchingResult& match_res_out)
+				MatchingResult& match_res_out,
+				bool erode_texture_mask)
 			{
 				static std::vector<simple_cl::cl::Event> pre_compute_events;
 				pre_compute_events.clear();
@@ -2218,15 +2240,42 @@ namespace ocl_patch_matching
 				prepare_find_min_output_buffer(cv::Size{response_dims[0], response_dims[1]}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
 
 				// texture mask
-				prepare_texture_mask(texture_mask, pre_compute_events, false);
-				simple_cl::cl::Event tmp_event{std::move(pre_compute_events.back())};
-				pre_compute_events.pop_back();
+				static std::vector<simple_cl::cl::Event> texture_mask_events;
+				texture_mask_events.clear();
+				prepare_texture_mask(texture_mask, texture_mask_events, false);
+
+				if(erode_texture_mask)
+				{
+				// erode texture mask with kernel mask				
+					prepare_erode_output_image(texture_mask);
+					// execution params for kernel
+					std::size_t erode_local_work_size{get_local_work_size(m_kernel_erode)};
+					simple_cl::cl::Program::ExecParams erode_exec_params{
+						2ull,
+						{0ull, 0ull, 0ull},
+						{static_cast<std::size_t>(texture_mask.cols), static_cast<std::size_t>(texture_mask.rows), 1ull},
+						{erode_local_work_size, erode_local_work_size, 1ull}
+					};
+					simple_cl::cl::Event event{(*m_program_erode_masked)(m_kernel_erode,
+						texture_mask_events.begin(),
+						texture_mask_events.end(),
+						exec_params,
+						*m_texture_mask,
+						*m_output_texture_mask_eroded,
+						cl_int2{texture_mask.cols, texture_mask.rows},
+						cl_int2{kernel.response.cols(), kernel.response.rows()},
+						cl_int2{(kernel.response.cols() - 1) / 2, (kernel.response.rows() - 1) / 2},
+						cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
+					)};
+					texture_mask_events.clear();
+					texture_mask_events.push_back(event);
+				}
 
 				// read result and wait for command chain to finish execution. If num_batches is odd, read output a, else b.
 				simple_cl::cl::Event response_finished_event{read_output_image(match_res_out.total_cost_matrix, response_dims, pre_compute_events, num_batches % 2ull)};
 				pre_compute_events.clear();
 				pre_compute_events.push_back(std::move(response_finished_event));
-				pre_compute_events.push_back(std::move(tmp_event));
+				pre_compute_events.insert(pre_compute_events.end(), texture_mask_events.begin(), texture_mask_events.end());
 
 				// run kernel for minimum extraction
 				simple_cl::cl::Event find_min_kernel_event{(*m_program_find_min)(
@@ -2235,15 +2284,22 @@ namespace ocl_patch_matching
 					pre_compute_events.end(),
 					find_min_exec_params,
 					(num_batches % 2ull ? *m_output_buffer_a : *m_output_buffer_b),
-					*m_texture_mask,
+					(erode_texture_mask ? *m_output_texture_mask_eroded : *m_texture_mask),
 					*(m_output_buffer_find_min.buffer),
 					simple_cl::cl::LocalMemory<cl_float4>(find_min_local_buffer_size),
-					cl_int2{response_dims[0], response_dims[1]})
+					cl_int2{response_dims[0], response_dims[1]},
+					cl_int2{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]})
 				};
 				pre_compute_events.clear();
 				pre_compute_events.push_back(std::move(find_min_kernel_event));
 				// output result
 				read_min_pos_and_cost(match_res_out, pre_compute_events, cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]));
+
+				//// debug stuff
+				//pre_compute_events.clear();
+				//cv::Mat erode_out;
+				//read_eroded_texture_mask_image(erode_out, cv::Size(texture_mask.cols, texture_mask.rows), pre_compute_events).wait();
+				//display_intensity("Eroded no kernel mask", erode_out, true);
 			}
 
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::compute_matches(
@@ -2252,7 +2308,8 @@ namespace ocl_patch_matching
 				const Texture& kernel,
 				const cv::Mat& kernel_mask,
 				double texture_rotation,
-				MatchingResult& match_res_out)
+				MatchingResult& match_res_out,
+				bool erode_texture_mask)
 			{
 				static std::vector<simple_cl::cl::Event> pre_compute_events;
 				pre_compute_events.clear();
@@ -2546,21 +2603,74 @@ namespace ocl_patch_matching
 					2ull,
 					{0ull, 0ull, 0ull},
 					{0ull, 0ull, 1ull},
-					{find_min_local_work_size, find_min_local_work_size, 1ull} // TODO: Fix this
+					{find_min_local_work_size, find_min_local_work_size, 1ull}
 				};
 				std::size_t find_min_local_buffer_size;
 				prepare_find_min_output_buffer(cv::Size{response_dims[0], response_dims[1]}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
 
 				// texture mask
-				prepare_texture_mask(texture_mask, pre_compute_events, false);
-				simple_cl::cl::Event tmp_event{std::move(pre_compute_events.back())};
-				pre_compute_events.pop_back();
+				static std::vector<simple_cl::cl::Event> texture_mask_events;
+				texture_mask_events.clear();
+				prepare_texture_mask(texture_mask, texture_mask_events, false);
+
+				if(erode_texture_mask)
+				{
+				// erode texture mask with kernel mask				
+					prepare_erode_output_image(texture_mask);
+					// execution params for kernel
+					simple_cl::cl::Program::ExecParams erode_exec_params{
+						2ull,
+						{0ull, 0ull, 0ull},
+						{static_cast<std::size_t>(texture_mask.cols), static_cast<std::size_t>(texture_mask.rows), 1ull},
+						{0ull, 0ull, 1ull}
+					};
+					if(use_constant_kernel(kernel_mask))
+					{
+						std::size_t erode_local_work_size{get_local_work_size(m_kernel_erode_constant_masked)};
+						erode_exec_params.local_work_size[0] = erode_local_work_size;
+						erode_exec_params.local_work_size[1] = erode_local_work_size;
+						simple_cl::cl::Event event{(*m_program_erode_masked)(m_kernel_erode_constant_masked,
+							texture_mask_events.begin(),
+							texture_mask_events.end(),
+							erode_exec_params,
+							*m_texture_mask,
+							*(m_kernel_mask_buffer.buffer),
+							*m_output_texture_mask_eroded,
+							cl_int2{texture_mask.cols, texture_mask.rows},
+							cl_int2{kernel_mask.cols, kernel_mask.rows},
+							cl_int2{(kernel_mask.cols - 1) / 2, (kernel_mask.rows - 1) / 2},
+							cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
+						)};
+						texture_mask_events.clear();
+						texture_mask_events.push_back(event);
+					}
+					else
+					{
+						std::size_t erode_local_work_size{get_local_work_size(m_kernel_erode_masked)};
+						erode_exec_params.local_work_size[0] = erode_local_work_size;
+						erode_exec_params.local_work_size[1] = erode_local_work_size;
+						simple_cl::cl::Event event{(*m_program_erode_masked)(m_kernel_erode_masked,
+							texture_mask_events.begin(),
+							texture_mask_events.end(),
+							exec_params,
+							*m_texture_mask,
+							*(m_kernel_mask),
+							*m_output_texture_mask_eroded,
+							cl_int2{texture_mask.cols, texture_mask.rows},
+							cl_int2{kernel_mask.cols, kernel_mask.rows},
+							cl_int2{(kernel_mask.cols - 1) / 2, (kernel_mask.rows - 1) / 2},
+							cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
+						)};
+						texture_mask_events.clear();
+						texture_mask_events.push_back(event);
+					}
+				}
 
 				// read result and wait for command chain to finish execution. If num_batches is odd, read output a, else b.
 				simple_cl::cl::Event response_finished_event{read_output_image(match_res_out.total_cost_matrix, response_dims, pre_compute_events, num_batches % 2ull)};
 				pre_compute_events.clear();
 				pre_compute_events.push_back(std::move(response_finished_event));
-				pre_compute_events.push_back(std::move(tmp_event));
+				pre_compute_events.insert(pre_compute_events.end(), texture_mask_events.begin(), texture_mask_events.end());
 
 				// run kernel for minimum extraction
 				simple_cl::cl::Event find_min_kernel_event{(*m_program_find_min)(
@@ -2569,15 +2679,23 @@ namespace ocl_patch_matching
 					pre_compute_events.end(),
 					find_min_exec_params,
 					(num_batches % 2ull ? *m_output_buffer_a : *m_output_buffer_b),
-					*m_texture_mask,
+					(erode_texture_mask ? *m_output_texture_mask_eroded : *m_texture_mask),
 					*(m_output_buffer_find_min.buffer),
 					simple_cl::cl::LocalMemory<cl_float4>(find_min_local_buffer_size),
-					cl_int2{response_dims[0], response_dims[1]})
+					cl_int2{response_dims[0], response_dims[1]},
+					cl_int2{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]})
 				};
 				pre_compute_events.clear();
 				pre_compute_events.push_back(std::move(find_min_kernel_event));
 				// output result
 				read_min_pos_and_cost(match_res_out, pre_compute_events, cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]));
+
+				//// debug stuff
+				//// debug stuff
+				//pre_compute_events.clear();
+				//cv::Mat erode_out;
+				//read_eroded_texture_mask_image(erode_out, cv::Size(texture_mask.cols, texture_mask.rows), pre_compute_events).wait();
+				//display_intensity("Eroded with kernel mask", erode_out, true);
 			}
 
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::erode_texture_mask(
@@ -2606,13 +2724,13 @@ namespace ocl_patch_matching
 				};
 				if(use_constant)
 				{
-					simple_cl::cl::Event event{(*m_program_erode)(m_kernel_erode_constant,
+					simple_cl::cl::Event event{(*m_program_erode_masked)(m_kernel_erode_constant_masked,
 						pre_compute_events.begin(),
 						pre_compute_events.end(),
 						exec_params,
 						*m_texture_mask,
 						*(m_kernel_mask_buffer.buffer),
-						*m_output_buffer_erode,
+						*m_output_texture_mask_eroded,
 						cl_int2{texture_mask.cols, texture_mask.rows},
 						cl_int2{kernel_mask.cols, kernel_mask.rows},
 						cl_int2{kernel_anchor.x, kernel_anchor.y},
@@ -2623,13 +2741,13 @@ namespace ocl_patch_matching
 				}
 				else
 				{
-					simple_cl::cl::Event event{(*m_program_erode)(m_kernel_erode,
+					simple_cl::cl::Event event{(*m_program_erode_masked)(m_kernel_erode_masked,
 						pre_compute_events.begin(),
 						pre_compute_events.end(),
 						exec_params,
 						*m_texture_mask,
 						*(m_kernel_mask),
-						*m_output_buffer_erode,
+						*m_output_texture_mask_eroded,
 						cl_int2{texture_mask.cols, texture_mask.rows},
 						cl_int2{kernel_mask.cols, kernel_mask.rows},
 						cl_int2{kernel_anchor.x, kernel_anchor.y},
@@ -2725,9 +2843,10 @@ void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(
 	const cv::Mat& texture_mask,
 	const Texture& kernel,
 	double texture_rotation,
-	MatchingResult& match_res_out)
+	MatchingResult& match_res_out,
+	bool erode_texture_mask)
 {
-	impl()->compute_matches(texture, texture_mask, kernel, texture_rotation, match_res_out);
+	impl()->compute_matches(texture, texture_mask, kernel, texture_rotation, match_res_out, erode_texture_mask);
 }
 
 void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(
@@ -2736,9 +2855,10 @@ void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(
 	const Texture& kernel,
 	const cv::Mat& kernel_mask,
 	double texture_rotation,
-	MatchingResult& match_res_out)
+	MatchingResult& match_res_out,
+	bool erode_texture_mask)
 {
-	impl()->compute_matches(texture, texture_mask, kernel, kernel_mask, texture_rotation, match_res_out);
+	impl()->compute_matches(texture, texture_mask, kernel, kernel_mask, texture_rotation, match_res_out, erode_texture_mask);
 }
 
 cv::Vec3i ocl_patch_matching::matching_policies::CLMatcher::response_dimensions(

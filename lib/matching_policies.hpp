@@ -42,7 +42,8 @@ namespace ocl_patch_matching
 				const cv::Mat& texture_mask,
 				const Texture& kernel,
 				double texture_rotation,
-				MatchingResult& match_res_out
+				MatchingResult& match_res_out,
+				bool erode_texture_mask = true
 			) override;
 
 			void compute_matches(
@@ -59,7 +60,8 @@ namespace ocl_patch_matching
 				const Texture& kernel,
 				const cv::Mat& kernel_mask,
 				double texture_rotation,
-				MatchingResult& match_res_out
+				MatchingResult& match_res_out,
+				bool erode_texture_mask = true
 			) override;
 
 			void erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation) override;

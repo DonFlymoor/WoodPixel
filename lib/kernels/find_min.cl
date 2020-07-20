@@ -5,7 +5,8 @@ __kernel void find_min_masked(
 	__read_only image2d_t texture_mask,
 	__global float4* response,
     __local float4* local_buffer,
-	int2 input_size)
+	int2 input_size,
+    int2 texture_mask_offset)
 {
 	const int2 gid = (int2)(get_global_id(0), get_global_id(1));
     const float2 imcoord = (float2)((float)gid.x, (float)gid.y);
@@ -17,7 +18,7 @@ __kernel void find_min_masked(
 
     // first collect data in local memory (cost value, mask value, minpos_x, minpos_y)
     float costval = read_imagef(input_tex, mask_sampler, gid).x;
-    float maskval = read_imagef(texture_mask, mask_sampler, gid).x;
+    float maskval = read_imagef(texture_mask, mask_sampler, gid + texture_mask_offset).x;
     // valid texel?  && (maskval > 0.5f)
     local_buffer[local_index] = (gid.x < input_size.x && gid.y < input_size.y) ? (float4)(costval, maskval, imcoord.x, imcoord.y) : (float4)(FLT_MAX, 0.0f, 0.0f, 0.0f);
     // parallel reduction

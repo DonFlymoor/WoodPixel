@@ -49,7 +49,8 @@ public:
 		ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy = ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits;
 		std::size_t max_texture_cache_memory = 536870912ull;
 		std::size_t local_block_size = 16ull;
-		std::size_t constant_kernel_max_pixels = 50ull * 50ull;		
+		std::size_t constant_kernel_max_pixels = 50ull * 50ull;
+		std::size_t max_local_pixels = 1024ull;
 	};
 #endif
 #ifdef TRLIB_TREE_MATCH_USE_OPENCL

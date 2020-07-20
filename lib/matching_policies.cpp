@@ -26,7 +26,7 @@ namespace ocl_patch_matching
 			class CLMatcherImpl
 			{
 			public:
-				CLMatcherImpl(ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels, std::size_t local_buffer_max_pixels);
+				CLMatcherImpl(ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels, std::size_t local_buffer_max_pixels, ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin result_origin);
 				~CLMatcherImpl() noexcept;
 				CLMatcherImpl(const CLMatcherImpl&) = delete;
 				CLMatcherImpl(CLMatcherImpl&&) = delete;
@@ -137,7 +137,7 @@ namespace ocl_patch_matching
 				std::size_t get_local_work_size(const simple_cl::cl::Program::CLKernelHandle& kernel) const;
 
 				// calculate rotated kernel bounding box and padding sizes
-				static void calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps, const Texture& kernel, double texture_rotation, const cv::Point& anchor = cv::Point{-1, -1});
+				static void calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps, cv::Point2i& rotated_upper_left_corner, const Texture& kernel, double texture_rotation, const cv::Point& anchor = cv::Point{-1, -1});
 
 				// get results
 				simple_cl::cl::Event read_output_image(cv::Mat& out_mat, const cv::Vec3i& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a);
@@ -180,6 +180,9 @@ namespace ocl_patch_matching
 					std::unique_ptr<simple_cl::cl::Buffer> buffer;
 					std::size_t num_work_groups[2];
 				};
+
+				// specifies result orgin. either upper left corner or center
+				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin m_result_origin;
 				
 				ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy m_selection_policy;
 				// ignored for now
@@ -273,7 +276,8 @@ namespace ocl_patch_matching
 			{
 				cv::Size rotated_kernel_size;
 				cv::Vec4i rotated_kernel_overlaps;
-				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, kernel, texture_rotation);
+				cv::Point rotated_upper_left_corner;
+				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, rotated_upper_left_corner, kernel, texture_rotation);
 
 				return cv::Vec3i{
 					texture.response.cols() - rotated_kernel_overlaps[0] - rotated_kernel_overlaps[1],
@@ -466,13 +470,15 @@ namespace ocl_patch_matching
 				std::size_t max_texture_cache_memory,
 				std::size_t local_block_size,
 				std::size_t constant_kernel_maxdim,
-				std::size_t local_buffer_max_pixels) :
+				std::size_t local_buffer_max_pixels,
+				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin result_origin) :
 					m_selection_policy(device_selection_policy),
 					m_max_tex_cache_size(max_texture_cache_memory),
 					m_kernel_image{std::vector<std::unique_ptr<simple_cl::cl::Image>>(), 0ull},
 					m_local_block_size{local_block_size},
 					m_constant_kernel_max_pixels{constant_kernel_maxdim},
-					m_local_buffer_max_pixels{local_buffer_max_pixels}
+					m_local_buffer_max_pixels{local_buffer_max_pixels},
+					m_result_origin{result_origin}
 			{
 				if(!simple_cl::util::is_power_of_two(local_block_size) || local_block_size == 0ull)
 					throw std::invalid_argument("local_block_size must be a positive power of two.");
@@ -1180,7 +1186,7 @@ namespace ocl_patch_matching
 				return wgsize;
 			}
 			
-			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps, const Texture& kernel, double texture_rotation, const cv::Point& anchor)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps, cv::Point2i& rotated_upper_left_corner, const Texture& kernel, double texture_rotation, const cv::Point& anchor)
 			{
 				float pivot_x{0.0f};
 				float pivot_y{0.0f};
@@ -1216,6 +1222,10 @@ namespace ocl_patch_matching
 
 				float rotated_bottom_right_x = c * bottom_right_x - s * bottom_right_y;
 				float rotated_bottom_right_y = s * bottom_right_x + c * bottom_right_y;
+
+				// output upper left corner
+				rotated_upper_left_corner.x = static_cast<int>(floorf(rotated_top_left_x));
+				rotated_upper_left_corner.y = static_cast<int>(floorf(rotated_top_left_y));
 
 				// min and max sample coords for kernel bounding box
 				float min_x = std::min({rotated_top_left_x, rotated_top_right_x, rotated_bottom_left_x, rotated_bottom_right_x});
@@ -1342,7 +1352,8 @@ namespace ocl_patch_matching
 				// compute rotated kernel size
 				cv::Size rotated_kernel_size;
 				cv::Vec4i rotated_kernel_overlaps;
-				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, kernel, texture_rotation);
+				cv::Point rotated_upper_left_corner;
+				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, rotated_upper_left_corner, kernel, texture_rotation);
 				// prepare all input data
 				prepare_input_image(texture, pre_compute_events, false, false);
 				bool use_constant{use_constant_kernel(kernel, kernel_mask)};
@@ -1652,7 +1663,20 @@ namespace ocl_patch_matching
 				pre_compute_events.clear();
 				pre_compute_events.push_back(std::move(find_min_kernel_event));
 				// output result
-				read_min_pos_and_cost(match_res_out, pre_compute_events, cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]));
+				cv::Point result_offset;
+				switch(m_result_origin)
+				{
+					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::UpperLeftCorner:
+						result_offset = cv::Point(rotated_kernel_overlaps[0] + rotated_upper_left_corner.x, rotated_kernel_overlaps[2] + rotated_upper_left_corner.y);
+						break;
+					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::Center:
+						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
+						break;
+					default:
+						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
+						break;
+				}
+				read_min_pos_and_cost(match_res_out, pre_compute_events, result_offset);
 			}
 
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::compute_matches(
@@ -1666,7 +1690,8 @@ namespace ocl_patch_matching
 				// compute rotated kernel size
 				cv::Size rotated_kernel_size;
 				cv::Vec4i rotated_kernel_overlaps;
-				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, kernel, texture_rotation);
+				cv::Point rotated_upper_left_corner;
+				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, rotated_upper_left_corner, kernel, texture_rotation);
 				// prepare all input data
 				// upload input image
 				prepare_input_image(texture, pre_compute_events, false, false);
@@ -1964,7 +1989,20 @@ namespace ocl_patch_matching
 				pre_compute_events.clear();
 				pre_compute_events.push_back(std::move(find_min_kernel_event));
 				// output result
-				read_min_pos_and_cost(match_res_out, pre_compute_events, cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]));
+				cv::Point result_offset;
+				switch(m_result_origin)
+				{
+					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::UpperLeftCorner:
+						result_offset = cv::Point(rotated_kernel_overlaps[0] + rotated_upper_left_corner.x, rotated_kernel_overlaps[2] + rotated_upper_left_corner.y);
+						break;
+					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::Center:
+						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
+						break;
+					default:
+						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
+						break;
+				}
+				read_min_pos_and_cost(match_res_out, pre_compute_events, result_offset);
 			}
 
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::compute_matches(
@@ -1980,7 +2018,8 @@ namespace ocl_patch_matching
 				// compute rotated kernel size
 				cv::Size rotated_kernel_size;
 				cv::Vec4i rotated_kernel_overlaps;
-				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, kernel, texture_rotation);
+				cv::Point rotated_upper_left_corner;
+				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, rotated_upper_left_corner, kernel, texture_rotation);
 				// prepare all input data
 				// upload input image
 				prepare_input_image(texture, pre_compute_events, false, false);
@@ -2348,7 +2387,20 @@ namespace ocl_patch_matching
 				pre_compute_events.clear();
 				pre_compute_events.push_back(std::move(find_min_kernel_event));
 				// output result
-				read_min_pos_and_cost(match_res_out, pre_compute_events, cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]));
+				cv::Point result_offset;
+				switch(m_result_origin)
+				{
+					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::UpperLeftCorner:
+						result_offset = cv::Point(rotated_kernel_overlaps[0] + rotated_upper_left_corner.x, rotated_kernel_overlaps[2] + rotated_upper_left_corner.y);
+						break;
+					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::Center:
+						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
+						break;
+					default:
+						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
+						break;
+				}
+				read_min_pos_and_cost(match_res_out, pre_compute_events, result_offset);
 
 				// debug stuff
 				//pre_compute_events.clear();
@@ -2371,7 +2423,8 @@ namespace ocl_patch_matching
 				// compute rotated kernel size
 				cv::Size rotated_kernel_size;
 				cv::Vec4i rotated_kernel_overlaps;
-				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, kernel, texture_rotation);
+				cv::Point rotated_upper_left_corner;
+				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, rotated_upper_left_corner, kernel, texture_rotation);
 				// prepare all input data
 				prepare_input_image(texture, pre_compute_events, false, false);
 				bool use_constant{use_constant_kernel(kernel, kernel_mask)};
@@ -2783,7 +2836,20 @@ namespace ocl_patch_matching
 				pre_compute_events.clear();
 				pre_compute_events.push_back(std::move(find_min_kernel_event));
 				// output result
-				read_min_pos_and_cost(match_res_out, pre_compute_events, cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]));
+				cv::Point result_offset;
+				switch(m_result_origin)
+				{
+					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::UpperLeftCorner:
+						result_offset = cv::Point(rotated_kernel_overlaps[0] + rotated_upper_left_corner.x, rotated_kernel_overlaps[2] + rotated_upper_left_corner.y);
+						break;
+					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::Center:
+						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
+						break;
+					default:
+						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
+						break;
+				}
+				read_min_pos_and_cost(match_res_out, pre_compute_events, result_offset);
 
 				// debug stuff
 				//// debug stuff
@@ -2880,8 +2946,8 @@ namespace ocl_patch_matching
 // ----------------------------------------------------------------------- INTERFACE -----------------------------------------------------------------------
 
 // class CLMatcher
-ocl_patch_matching::matching_policies::CLMatcher::CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels, std::size_t local_buffer_max_pixels) :
-	m_impl(new impl::CLMatcherImpl(device_selection_policy, max_texture_cache_memory, local_block_size, constant_kernel_max_pixels, local_buffer_max_pixels))
+ocl_patch_matching::matching_policies::CLMatcher::CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels, std::size_t local_buffer_max_pixels, ResultOrigin result_origin) :
+	m_impl(new impl::CLMatcherImpl(device_selection_policy, max_texture_cache_memory, local_block_size, constant_kernel_max_pixels, local_buffer_max_pixels, result_origin))
 {
 }
 

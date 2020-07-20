@@ -20,7 +20,13 @@ namespace ocl_patch_matching
 				FirstSuitableDevice
 			};
 
-			CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size = 16, std::size_t constant_kernel_max_pixels = 50ull, std::size_t local_buffer_max_pixels = 64ull);
+			enum class ResultOrigin
+			{
+				UpperLeftCorner,
+				Center
+			};
+
+			CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size = 16, std::size_t constant_kernel_max_pixels = 50ull, std::size_t local_buffer_max_pixels = 64ull, ResultOrigin result_origin = ResultOrigin::UpperLeftCorner);
 			~CLMatcher() noexcept;
 
 			std::size_t platform_id() const override;

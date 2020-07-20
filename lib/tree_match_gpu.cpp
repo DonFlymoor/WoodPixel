@@ -67,7 +67,7 @@ TreeMatchGPU::TreeMatchGPU(int min_patch_size, int patch_levels, double patch_qu
 	m_patch_quality_factor(patch_quality_factor),
 	m_subpatch_size(min_patch_size / 4, min_patch_size / 4),
 	m_filter_bank(filter_resolution, frequency_octaves, num_filter_directions),
-	m_cl_matcher(std::unique_ptr<cltm::matching_policies::CLMatcher>(new cltm::matching_policies::CLMatcher(gpu_matching_options.device_selection_policy, gpu_matching_options.max_texture_cache_memory, gpu_matching_options.local_block_size, gpu_matching_options.constant_kernel_max_pixels)))
+	m_cl_matcher(std::unique_ptr<cltm::matching_policies::CLMatcher>(new cltm::matching_policies::CLMatcher(gpu_matching_options.device_selection_policy, gpu_matching_options.max_texture_cache_memory, gpu_matching_options.local_block_size, gpu_matching_options.constant_kernel_max_pixels, gpu_matching_options.max_local_pixels)))
 #endif
 {
 	cv::Point boundary_size(min_patch_size / 4, min_patch_size / 4);
@@ -401,6 +401,25 @@ bool TreeMatchGPU::find_next_patch_adaptive()
 	return true;
 }
 
+// debug stuff. remove
+void display_image(const std::string& name, const cv::Mat& mat, bool wait = false)
+{
+	cv::imshow(name, mat);
+	if(wait)
+		cv::waitKey();
+}
+
+void display_intensity(const std::string& name, const cv::Mat& mat, bool wait = false)
+{
+	double maxval;
+	double minval;
+	cv::minMaxLoc(mat, &minval, &maxval);
+	cv::Mat newmat((mat - minval) / (maxval - minval));
+	cv::imshow(name, newmat);
+	if(wait)
+		cv::waitKey();
+}
+
 // TODO: Main part of the work should go here I guess.
 Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 {
@@ -432,7 +451,6 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 	Texture kernel = m_targets[region.target_index()](region.bounding_box());
 
 	std::vector<MatchPatchResult> results;
-	// TODO: figure out what to do with the rotation
 	for(size_t i = 0; i < m_textures.size(); ++i)
 	{
 		for(size_t j = 0; j < m_textures[i].size(); ++j)
@@ -443,41 +461,55 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 // TODO OpenCL impl here
 // idea pull out that erode call and do it on the cpu in parallel for all rotations
 #ifdef TRLIB_TREE_MATCH_USE_OPENCL
+	int kernel_piv_x{(kernel.response.cols() - 1) / 2};
+	int kernel_piv_y{(kernel.response.cols() - 1) / 2};
+
 	for(int i = 0; i < static_cast<int>(results.size()); ++i)
 	{
 		double rotation = m_textures[results[i].texture_index][results[i].texture_rot].angle_rad;
-
-		cv::Mat texture_mask;
-		//cv::erode(m_textures[results[i].texture_index][0].mask(), texture_mask, region.mask(), cv::Point(0, 0), 1, cv::BORDER_CONSTANT, 0);
-		//m_cl_matcher.erode_texture_mask(m_textures[results[i].texture_index][0].mask(), texture_mask, region.mask(), cv::Point(0, 0), rotation);
-		texture_mask = texture_mask(cv::Rect(0, 0, texture_mask.cols - kernel.response.cols() + 1, texture_mask.rows - kernel.response.rows() + 1));
-
+		cv::Mat texture_mask = m_textures[results[i].texture_index][0].mask();
 		ocl_patch_matching::MatchingResult matching_result;
 		if(cv::countNonZero(texture_mask) > 0)
-		{
-			
+		{			
 			if(is_rectangular)
 			{
-				m_cl_matcher.match(m_textures[results[i].texture_index][0], texture_mask, kernel, rotation, matching_result);
+				m_cl_matcher.match(m_textures[results[i].texture_index][0], texture_mask, kernel, rotation, matching_result, true);
 			}
 			else
 			{
-				m_cl_matcher.match(m_textures[results[i].texture_index][0], texture_mask, kernel, region.mask(), rotation, matching_result);
+				m_cl_matcher.match(m_textures[results[i].texture_index][0], texture_mask, kernel, region.mask(), rotation, matching_result, true);
 			}
 		}
+
 		results[i].cost = matching_result.matches[0].match_cost;
-		results[i].texture_pos = matching_result.matches[0].match_pos;
+		auto rotmat = m_textures[results[i].texture_index][results[i].texture_rot].transformation_matrix;
+		results[i].texture_pos = AffineTransformation::transform(rotmat, cv::Point(matching_result.matches[0].match_pos.x, matching_result.matches[0].match_pos.y));
 	}
 
 	MatchPatchResult result_min = *std::min_element(results.begin(), results.end(), [](const MatchPatchResult& lhs, const MatchPatchResult& rhs) { return lhs.cost < rhs.cost; });
 
+	/*cv::namedWindow("kernel", CV_WINDOW_AUTOSIZE);
+	cv::namedWindow("kernel_intensity", CV_WINDOW_AUTOSIZE);
+	cv::namedWindow("kernel_edge", CV_WINDOW_AUTOSIZE);
+	cv::namedWindow("kernel_mask", CV_WINDOW_AUTOSIZE);
+	cv::namedWindow("texture_mask", CV_WINDOW_AUTOSIZE);
+	cv::namedWindow("best match", CV_WINDOW_NORMAL);
+	display_image("kernel", kernel.texture, false);
+	display_image("kernel", kernel.texture, false);
+	display_image("kernel_intensity", kernel.response[0], false);
+	display_image("kernel_edge", kernel.response[1], false);
+	display_image("kernel_mask", region.mask(), false);
+	std::cout << "Best match: " << "x: " << result_min.texture_pos.x << " y: " << result_min.texture_pos.y << std::endl;
+	cv::Mat bla = m_textures[result_min.texture_index][0].texture.clone();
+	cv::drawMarker(bla, result_min.texture_pos, cv::Scalar((1 << 16), (1 << 16), (1 << 16), (1 << 16)), 0, 50, 3);
+	display_image("best match", bla, true);
+	cv::destroyAllWindows();*/
 
 	if(result_min.cost == std::numeric_limits<double>::max())
 	{
 		std::cout << "Finished. No more texture samples available." << std::endl;
 	}
 
-	// TODO: This needs fixing
 	const cv::Mat error_mat = m_targets[region.target_index()].response(region.bounding_box()).dist_sqr_mat(m_textures[result_min.texture_index][result_min.texture_rot].response(cv::Rect(result_min.texture_pos, region.bounding_box().size())));
 
 	Patch patch(region, result_min.texture_pos, m_textures[result_min.texture_index][result_min.texture_rot].transformation_matrix, result_min.texture_index, result_min.texture_rot, error_mat, result_min.cost);
@@ -485,7 +517,7 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 
 	return patch;
 #else
-#pragma omp parallel for
+//#pragma omp parallel for
 	for(int i = 0; i < static_cast<int>(results.size()); ++i)
 	{
 		cv::Mat texture_mask;
@@ -511,6 +543,22 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 	// TODO: Min rotation?
 	MatchPatchResult result_min = *std::min_element(results.begin(), results.end(), [](const MatchPatchResult& lhs, const MatchPatchResult& rhs) { return lhs.cost < rhs.cost; });
 
+	cv::namedWindow("kernel", CV_WINDOW_AUTOSIZE);
+	cv::namedWindow("kernel_intensity", CV_WINDOW_AUTOSIZE);
+	cv::namedWindow("kernel_edge", CV_WINDOW_AUTOSIZE);
+	cv::namedWindow("kernel_mask", CV_WINDOW_AUTOSIZE);
+	cv::namedWindow("texture_mask", CV_WINDOW_AUTOSIZE);
+	cv::namedWindow("best match", CV_WINDOW_NORMAL);
+	display_image("kernel", kernel.texture, false);
+	display_image("kernel", kernel.texture, false);
+	display_image("kernel_intensity", kernel.response[0], false);
+	display_image("kernel_edge", kernel.response[1], false);
+	display_image("kernel_mask", region.mask(), false);
+	std::cout << "Best match: " << "x: " << result_min.texture_pos.x << " y: " << result_min.texture_pos.y << std::endl;
+	cv::Mat bla = m_textures[result_min.texture_index][result_min.texture_rot].texture.clone();
+	cv::drawMarker(bla, result_min.texture_pos, cv::Scalar((1 << 16), (1 << 16), (1 << 16), (1 << 16)), 0, 50, 3);
+	display_image("best match", bla, true);
+	cv::destroyAllWindows();
 
 	if(result_min.cost == std::numeric_limits<double>::max())
 	{

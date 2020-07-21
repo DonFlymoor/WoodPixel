@@ -26,7 +26,16 @@ namespace ocl_patch_matching
 			class CLMatcherImpl
 			{
 			public:
-				CLMatcherImpl(ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels, std::size_t local_buffer_max_pixels, ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin result_origin);
+				CLMatcherImpl(
+					ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy, 
+					std::size_t max_texture_cache_memory,
+					std::size_t local_block_size,
+					std::size_t constant_kernel_max_pixels,
+					std::size_t local_buffer_max_pixels, 
+					ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin result_origin,
+					bool use_local_buffer_for_matching,
+					bool use_local_buffer_for_erode
+				);
 				~CLMatcherImpl() noexcept;
 				CLMatcherImpl(const CLMatcherImpl&) = delete;
 				CLMatcherImpl(CLMatcherImpl&&) = delete;
@@ -183,8 +192,12 @@ namespace ocl_patch_matching
 
 				// specifies result orgin. either upper left corner or center
 				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin m_result_origin;
-				
+				// decide which opencl device to select if there are more than one
 				ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy m_selection_policy;
+				// enable / disable local buffer for matching step
+				bool m_use_local_buffer_for_matching;
+				// enable / disable local buffer for erode step
+				bool m_use_local_buffer_for_erode;
 				// ignored for now
 				std::size_t m_max_tex_cache_size;
 				// size of local work groups (square blocks)
@@ -471,14 +484,18 @@ namespace ocl_patch_matching
 				std::size_t local_block_size,
 				std::size_t constant_kernel_maxdim,
 				std::size_t local_buffer_max_pixels,
-				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin result_origin) :
+				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin result_origin,
+				bool use_local_buffer_for_matching,
+				bool use_local_buffer_for_erode) :
 					m_selection_policy(device_selection_policy),
 					m_max_tex_cache_size(max_texture_cache_memory),
 					m_kernel_image{std::vector<std::unique_ptr<simple_cl::cl::Image>>(), 0ull},
 					m_local_block_size{local_block_size},
 					m_constant_kernel_max_pixels{constant_kernel_maxdim},
 					m_local_buffer_max_pixels{local_buffer_max_pixels},
-					m_result_origin{result_origin}
+					m_result_origin{result_origin},
+					m_use_local_buffer_for_matching{use_local_buffer_for_matching},
+					m_use_local_buffer_for_erode{use_local_buffer_for_erode}
 			{
 				if(!simple_cl::util::is_power_of_two(local_block_size) || local_block_size == 0ull)
 					throw std::invalid_argument("local_block_size must be a positive power of two.");
@@ -1325,7 +1342,7 @@ namespace ocl_patch_matching
 				cl_float4 minimum{*std::min_element(work_group_results.begin(), work_group_results.end(), [](const cl_float4& lhs, const cl_float4& rhs) { return lhs.x < rhs.x; })};
 				// write min position and cost
 				res.matches.clear();
-				res.matches.push_back(Match{cv::Point(static_cast<int>(std::roundf(minimum.z)) + res_coord_offset.x, static_cast<int>(std::roundf(minimum.w)) + res_coord_offset.y), minimum.x});
+				res.matches.push_back(Match{cv::Point(static_cast<int>(std::floorf(minimum.z)) + res_coord_offset.x, static_cast<int>(std::floorf(minimum.w)) + res_coord_offset.y), minimum.x});				
 			}
 			
 			void display_intensity(const std::string& name, const cv::Mat& mat, bool wait = false)
@@ -1465,7 +1482,7 @@ namespace ocl_patch_matching
 
 					// decide if we should use the version with local memory optimization
 					std::size_t wg_used_local_mem{std::max(m_kernel_constant_sqdiff_local_masked.getKernelInfo().local_memory_usage, m_kernel_constant_sqdiff_local_masked_nth_pass.getKernelInfo().local_memory_usage)};					
-					bool use_local{use_local_mem(rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4))};
+					bool use_local{use_local_mem(rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4)) && m_use_local_buffer_for_matching};
 					if(!use_local)
 					{
 						exec_params.local_work_size[0] = wg_size;
@@ -1796,7 +1813,7 @@ namespace ocl_patch_matching
 					std::size_t local_buffer_total_size{static_cast<std::size_t>(rotated_kernel_overlaps[0] + wg_size_local + rotated_kernel_overlaps[1]) * static_cast<std::size_t>(rotated_kernel_overlaps[2] + wg_size_local + rotated_kernel_overlaps[3])};
 
 					// decide if we should use local memory optimizatio
-					bool use_local{use_local_mem(rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4))};
+					bool use_local{use_local_mem(rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4)) && m_use_local_buffer_for_matching};
 
 					if(!use_local)
 					{
@@ -2123,7 +2140,7 @@ namespace ocl_patch_matching
 					// calculate total buffer size in pixels
 					std::size_t local_buffer_total_size{static_cast<std::size_t>(rotated_kernel_overlaps[0] + wg_size_local + rotated_kernel_overlaps[1]) * static_cast<std::size_t>(rotated_kernel_overlaps[2] + wg_size_local + rotated_kernel_overlaps[3])};
 
-					bool use_local{use_local_mem(rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4))};
+					bool use_local{use_local_mem(rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4)) && m_use_local_buffer_for_matching};
 
 					if(!use_local)
 					{
@@ -2307,7 +2324,7 @@ namespace ocl_patch_matching
 					std::size_t wg_size{std::min(get_local_work_size(m_kernel_erode), get_local_work_size(m_kernel_erode_local))};
 					std::size_t wg_size_local{std::min(get_local_work_size(m_kernel_erode), get_local_work_size(m_kernel_erode_local))};
 					std::size_t wg_used_local_mem{std::max(m_kernel_erode.getKernelInfo().local_memory_usage, m_kernel_erode_local.getKernelInfo().local_memory_usage)};
-					bool erode_use_local{use_local_mem(rotated_kernel_overlaps, m_kernel_erode_local.getKernelInfo().local_memory_usage, wg_size_local, m_local_buffer_max_pixels * 4ull, sizeof(cl_float))};
+					bool erode_use_local{use_local_mem(rotated_kernel_overlaps, m_kernel_erode_local.getKernelInfo().local_memory_usage, wg_size_local, m_local_buffer_max_pixels * 4ull, sizeof(cl_float)) && m_use_local_buffer_for_erode};
 					// erode texture mask with kernel mask				
 					prepare_erode_output_image(texture_mask);					
 					if(!erode_use_local)
@@ -2407,6 +2424,25 @@ namespace ocl_patch_matching
 				//cv::Mat erode_out;
 				//read_eroded_texture_mask_image(erode_out, cv::Size(texture_mask.cols, texture_mask.rows), pre_compute_events).wait();
 				//display_intensity("Eroded no kernel mask", erode_out, true);
+			}
+
+			// TODO: Remove this
+			void display_image_dbg(const std::string& name, const cv::Mat& mat, bool wait = false)
+			{
+				cv::imshow(name, mat);
+				if(wait)
+					cv::waitKey();
+			}
+
+			void display_intensity_dbg(const std::string& name, const cv::Mat& mat, bool wait = false)
+			{
+				double maxval;
+				double minval;
+				cv::minMaxLoc(mat, &minval, &maxval);
+				cv::Mat newmat((mat - minval) / (maxval - minval));
+				cv::imshow(name, newmat);
+				if(wait)
+					cv::waitKey();
 			}
 
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::compute_matches(
@@ -2535,7 +2571,7 @@ namespace ocl_patch_matching
 					std::size_t local_buffer_total_size{static_cast<std::size_t>(rotated_kernel_overlaps[0] + wg_size_local + rotated_kernel_overlaps[1]) * static_cast<std::size_t>(rotated_kernel_overlaps[2] + wg_size_local + rotated_kernel_overlaps[3])};
 
 					// decide if we should use local memory optimization
-					bool use_local{use_local_mem(rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4))};
+					bool use_local{use_local_mem(rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4)) && m_use_local_buffer_for_matching};
 
 					if(!use_local)
 					{
@@ -2721,6 +2757,7 @@ namespace ocl_patch_matching
 				texture_mask_events.clear();
 				prepare_texture_mask(texture_mask, texture_mask_events, false);
 
+				cv::Mat texmask;
 				if(erode_texture_mask)
 				{
 					// erode texture mask with kernel mask				
@@ -2731,7 +2768,7 @@ namespace ocl_patch_matching
 						std::size_t wg_size{std::min(get_local_work_size(m_kernel_erode_masked), get_local_work_size(m_kernel_erode_masked_local))};
 						std::size_t wg_size_local{std::min(get_local_work_size(m_kernel_erode_masked), get_local_work_size(m_kernel_erode_masked_local))};
 						std::size_t wg_used_local_mem{std::max(m_kernel_erode_masked.getKernelInfo().local_memory_usage, m_kernel_erode_masked_local.getKernelInfo().local_memory_usage)};
-						bool erode_use_local{use_local_mem(rotated_kernel_overlaps, m_kernel_erode_masked_local.getKernelInfo().local_memory_usage, wg_size_local, m_local_buffer_max_pixels * 4ull, sizeof(cl_float))};
+						bool erode_use_local{use_local_mem(rotated_kernel_overlaps, m_kernel_erode_masked_local.getKernelInfo().local_memory_usage, wg_size_local, m_local_buffer_max_pixels * 4ull, sizeof(cl_float)) && m_use_local_buffer_for_erode};
 						if(!erode_use_local)
 						{
 							simple_cl::cl::Program::ExecParams erode_exec_params{
@@ -2812,6 +2849,7 @@ namespace ocl_patch_matching
 						texture_mask_events.clear();
 						texture_mask_events.push_back(event);
 					}
+					//read_eroded_texture_mask_image(texmask, cv::Size(texture_mask.cols, texture_mask.rows), texture_mask_events).wait();
 				}
 
 				// read result and wait for command chain to finish execution. If num_batches is odd, read output a, else b.
@@ -2822,16 +2860,16 @@ namespace ocl_patch_matching
 
 				// run kernel for minimum extraction
 				simple_cl::cl::Event find_min_kernel_event{(*m_program_find_min)(
-					m_kernel_find_min_masked,
+					m_kernel_find_min,//_masked,
 					pre_compute_events.begin(),
 					pre_compute_events.end(),
 					find_min_exec_params,
 					(num_batches % 2ull ? *m_output_buffer_a : *m_output_buffer_b),
-					(erode_texture_mask ? *m_output_texture_mask_eroded : *m_texture_mask),
+					//(erode_texture_mask ? *m_output_texture_mask_eroded : *m_texture_mask),
 					*(m_output_buffer_find_min.buffer),
 					simple_cl::cl::LocalMemory<cl_float4>(find_min_local_buffer_size),
-					cl_int2{response_dims[0], response_dims[1]},
-					cl_int2{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]})
+					cl_int2{response_dims[0], response_dims[1]})//,
+					//cl_int2{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]})
 				};
 				pre_compute_events.clear();
 				pre_compute_events.push_back(std::move(find_min_kernel_event));
@@ -2849,6 +2887,24 @@ namespace ocl_patch_matching
 						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
 						break;
 				}
+
+				//// debug stuff
+				//simple_cl::cl::wait_for_events(pre_compute_events.begin(), pre_compute_events.end());
+				//double minval, maxval;
+				//cv::Point min_pos;
+				//cv::Point max_pos;				
+				//cv::Mat texmask_8u(texmask.rows, texmask.cols, CV_8UC1);
+				//texmask.convertTo(texmask_8u, CV_8UC1, 255.0);
+				////display_image_dbg("texmaskorig", texture_mask, false);
+				////display_image_dbg("texmasku8", texmask_8u, true);
+				//cv::minMaxLoc(match_res_out.total_cost_matrix, &minval, &maxval, &min_pos, &max_pos);// , texmask_8u(cv::Rect(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2], response_dims[0], response_dims[1])));
+				//cv::drawMarker(match_res_out.total_cost_matrix, cv::Point(min_pos.x + rotated_kernel_overlaps[0], min_pos.y + rotated_kernel_overlaps[2]), cv::Scalar(maxval, maxval, maxval, maxval), 100, 3);
+				///*display_image_dbg("kernelthing", kernel.response[0], false);
+				//display_intensity_dbg("totalcost", match_res_out.total_cost_matrix, true);*/
+				//std::cout << "Min pos:" << min_pos;
+				//match_res_out.matches.clear();
+				//match_res_out.matches.push_back(Match{cv::Point(min_pos.x + result_offset.x, min_pos.y + result_offset.y), minval});
+
 				read_min_pos_and_cost(match_res_out, pre_compute_events, result_offset);
 
 				// debug stuff
@@ -2946,8 +3002,8 @@ namespace ocl_patch_matching
 // ----------------------------------------------------------------------- INTERFACE -----------------------------------------------------------------------
 
 // class CLMatcher
-ocl_patch_matching::matching_policies::CLMatcher::CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels, std::size_t local_buffer_max_pixels, ResultOrigin result_origin) :
-	m_impl(new impl::CLMatcherImpl(device_selection_policy, max_texture_cache_memory, local_block_size, constant_kernel_max_pixels, local_buffer_max_pixels, result_origin))
+ocl_patch_matching::matching_policies::CLMatcher::CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels, std::size_t local_buffer_max_pixels, ResultOrigin result_origin, bool use_local_mem_for_matching, bool use_local_mem_for_erode) :
+	m_impl(new impl::CLMatcherImpl(device_selection_policy, max_texture_cache_memory, local_block_size, constant_kernel_max_pixels, local_buffer_max_pixels, result_origin, use_local_mem_for_matching, use_local_mem_for_erode))
 {
 }
 

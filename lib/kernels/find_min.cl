@@ -9,7 +9,7 @@ __kernel void find_min_masked(
     int2 texture_mask_offset)
 {
 	const int2 gid = (int2)(get_global_id(0), get_global_id(1));
-    const float2 imcoord = (float2)((float)gid.x, (float)gid.y);
+    const float2 imcoord = (float2)((float)gid.x + 0.5f, (float)gid.y + 0.5f);
     const int2 lid = (int2)(get_local_id(0), get_local_id(1));
     const int2 block_size = (int2)(get_local_size(0), get_local_size(1));
     const int local_index = lid.y * block_size.x + lid.x;    
@@ -47,7 +47,7 @@ __kernel void find_min(
 	int2 input_size)
 {
 	const int2 gid = (int2)(get_global_id(0), get_global_id(1));
-    const float2 imcoord = (float2)((float)gid.x, (float)gid.y);
+    const float2 imcoord = (float2)((float)gid.x + 0.5f, (float)gid.y + 0.5f);
     const int2 lid = (int2)(get_local_id(0), get_local_id(1));
     const int2 block_size = (int2)(get_local_size(0), get_local_size(1));
     const int local_index = lid.y * block_size.x + lid.x;    

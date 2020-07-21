@@ -51,6 +51,8 @@ public:
 		std::size_t local_block_size = 16ull;
 		std::size_t constant_kernel_max_pixels = 50ull * 50ull;
 		std::size_t max_local_pixels = 1024ull;
+		bool use_local_mem_for_matching = false;
+		bool use_local_mem_for_erode = true;
 	};
 #endif
 #ifdef TRLIB_TREE_MATCH_USE_OPENCL

@@ -39,8 +39,10 @@ int main()
 			new ocl_patch_matching::matching_policies::CLMatcher(
 				ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits,
 				2000000000,
-				16ull, 500ull * 500ull, 4096ull,
-				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::Center
+				16ull, 500ull * 500ull,4096ull,
+				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::Center,
+				false,
+				true
 			)
 		));
 
@@ -66,12 +68,12 @@ int main()
 
 	double scale{0.16666};
 	double rotation{0.0};
-	Texture input_tex("img/lcds.jpg", 96.0, scale);
-	cv::Mat texture_mask_big{cv::imread("img/lcds_mask.jpg", CV_LOAD_IMAGE_GRAYSCALE)};
+	Texture input_tex("img/furnier.jpg", 96.0, scale);
+	cv::Mat texture_mask_big{cv::imread("img/furnier_texture_mask2.png", CV_LOAD_IMAGE_GRAYSCALE)};
 	cv::Mat texture_mask;
 	cv::resize(texture_mask_big, texture_mask, cv::Size{}, scale, scale);
-	Texture kernel_tex("img/lcds_res_kernel.jpg", 96.0, scale);
-	cv::Mat kernel_mask_big{cv::imread("img/lcds_res_kernel_mask.jpg", CV_LOAD_IMAGE_GRAYSCALE)};
+	Texture kernel_tex("img/furnier_kernel.jpg", 96.0, scale);
+	cv::Mat kernel_mask_big{cv::imread("img/furnier_kernel_mask.jpg", CV_LOAD_IMAGE_GRAYSCALE)};
 	cv::Mat kernel_mask;
 	cv::resize(kernel_mask_big, kernel_mask, cv::Size{}, scale, scale);
 	

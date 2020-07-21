@@ -1,3 +1,5 @@
+#define MASK_THRESHOLD 1e-6f
+
 const sampler_t mask_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
 
 __kernel void erode_local(
@@ -82,7 +84,7 @@ __kernel void erode_local(
 				local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
 				local_buffer_idx = (int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x);
 				
-				float image_val = step(0.5f, local_buffer[local_buffer_idx]);			
+				float image_val = step(MASK_THRESHOLD, local_buffer[local_buffer_idx]);			
 				minval = min(minval, image_val);				
 			}
 		}

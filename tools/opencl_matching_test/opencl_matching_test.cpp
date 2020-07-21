@@ -39,8 +39,8 @@ int main()
 			new ocl_patch_matching::matching_policies::CLMatcher(
 				ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits,
 				2000000000,
-				16ull, 500ull * 500ull,4096ull,
-				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::Center,
+				16ull, 50ull * 50ull , 1024ull,
+				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::UpperLeftCorner,
 				false,
 				true
 			)
@@ -69,7 +69,8 @@ int main()
 	double scale{0.16666};
 	double rotation{0.0};
 	Texture input_tex("img/furnier.jpg", 96.0, scale);
-	cv::Mat texture_mask_big{cv::imread("img/furnier_texture_mask2.png", CV_LOAD_IMAGE_GRAYSCALE)};
+	Texture cv_input_tex{input_tex.rotate(rotation)};
+	cv::Mat texture_mask_big{cv::imread("img/furnier_texture_mask.png", CV_LOAD_IMAGE_GRAYSCALE)};
 	cv::Mat texture_mask;
 	cv::resize(texture_mask_big, texture_mask, cv::Size{}, scale, scale);
 	Texture kernel_tex("img/furnier_kernel.jpg", 96.0, scale);
@@ -85,10 +86,16 @@ int main()
 	input_tex.response = feval.evaluate(input_tex.texture, input_tex.mask());
 	cv::erode(input_tex.mask_rotation, input_tex.mask_rotation, kernel, cv::Point(-1, -1), 1, cv::BORDER_CONSTANT, cv::Scalar(0));
 
+	cv_input_tex.response = feval.evaluate(cv_input_tex.texture, cv_input_tex.mask());
+	cv::erode(cv_input_tex.mask_rotation, cv_input_tex.mask_rotation, kernel, cv::Point(-1, -1), 1, cv::BORDER_CONSTANT, cv::Scalar(0));
+
 	kernel_tex.response = feval.evaluate(kernel_tex.texture, kernel_tex.mask());
 	cv::erode(kernel_tex.mask_rotation, kernel_tex.mask_rotation, kernel, cv::Point(-1, -1), 1, cv::BORDER_CONSTANT, cv::Scalar(0));
 
-	cv::Mat texture_mask_cv{texture_mask(cv::Rect(0, 0, texture_mask.cols - kernel_tex.response.cols() + 1, texture_mask.rows - kernel_tex.response.rows() + 1))};
+	cv::Mat eroded_mask_cv;
+	cv::erode(texture_mask, eroded_mask_cv, kernel_mask, cv::Point(0, 0), 1, cv::BORDER_CONSTANT, cv::Scalar(0));
+
+	cv::Mat texture_mask_cv{eroded_mask_cv(cv::Rect(0, 0, eroded_mask_cv.cols - kernel_tex.response.cols() + 1, eroded_mask_cv.rows - kernel_tex.response.rows() + 1))};
 
 	std::cout << "Kernel size: " << kernel_tex.response.cols() << " x " << kernel_tex.response.rows() << std::endl;
 	std::cout << "Texture size: " << input_tex.response.cols() << " x " << input_tex.response.rows() << std::endl;
@@ -96,7 +103,7 @@ int main()
 	display_image("image_orig", input_tex.texture);
 
 	display_image("kernel_orig", kernel_tex.texture);
-	int num_iters{10};
+	int num_iters{20};
 
 	std::cout << "OpenCV without mask...\n";
 	cv::Mat rescv;
@@ -105,15 +112,17 @@ int main()
 	for(int i = 0; i < num_iters; ++i)
 	{
 		auto t1{std::chrono::high_resolution_clock::now()};
-		rescv = input_tex.template_match(kernel_tex);
+		rescv = cv_input_tex.template_match(kernel_tex);
 		//find minimum		
 		cv::minMaxLoc(rescv, &minval, nullptr, &minpos, nullptr);
 		auto mscv{std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - t1).count()};
 		std::cout << mscv << " us. Min pos: " << "x " << minpos.x << " y " << minpos.y << " cost " << minval << "\n";
 	}
 	cv::Mat rescv_f(rescv.rows, rescv.cols, CV_32FC1);	
-	rescv.convertTo(rescv_f, CV_32FC1);	
+	rescv.convertTo(rescv_f, CV_32FC1);
 	display_intensity("ResultCV", rescv_f, false);
+	cv::drawMarker(cv_input_tex.texture, minpos, cv::Scalar(255.0, 255.0, 255.0));
+	display_image("ResultCVImage", cv_input_tex.texture, false);
 
 	std::cout << "OpenCL without mask...\n";
 	ocl_patch_matching::MatchingResult result;
@@ -133,13 +142,15 @@ int main()
 	for(int i = 0; i < num_iters; ++i)
 	{
 		auto t1{std::chrono::high_resolution_clock::now()};
-		rescv = input_tex.template_match(kernel_tex, kernel_mask);
+		rescv = cv_input_tex.template_match(kernel_tex, kernel_mask);
 		cv::minMaxLoc(rescv, &minval, nullptr, &minpos, nullptr);
 		auto mscv{std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - t1).count()};
 		std::cout << mscv << " us. Min pos: " << "x " << minpos.x << " y " << minpos.y << " cost " << minval << "\n";
 	}
 	rescv.convertTo(rescv_f, CV_32FC1);
 	display_intensity("ResultCV", rescv_f, false);
+	cv::drawMarker(cv_input_tex.texture, minpos, cv::Scalar(255.0, 255.0, 255.0));
+	display_image("ResultCVImage", cv_input_tex.texture, false);
 
 	std::cout << "OpenCL with kernel mask...\n";
 	for(int i = 0; i < num_iters; ++i)
@@ -158,13 +169,16 @@ int main()
 	for(int i = 0; i < num_iters; ++i)
 	{
 		auto t1{std::chrono::high_resolution_clock::now()};
-		rescv = input_tex.template_match(kernel_tex, kernel_mask);
+		rescv = cv_input_tex.template_match(kernel_tex, kernel_mask);
 		cv::minMaxLoc(rescv, &minval, nullptr, &minpos, nullptr, texture_mask_cv);
 		auto mscv{std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - t1).count()};
 		std::cout << mscv << " us. Min pos: " << "x " << minpos.x << " y " << minpos.y << " cost " << minval << "\n";
 	}
 	rescv.convertTo(rescv_f, CV_32FC1);
 	display_intensity("ResultCV", rescv_f, false);
+	cv::drawMarker(cv_input_tex.texture, minpos, cv::Scalar(255.0, 255.0, 255.0));
+	display_image("ResultCVImage", cv_input_tex.texture, false);
+	display_image("CVTexMaskEroded", texture_mask_cv, false);
 
 	std::cout << "OpenCL with kernel mask and texture mask...\n";
 	for(int i = 0; i < num_iters; ++i)
@@ -174,6 +188,7 @@ int main()
 		auto mscl{std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - t1).count()};
 		std::cout << mscl << " us. Min pos: " << "x " << result.matches[0].match_pos.x << " y " << result.matches[0].match_pos.y << " cost " << result.matches[0].match_cost << "\n";
 	}
+
 	cv::drawMarker(input_tex.texture, result.matches[0].match_pos, cv::Scalar(255.0, 255.0, 255.0));
 	display_image("ResultCLImage", input_tex.texture, false);
 	display_intensity("ResultCL", result.total_cost_matrix, true);

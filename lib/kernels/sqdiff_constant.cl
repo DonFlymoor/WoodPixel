@@ -1,3 +1,5 @@
+#define MASK_THRESHOLD 1e-6f
+
 // sampler (maybe a constant border color would be better? don't know yet..)
 const sampler_t input_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_LINEAR;
 const sampler_t kernel_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
@@ -9,6 +11,7 @@ __kernel void sqdiff_constant_masked(
 	__write_only image2d_t response_tex,
 	int2 input_size,
 	int2 kernel_size,
+	int2 kernel_anchor,
 	int2 input_piv,
 	float2 rotation_sincos)
 {
@@ -16,9 +19,8 @@ __kernel void sqdiff_constant_masked(
 	const int gid_y = get_global_id(1);
 
 	// "center" index of the kernel. This is also the offset into the input image.
-	const int2 kernel_pivot_idx = (kernel_size - 1) / 2;
-	const int2 kernel_start_idx = -kernel_pivot_idx;
-	const int2 kernel_end_idx = kernel_size - kernel_pivot_idx - 1;
+	const int2 kernel_start_idx = -kernel_anchor;
+	const int2 kernel_end_idx = kernel_size - kernel_anchor - 1;
 	
 	const float2 input_pivot = (float2)(
 		(float)(input_piv.x + gid_x) + 0.5f,
@@ -43,9 +45,8 @@ __kernel void sqdiff_constant_masked(
 			image_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + input_pivot.y;
 
 			// squared difference
-			kernel_pix_idx = (kernel_pivot_idx.y + dy) * kernel_size.x + (kernel_pivot_idx.x + dx);
-			float mask_val = kernel_mask[kernel_pix_idx];
-			if(mask_val > 0.5f)
+			kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx);
+			if(kernel_mask[kernel_pix_idx] > MASK_THRESHOLD)
 			{
 				diff = read_imagef(input_tex, input_sampler, image_coord) - kernel_tex[kernel_pix_idx];
 				sqdiff += dot(diff, diff);
@@ -65,6 +66,7 @@ __kernel void sqdiff_constant_masked_nth_pass(
 	__write_only image2d_t response_tex,
 	int2 input_size,
 	int2 kernel_size,
+	int2 kernel_anchor,
 	int2 input_piv,
 	float2 rotation_sincos,
 	int kernel_offset)
@@ -73,9 +75,8 @@ __kernel void sqdiff_constant_masked_nth_pass(
 	const int gid_y = get_global_id(1);
 
 	// "center" index of the kernel. This is also the offset into the input image.
-	const int2 kernel_pivot_idx = (kernel_size - 1) / 2;
-	const int2 kernel_start_idx = -kernel_pivot_idx;
-	const int2 kernel_end_idx = kernel_size - kernel_pivot_idx - 1;
+	const int2 kernel_start_idx = -kernel_anchor;
+	const int2 kernel_end_idx = kernel_size - kernel_anchor - 1;
 	
 	const float2 input_pivot = (float2)(
 		(float)(input_piv.x + gid_x) + 0.5f,
@@ -100,9 +101,8 @@ __kernel void sqdiff_constant_masked_nth_pass(
 			image_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + input_pivot.y;
 
 			// squared difference
-			kernel_pix_idx = (kernel_pivot_idx.y + dy) * kernel_size.x + (kernel_pivot_idx.x + dx) + kernel_offset;
-			float mask_val = kernel_mask[kernel_pix_idx];
-			if(mask_val > 0.5f)
+			kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx) + kernel_offset;
+			if(kernel_mask[kernel_pix_idx] > MASK_THRESHOLD)
 			{
 				diff = read_imagef(input_tex, input_sampler, image_coord) - kernel_tex[kernel_pix_idx];
 				sqdiff += dot(diff, diff);
@@ -121,6 +121,7 @@ __kernel void sqdiff_constant(
 	__write_only image2d_t response_tex,
 	int2 input_size,
 	int2 kernel_size,
+	int2 kernel_anchor,
 	int2 input_piv,
 	float2 rotation_sincos)
 {
@@ -128,9 +129,8 @@ __kernel void sqdiff_constant(
 	const int gid_y = get_global_id(1);
 
 	// "center" index of the kernel. This is also the offset into the input image.
-	const int2 kernel_pivot_idx = (kernel_size - 1) / 2;
-	const int2 kernel_start_idx = -kernel_pivot_idx;
-	const int2 kernel_end_idx = kernel_size - kernel_pivot_idx - 1;
+	const int2 kernel_start_idx = -kernel_anchor;
+	const int2 kernel_end_idx = kernel_size - kernel_anchor - 1;
 	
 	const float2 input_pivot = (float2)(
 		(float)(input_piv.x + gid_x) + 0.5f,
@@ -155,7 +155,7 @@ __kernel void sqdiff_constant(
 			image_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + input_pivot.y;
 
 			// squared difference
-			kernel_pix_idx = (kernel_pivot_idx.y + dy) * kernel_size.x + (kernel_pivot_idx.x + dx);
+			kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx);
 			diff = read_imagef(input_tex, input_sampler, image_coord) - kernel_tex[kernel_pix_idx];
 			sqdiff += dot(diff, diff);
 		}
@@ -172,6 +172,7 @@ __kernel void sqdiff_constant_nth_pass(
 	__write_only image2d_t response_tex,
 	int2 input_size,
 	int2 kernel_size,
+	int2 kernel_anchor,
 	int2 input_piv,
 	float2 rotation_sincos,
 	int kernel_offset)
@@ -180,9 +181,8 @@ __kernel void sqdiff_constant_nth_pass(
 	const int gid_y = get_global_id(1);
 
 	// "center" index of the kernel. This is also the offset into the input image.
-	const int2 kernel_pivot_idx = (kernel_size - 1) / 2;
-	const int2 kernel_start_idx = -kernel_pivot_idx;
-	const int2 kernel_end_idx = kernel_size - kernel_pivot_idx - 1;
+	const int2 kernel_start_idx = -kernel_anchor;
+	const int2 kernel_end_idx = kernel_size - kernel_anchor - 1;
 	
 	const float2 input_pivot = (float2)(
 		(float)(input_piv.x + gid_x) + 0.5f,
@@ -207,7 +207,7 @@ __kernel void sqdiff_constant_nth_pass(
 			image_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + input_pivot.y;
 
 			// squared difference
-			kernel_pix_idx = (kernel_pivot_idx.y + dy) * kernel_size.x + (kernel_pivot_idx.x + dx) + kernel_offset;
+			kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx) + kernel_offset;
 			diff = read_imagef(input_tex, input_sampler, image_coord) - kernel_tex[kernel_pix_idx];
 			sqdiff += dot(diff, diff);
 		}

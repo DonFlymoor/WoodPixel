@@ -107,13 +107,13 @@ namespace ocl_patch_matching
 			private:
 				void select_platform_and_device(std::size_t& platform_idx, std::size_t& device_idx) const;
 				static simple_cl::cl::Image::ImageDesc make_input_image_desc(const Texture& input_tex);
-				static simple_cl::cl::Image::ImageDesc make_output_image_desc(const Texture& input_tex, const Texture& kernel_tex, double texture_rotation);
+				static simple_cl::cl::Image::ImageDesc make_output_image_desc(const Texture& input_tex, const Texture& kernel_tex, double texture_rotation, const cv::Size& response_dims);
 				static simple_cl::cl::Image::ImageDesc make_kernel_image_desc(const Texture& kernel_tex);
 				static simple_cl::cl::Image::ImageDesc make_mask_image_desc(const cv::Mat& texture_mask);
 				static simple_cl::cl::Image::ImageDesc make_mask_output_image_desc(const cv::Mat& texture_mask);
 				static simple_cl::cl::Image::ImageDesc make_kernel_mask_image_desc(const cv::Mat& kernel_mask);
 
-				static cv::Vec3i get_response_dimensions(const Texture& texture, const Texture& kernel, double texture_rotation);
+				static cv::Size get_response_dimensions(const Texture& texture, const Texture& kernel, double texture_rotation, const cv::Point& kernel_anchor);
 				static cv::Vec2d get_cv_image_normalizer(const cv::Mat& img);
 				
 				void prepare_input_image(const Texture& input, std::vector<simple_cl::cl::Event>& event_list, bool invalidate = false, bool blocking = true);				
@@ -124,7 +124,7 @@ namespace ocl_patch_matching
 				void prepare_kernel_buffer(const Texture& kernel_texture, std::vector<simple_cl::cl::Event>& event_list, bool blocking = true);
 				void prepare_kernel_mask_buffer(const cv::Mat& kernel_mask, std::vector<simple_cl::cl::Event>& event_list, bool blocking = true);
 
-				void prepare_output_image(const Texture& input, const Texture& kernel, double texture_rotation);
+				void prepare_output_image(const Texture& input, const Texture& kernel, double texture_rotation, const cv::Size& response_dims);
 				void prepare_erode_output_image(const cv::Mat& texture_mask);
 				simple_cl::cl::Event clear_output_image_a(float value = 0.0f);
 				simple_cl::cl::Event clear_output_image_b(float value = 0.0f);
@@ -146,10 +146,10 @@ namespace ocl_patch_matching
 				std::size_t get_local_work_size(const simple_cl::cl::Program::CLKernelHandle& kernel) const;
 
 				// calculate rotated kernel bounding box and padding sizes
-				static void calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps, cv::Point2i& rotated_upper_left_corner, const Texture& kernel, double texture_rotation, const cv::Point& anchor = cv::Point{-1, -1});
+				static void calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps, const Texture& kernel, double texture_rotation, const cv::Point& anchor = cv::Point{-1, -1});
 
 				// get results
-				simple_cl::cl::Event read_output_image(cv::Mat& out_mat, const cv::Vec3i& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a);
+				simple_cl::cl::Event read_output_image(cv::Mat& out_mat, const cv::Size& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a);
 				simple_cl::cl::Event read_eroded_texture_mask_image(cv::Mat& out_mat, const cv::Size& output_size, const std::vector<simple_cl::cl::Event>& wait_for);
 				void read_min_pos_and_cost(MatchingResult& res, const std::vector<simple_cl::cl::Event>& wait_for, const cv::Point& res_coord_offset);
 
@@ -285,17 +285,15 @@ namespace ocl_patch_matching
 			#pragma region CLMatcherImpl implementation
 
 			// static functions
-			inline cv::Vec3i ocl_patch_matching::matching_policies::impl::CLMatcherImpl::get_response_dimensions(const Texture& texture, const Texture& kernel, double texture_rotation)
+			inline cv::Size ocl_patch_matching::matching_policies::impl::CLMatcherImpl::get_response_dimensions(const Texture& texture, const Texture& kernel, double texture_rotation, const cv::Point& kernel_anchor)
 			{
 				cv::Size rotated_kernel_size;
 				cv::Vec4i rotated_kernel_overlaps;
-				cv::Point rotated_upper_left_corner;
-				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, rotated_upper_left_corner, kernel, texture_rotation);
+				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, kernel, texture_rotation, kernel_anchor);
 
-				return cv::Vec3i{
+				return cv::Size{
 					texture.response.cols() - rotated_kernel_overlaps[0] - rotated_kernel_overlaps[1],
-					texture.response.rows() - rotated_kernel_overlaps[2] - rotated_kernel_overlaps[3],
-					1
+					texture.response.rows() - rotated_kernel_overlaps[2] - rotated_kernel_overlaps[3]
 				};
 			}
 
@@ -323,14 +321,13 @@ namespace ocl_patch_matching
 				};
 			}
 
-			inline simple_cl::cl::Image::ImageDesc ocl_patch_matching::matching_policies::impl::CLMatcherImpl::make_output_image_desc(const Texture& input_tex, const Texture& kernel_tex, double texture_rotation)
+			inline simple_cl::cl::Image::ImageDesc ocl_patch_matching::matching_policies::impl::CLMatcherImpl::make_output_image_desc(const Texture& input_tex, const Texture& kernel_tex, double texture_rotation, const cv::Size& response_dims)
 			{
-				auto output_dims{get_response_dimensions(input_tex, kernel_tex, texture_rotation)};
 				return simple_cl::cl::Image::ImageDesc{
 					simple_cl::cl::Image::ImageType::Image2D,		// One response channel
 					simple_cl::cl::Image::ImageDimensions{
-						static_cast<std::size_t>(output_dims[0]),				// width
-						static_cast<std::size_t>(output_dims[1]),				// height
+						static_cast<std::size_t>(response_dims.width),				// width
+						static_cast<std::size_t>(response_dims.height),				// height
 						1ull													// number of slices
 					},
 					simple_cl::cl::Image::ImageChannelOrder::R,		// One red channel
@@ -1055,21 +1052,20 @@ namespace ocl_patch_matching
 					event_list.push_back(std::move(m_kernel_mask_buffer.buffer->write_bytes(mask_data.data, kernel_mask_size, 0ull, true)));
 			}
 
-			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_output_image(const Texture& input, const Texture& kernel, double texture_rotation)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_output_image(const Texture& input, const Texture& kernel, double texture_rotation, const cv::Size& response_dims)
 			{
-				auto dims{get_response_dimensions(input, kernel, texture_rotation)};
 				if(m_output_buffer_a) // if output image already exists
 				{
 					// recreate output image only if it is too small for the new input - kernel combination
-					if(static_cast<std::size_t>(dims[0]) > m_output_buffer_a->width() || static_cast<std::size_t>(dims[1]) > m_output_buffer_a->height())
+					if(static_cast<std::size_t>(response_dims.width) > m_output_buffer_a->width() || static_cast<std::size_t>(response_dims.height) > m_output_buffer_a->height())
 					{
-						auto output_desc{make_output_image_desc(input, kernel, texture_rotation)};
+						auto output_desc{make_output_image_desc(input, kernel, texture_rotation, response_dims)};
 						m_output_buffer_a.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
 					}
 				}
 				else
 				{
-					auto output_desc{make_output_image_desc(input, kernel, texture_rotation)};
+					auto output_desc{make_output_image_desc(input, kernel, texture_rotation, response_dims)};
 					m_output_buffer_a.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
 				}
 
@@ -1079,15 +1075,15 @@ namespace ocl_patch_matching
 					if(m_output_buffer_b) // if output image already exists
 					{
 						// recreate output image only if it is too small for the new input - kernel combination
-						if(static_cast<std::size_t>(dims[0]) > m_output_buffer_b->width() || static_cast<std::size_t>(dims[1]) > m_output_buffer_b->height())
+						if(static_cast<std::size_t>(response_dims.width) > m_output_buffer_b->width() || static_cast<std::size_t>(response_dims.height) > m_output_buffer_b->height())
 						{
-							auto output_desc{make_output_image_desc(input, kernel, texture_rotation)};
+							auto output_desc{make_output_image_desc(input, kernel, texture_rotation, response_dims)};
 							m_output_buffer_b.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
 						}
 					}
 					else
 					{
-						auto output_desc{make_output_image_desc(input, kernel, texture_rotation)};
+						auto output_desc{make_output_image_desc(input, kernel, texture_rotation, response_dims)};
 						m_output_buffer_b.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
 					}
 				}
@@ -1203,7 +1199,7 @@ namespace ocl_patch_matching
 				return wgsize;
 			}
 			
-			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps, cv::Point2i& rotated_upper_left_corner, const Texture& kernel, double texture_rotation, const cv::Point& anchor)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps, const Texture& kernel, double texture_rotation, const cv::Point& anchor)
 			{
 				float pivot_x{0.0f};
 				float pivot_y{0.0f};
@@ -1240,10 +1236,6 @@ namespace ocl_patch_matching
 				float rotated_bottom_right_x = c * bottom_right_x - s * bottom_right_y;
 				float rotated_bottom_right_y = s * bottom_right_x + c * bottom_right_y;
 
-				// output upper left corner
-				rotated_upper_left_corner.x = static_cast<int>(floorf(rotated_top_left_x));
-				rotated_upper_left_corner.y = static_cast<int>(floorf(rotated_top_left_y));
-
 				// min and max sample coords for kernel bounding box
 				float min_x = std::min({rotated_top_left_x, rotated_top_right_x, rotated_bottom_left_x, rotated_bottom_right_x});
 				float min_y = std::min({rotated_top_left_y, rotated_top_right_y, rotated_bottom_left_y, rotated_bottom_right_y});
@@ -1272,20 +1264,19 @@ namespace ocl_patch_matching
 				rotated_kernel_size.height = rbb_height;
 			}
 			
-			inline simple_cl::cl::Event ocl_patch_matching::matching_policies::impl::CLMatcherImpl::read_output_image(cv::Mat& out_mat, const cv::Vec3i& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a)
+			inline simple_cl::cl::Event ocl_patch_matching::matching_policies::impl::CLMatcherImpl::read_output_image(cv::Mat& out_mat, const cv::Size& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a)
 			{
 				// resize output if necessary
-				if((output_size[0] != out_mat.cols) ||
-					(output_size[1] != out_mat.rows) ||
-					(output_size[2] != out_mat.channels()))
+				if((output_size.width != out_mat.cols) ||
+					(output_size.height != out_mat.rows))
 				{
-					out_mat = cv::Mat(output_size[1], output_size[0], CV_32FC1);
+					out_mat = cv::Mat(output_size.height, output_size.width, CV_32FC1);
 				}
 
 				// image region
 				simple_cl::cl::Image::ImageRegion region{
 					simple_cl::cl::Image::ImageOffset{0ull, 0ull, 0ull},
-					simple_cl::cl::Image::ImageDimensions{static_cast<std::size_t>(output_size[0]), static_cast<std::size_t>(output_size[1]), 1ull}
+					simple_cl::cl::Image::ImageDimensions{static_cast<std::size_t>(output_size.width), static_cast<std::size_t>(output_size.height), 1ull}
 				};
 
 				// host format
@@ -1330,12 +1321,11 @@ namespace ocl_patch_matching
 			void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::read_min_pos_and_cost(MatchingResult& res, const std::vector<simple_cl::cl::Event>& wait_for, const cv::Point& res_coord_offset)
 			{
 				static std::vector<cl_float4> work_group_results;
-				if(work_group_results.size() < m_output_buffer_find_min.num_work_groups[0] * m_output_buffer_find_min.num_work_groups[1])
+				if(work_group_results.size() != (m_output_buffer_find_min.num_work_groups[0] * m_output_buffer_find_min.num_work_groups[1]))
 				{
-					work_group_results.reserve(m_output_buffer_find_min.num_work_groups[0] * m_output_buffer_find_min.num_work_groups[1]);
-					for(std::size_t i = 0; i < m_output_buffer_find_min.num_work_groups[0] * m_output_buffer_find_min.num_work_groups[1]; ++i)
-						work_group_results.push_back(cl_float4{std::numeric_limits<float>::max(), 0.0f, 0.0f, 0.0f});
-				}
+					work_group_results.resize(m_output_buffer_find_min.num_work_groups[0] * m_output_buffer_find_min.num_work_groups[1], cl_float4{std::numeric_limits<float>::max(), 0.0f, 0.0f, 0.0f});
+				}				
+
 				// read results from buffer
 				m_output_buffer_find_min.buffer->read(work_group_results.begin(), m_output_buffer_find_min.num_work_groups[0] * m_output_buffer_find_min.num_work_groups[1], wait_for.begin(), wait_for.end()).wait();
 				// find minimum
@@ -1343,19 +1333,7 @@ namespace ocl_patch_matching
 				// write min position and cost
 				res.matches.clear();
 				res.matches.push_back(Match{cv::Point(static_cast<int>(std::floorf(minimum.z)) + res_coord_offset.x, static_cast<int>(std::floorf(minimum.w)) + res_coord_offset.y), minimum.x});				
-			}
-			
-			void display_intensity(const std::string& name, const cv::Mat& mat, bool wait = false)
-			{
-				double maxval;
-				double minval;
-				cv::minMaxLoc(mat, &minval, &maxval);
-				cv::Mat newmat((mat - minval) / (maxval - minval));
-				cv::imshow(name, newmat);
-				if(wait)
-					cv::waitKey();
-			}
-			
+			}			
 			
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::compute_matches(
 				const Texture& texture,
@@ -1367,10 +1345,12 @@ namespace ocl_patch_matching
 				static std::vector<simple_cl::cl::Event> pre_compute_events;
 				pre_compute_events.clear();
 				// compute rotated kernel size
+				// kernel anchor
+				cv::Point kernel_anchor{(m_result_origin == CLMatcher::ResultOrigin::Center ? cv::Point((kernel.response.cols() - 1) / 2, (kernel.response.rows() - 1) / 2) : cv::Point(0, 0))};
 				cv::Size rotated_kernel_size;
 				cv::Vec4i rotated_kernel_overlaps;
-				cv::Point rotated_upper_left_corner;
-				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, rotated_upper_left_corner, kernel, texture_rotation);
+				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, kernel, texture_rotation, kernel_anchor);
+				cv::Size response_dims = get_response_dimensions(texture, kernel, texture_rotation, kernel_anchor);
 				// prepare all input data
 				prepare_input_image(texture, pre_compute_events, false, false);
 				bool use_constant{use_constant_kernel(kernel, kernel_mask)};
@@ -1384,18 +1364,17 @@ namespace ocl_patch_matching
 					prepare_kernel_image(kernel, pre_compute_events, false);
 					prepare_kernel_mask(kernel_mask, pre_compute_events, false);
 				}				
-				prepare_output_image(texture, kernel, texture_rotation);
+				prepare_output_image(texture, kernel, texture_rotation, response_dims);
 				// get input image from map
 				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
 				// pingpong between the two output buffers until done
 				std::size_t num_feature_maps{static_cast<std::size_t>(texture.response.num_channels())};
 				std::size_t num_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
 				// exec params
-				auto response_dims{get_response_dimensions(texture, kernel, texture_rotation)};
 				simple_cl::cl::Program::ExecParams exec_params{
 					2ull,
 					{0ull, 0ull, 0ull},
-					{static_cast<std::size_t>(response_dims[0]), static_cast<std::size_t>(response_dims[1]), 1ull},
+					{static_cast<std::size_t>(response_dims.width), static_cast<std::size_t>(response_dims.height), 1ull},
 					{m_local_block_size, m_local_block_size, 1ull}
 				};
 				if(!use_constant)
@@ -1421,6 +1400,7 @@ namespace ocl_patch_matching
 						*(m_output_buffer_a),
 						input_size,
 						kernel_size,
+						cl_int2{kernel_anchor.x, kernel_anchor.y},
 						input_piv,
 						rotation_sincos)
 					};
@@ -1443,6 +1423,7 @@ namespace ocl_patch_matching
 								*(m_output_buffer_a),
 								input_size,
 								kernel_size,
+								cl_int2{kernel_anchor.x, kernel_anchor.y},
 								input_piv,
 								rotation_sincos)
 							};
@@ -1463,6 +1444,7 @@ namespace ocl_patch_matching
 								*(m_output_buffer_b),
 								input_size,
 								kernel_size,
+								cl_int2{kernel_anchor.x, kernel_anchor.y},
 								input_piv,
 								rotation_sincos)
 							};
@@ -1506,6 +1488,7 @@ namespace ocl_patch_matching
 							*(m_output_buffer_a),
 							input_size,
 							kernel_size,
+							cl_int2{kernel_anchor.x, kernel_anchor.y},
 							input_piv,
 							rotation_sincos)
 						};
@@ -1529,6 +1512,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_a),
 									input_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									rotation_sincos,
 									kernel_offset)
@@ -1550,6 +1534,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_b),
 									input_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									rotation_sincos,
 									kernel_offset)
@@ -1569,7 +1554,7 @@ namespace ocl_patch_matching
 						exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
 						// other arguments
 						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-						cl_int2 output_size{response_dims[0], response_dims[1]};
+						cl_int2 output_size{response_dims.width, response_dims.height};
 						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
 						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
 						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
@@ -1589,6 +1574,7 @@ namespace ocl_patch_matching
 							input_size,
 							output_size,
 							kernel_size,
+							cl_int2{kernel_anchor.x, kernel_anchor.y},
 							input_piv,
 							cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
 							rotation_sincos)
@@ -1615,6 +1601,7 @@ namespace ocl_patch_matching
 									input_size,
 									output_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
 									rotation_sincos,
@@ -1639,6 +1626,7 @@ namespace ocl_patch_matching
 									input_size,
 									output_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
 									rotation_sincos,
@@ -1659,7 +1647,7 @@ namespace ocl_patch_matching
 					{find_min_local_work_size, find_min_local_work_size, 1ull}
 				};
 				std::size_t find_min_local_buffer_size;
-				prepare_find_min_output_buffer(cv::Size{response_dims[0], response_dims[1]}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
+				prepare_find_min_output_buffer(cv::Size{response_dims.width, response_dims.height}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
 
 				// read result and wait for command chain to finish execution. If num_batches is odd, read output a, else b.
 				simple_cl::cl::Event response_finished_event{read_output_image(match_res_out.total_cost_matrix, response_dims, pre_compute_events, num_batches % 2ull)};
@@ -1675,24 +1663,12 @@ namespace ocl_patch_matching
 					(num_batches % 2ull ? *m_output_buffer_a : *m_output_buffer_b),
 					*(m_output_buffer_find_min.buffer),
 					simple_cl::cl::LocalMemory<cl_float4>(find_min_local_buffer_size),
-					cl_int2{response_dims[0], response_dims[1]})
+					cl_int2{response_dims.width, response_dims.height})
 				};
 				pre_compute_events.clear();
 				pre_compute_events.push_back(std::move(find_min_kernel_event));
 				// output result
-				cv::Point result_offset;
-				switch(m_result_origin)
-				{
-					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::UpperLeftCorner:
-						result_offset = cv::Point(rotated_kernel_overlaps[0] + rotated_upper_left_corner.x, rotated_kernel_overlaps[2] + rotated_upper_left_corner.y);
-						break;
-					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::Center:
-						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
-						break;
-					default:
-						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
-						break;
-				}
+				cv::Point result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
 				read_min_pos_and_cost(match_res_out, pre_compute_events, result_offset);
 			}
 
@@ -1705,10 +1681,12 @@ namespace ocl_patch_matching
 				static std::vector<simple_cl::cl::Event> pre_compute_events;
 				pre_compute_events.clear();
 				// compute rotated kernel size
+				// kernel anchor
+				cv::Point kernel_anchor{(m_result_origin == CLMatcher::ResultOrigin::Center ? cv::Point((kernel.response.cols() - 1) / 2, (kernel.response.rows() - 1) / 2) : cv::Point(0, 0))};
 				cv::Size rotated_kernel_size;
 				cv::Vec4i rotated_kernel_overlaps;
-				cv::Point rotated_upper_left_corner;
-				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, rotated_upper_left_corner, kernel, texture_rotation);
+				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, kernel, texture_rotation, kernel_anchor);
+				cv::Size response_dims = get_response_dimensions(texture, kernel, texture_rotation, kernel_anchor);
 				// prepare all input data
 				// upload input image
 				prepare_input_image(texture, pre_compute_events, false, false);
@@ -1719,18 +1697,17 @@ namespace ocl_patch_matching
 				else
 					prepare_kernel_image(kernel, pre_compute_events, false);
 				// output images
-				prepare_output_image(texture, kernel, texture_rotation);
+				prepare_output_image(texture, kernel, texture_rotation, response_dims);
 				// get input image from map
 				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
 				// pingpong between the two output buffers until done
 				std::size_t num_feature_maps{static_cast<std::size_t>(texture.response.num_channels())};
 				std::size_t num_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
 				// exec params
-				auto response_dims{get_response_dimensions(texture, kernel, texture_rotation)};
 				simple_cl::cl::Program::ExecParams exec_params{
 					2ull,
 					{0ull, 0ull, 0ull},
-					{static_cast<std::size_t>(response_dims[0]), static_cast<std::size_t>(response_dims[1]), 1ull},
+					{static_cast<std::size_t>(response_dims.width), static_cast<std::size_t>(response_dims.height), 1ull},
 					{m_local_block_size, m_local_block_size, 1ull}
 				};
 				if(!use_constant)
@@ -1754,6 +1731,7 @@ namespace ocl_patch_matching
 						*(m_output_buffer_a),
 						input_size,
 						kernel_size,
+						cl_int2{kernel_anchor.x, kernel_anchor.y},
 						input_piv,
 						rotation_sincos)
 					};
@@ -1775,6 +1753,7 @@ namespace ocl_patch_matching
 								*(m_output_buffer_a),
 								input_size,
 								kernel_size,
+								cl_int2{kernel_anchor.x, kernel_anchor.y},
 								input_piv,
 								rotation_sincos)
 							};
@@ -1794,6 +1773,7 @@ namespace ocl_patch_matching
 								*(m_output_buffer_b),
 								input_size,
 								kernel_size,
+								cl_int2{kernel_anchor.x, kernel_anchor.y},
 								input_piv,
 								rotation_sincos)
 							};
@@ -1837,6 +1817,7 @@ namespace ocl_patch_matching
 							*(m_output_buffer_a),
 							input_size,
 							kernel_size,
+							cl_int2{kernel_anchor.x, kernel_anchor.y},
 							input_piv,
 							rotation_sincos)
 						};
@@ -1859,6 +1840,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_a),
 									input_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									rotation_sincos,
 									kernel_offset)
@@ -1879,6 +1861,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_b),
 									input_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									rotation_sincos,
 									kernel_offset)
@@ -1898,7 +1881,7 @@ namespace ocl_patch_matching
 						exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
 						// other arguments
 						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-						cl_int2 output_size{response_dims[0], response_dims[1]};
+						cl_int2 output_size{response_dims.width, response_dims.height};
 						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
 						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
 						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
@@ -1917,6 +1900,7 @@ namespace ocl_patch_matching
 							input_size,
 							output_size,
 							kernel_size,
+							cl_int2{kernel_anchor.x, kernel_anchor.y},
 							input_piv,
 							cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
 							rotation_sincos)
@@ -1942,6 +1926,7 @@ namespace ocl_patch_matching
 									input_size,
 									output_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
 									rotation_sincos,
@@ -1965,6 +1950,7 @@ namespace ocl_patch_matching
 									input_size,
 									output_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
 									rotation_sincos,
@@ -1982,10 +1968,10 @@ namespace ocl_patch_matching
 					2ull,
 					{0ull, 0ull, 0ull},
 					{0ull, 0ull, 1ull},
-					{find_min_local_work_size, find_min_local_work_size, 1ull} // TODO: Fix this
+					{find_min_local_work_size, find_min_local_work_size, 1ull}
 				};
 				std::size_t find_min_local_buffer_size;
-				prepare_find_min_output_buffer(cv::Size{response_dims[0], response_dims[1]}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
+				prepare_find_min_output_buffer(cv::Size{response_dims.width, response_dims.height}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
 
 				// read result and wait for command chain to finish execution. If num_batches is odd, read output a, else b.
 				simple_cl::cl::Event response_finished_event{read_output_image(match_res_out.total_cost_matrix, response_dims, pre_compute_events, num_batches % 2ull)};
@@ -2001,24 +1987,12 @@ namespace ocl_patch_matching
 					(num_batches % 2ull ? *m_output_buffer_a : *m_output_buffer_b),
 					*(m_output_buffer_find_min.buffer),
 					simple_cl::cl::LocalMemory<cl_float4>(find_min_local_buffer_size),
-					cl_int2{response_dims[0], response_dims[1]})
+					cl_int2{response_dims.width, response_dims.height})
 				};
 				pre_compute_events.clear();
 				pre_compute_events.push_back(std::move(find_min_kernel_event));
 				// output result
-				cv::Point result_offset;
-				switch(m_result_origin)
-				{
-					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::UpperLeftCorner:
-						result_offset = cv::Point(rotated_kernel_overlaps[0] + rotated_upper_left_corner.x, rotated_kernel_overlaps[2] + rotated_upper_left_corner.y);
-						break;
-					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::Center:
-						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
-						break;
-					default:
-						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
-						break;
-				}
+				cv::Point result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
 				read_min_pos_and_cost(match_res_out, pre_compute_events, result_offset);
 			}
 
@@ -2033,10 +2007,12 @@ namespace ocl_patch_matching
 				static std::vector<simple_cl::cl::Event> pre_compute_events;
 				pre_compute_events.clear();
 				// compute rotated kernel size
+				// kernel anchor
+				cv::Point kernel_anchor{(m_result_origin == CLMatcher::ResultOrigin::Center ? cv::Point((kernel.response.cols() - 1) / 2, (kernel.response.rows() - 1) / 2) : cv::Point(0, 0))};
 				cv::Size rotated_kernel_size;
 				cv::Vec4i rotated_kernel_overlaps;
-				cv::Point rotated_upper_left_corner;
-				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, rotated_upper_left_corner, kernel, texture_rotation);
+				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, kernel, texture_rotation, kernel_anchor);
+				auto response_dims{get_response_dimensions(texture, kernel, texture_rotation, kernel_anchor)};
 				// prepare all input data
 				// upload input image
 				prepare_input_image(texture, pre_compute_events, false, false);
@@ -2047,18 +2023,17 @@ namespace ocl_patch_matching
 				else
 					prepare_kernel_image(kernel, pre_compute_events, false);
 				// output images
-				prepare_output_image(texture, kernel, texture_rotation);
+				prepare_output_image(texture, kernel, texture_rotation, response_dims);
 				// get input image from map
 				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
 				// pingpong between the two output buffers until done
 				std::size_t num_feature_maps{static_cast<std::size_t>(texture.response.num_channels())};
 				std::size_t num_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
-				// exec params
-				auto response_dims{get_response_dimensions(texture, kernel, texture_rotation)};
+				// exec params				
 				simple_cl::cl::Program::ExecParams exec_params{
 					2ull,
 					{0ull, 0ull, 0ull},
-					{static_cast<std::size_t>(response_dims[0]), static_cast<std::size_t>(response_dims[1]), 1ull},
+					{static_cast<std::size_t>(response_dims.width), static_cast<std::size_t>(response_dims.height), 1ull},
 					{m_local_block_size, m_local_block_size, 1ull}
 				};
 				if(!use_constant)
@@ -2082,6 +2057,7 @@ namespace ocl_patch_matching
 						*(m_output_buffer_a),
 						input_size,
 						kernel_size,
+						cl_int2{kernel_anchor.x, kernel_anchor.y},
 						input_piv,
 						rotation_sincos)
 					};
@@ -2103,6 +2079,7 @@ namespace ocl_patch_matching
 								*(m_output_buffer_a),
 								input_size,
 								kernel_size,
+								cl_int2{kernel_anchor.x, kernel_anchor.y},
 								input_piv,
 								rotation_sincos)
 							};
@@ -2122,6 +2099,7 @@ namespace ocl_patch_matching
 								*(m_output_buffer_b),
 								input_size,
 								kernel_size,
+								cl_int2{kernel_anchor.x, kernel_anchor.y},
 								input_piv,
 								rotation_sincos)
 							};
@@ -2164,6 +2142,7 @@ namespace ocl_patch_matching
 							*(m_output_buffer_a),
 							input_size,
 							kernel_size,
+							cl_int2{kernel_anchor.x, kernel_anchor.y},
 							input_piv,
 							rotation_sincos)
 						};
@@ -2186,6 +2165,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_a),
 									input_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									rotation_sincos,
 									kernel_offset)
@@ -2206,6 +2186,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_b),
 									input_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									rotation_sincos,
 									kernel_offset)
@@ -2225,7 +2206,7 @@ namespace ocl_patch_matching
 						exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
 						// other arguments
 						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-						cl_int2 output_size{response_dims[0], response_dims[1]};
+						cl_int2 output_size{response_dims.width, response_dims.height};
 						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
 						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
 						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
@@ -2244,6 +2225,7 @@ namespace ocl_patch_matching
 							input_size,
 							output_size,
 							kernel_size,
+							cl_int2{kernel_anchor.x, kernel_anchor.y},
 							input_piv,
 							cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
 							rotation_sincos)
@@ -2269,6 +2251,7 @@ namespace ocl_patch_matching
 									input_size,
 									output_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
 									rotation_sincos,
@@ -2292,6 +2275,7 @@ namespace ocl_patch_matching
 									input_size,
 									output_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
 									rotation_sincos,
@@ -2309,10 +2293,10 @@ namespace ocl_patch_matching
 					2ull,
 					{0ull, 0ull, 0ull},
 					{0ull, 0ull, 1ull},
-					{find_min_local_work_size, find_min_local_work_size, 1ull} // TODO: Fix this
+					{find_min_local_work_size, find_min_local_work_size, 1ull}
 				};
 				std::size_t find_min_local_buffer_size;
-				prepare_find_min_output_buffer(cv::Size{response_dims[0], response_dims[1]}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
+				prepare_find_min_output_buffer(cv::Size{response_dims.width, response_dims.height}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
 
 				// texture mask
 				static std::vector<simple_cl::cl::Event> texture_mask_events;
@@ -2344,7 +2328,7 @@ namespace ocl_patch_matching
 							*m_output_texture_mask_eroded,
 							cl_int2{texture_mask.cols, texture_mask.rows},
 							cl_int2{kernel.response.cols(), kernel.response.rows()},
-							cl_int2{(kernel.response.cols() - 1) / 2, (kernel.response.rows() - 1) / 2},
+							cl_int2{kernel_anchor.x, kernel_anchor.y},
 							cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
 						)};
 						texture_mask_events.clear();
@@ -2373,7 +2357,7 @@ namespace ocl_patch_matching
 							cl_int2{texture_mask.cols, texture_mask.rows},
 							cl_int2{texture_mask.cols, texture_mask.rows},
 							cl_int2{kernel.response.cols(), kernel.response.rows()},
-							cl_int2{(kernel.response.cols() - 1) / 2, (kernel.response.rows() - 1) / 2},
+							cl_int2{kernel_anchor.x, kernel_anchor.y},
 							cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
 							cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
 						)};
@@ -2398,51 +2382,14 @@ namespace ocl_patch_matching
 					(erode_texture_mask ? *m_output_texture_mask_eroded : *m_texture_mask),
 					*(m_output_buffer_find_min.buffer),
 					simple_cl::cl::LocalMemory<cl_float4>(find_min_local_buffer_size),
-					cl_int2{response_dims[0], response_dims[1]},
+					cl_int2{response_dims.width, response_dims.height},
 					cl_int2{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]})
 				};
 				pre_compute_events.clear();
 				pre_compute_events.push_back(std::move(find_min_kernel_event));
 				// output result
-				cv::Point result_offset;
-				switch(m_result_origin)
-				{
-					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::UpperLeftCorner:
-						result_offset = cv::Point(rotated_kernel_overlaps[0] + rotated_upper_left_corner.x, rotated_kernel_overlaps[2] + rotated_upper_left_corner.y);
-						break;
-					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::Center:
-						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
-						break;
-					default:
-						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
-						break;
-				}
+				cv::Point result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
 				read_min_pos_and_cost(match_res_out, pre_compute_events, result_offset);
-
-				// debug stuff
-				//pre_compute_events.clear();
-				//cv::Mat erode_out;
-				//read_eroded_texture_mask_image(erode_out, cv::Size(texture_mask.cols, texture_mask.rows), pre_compute_events).wait();
-				//display_intensity("Eroded no kernel mask", erode_out, true);
-			}
-
-			// TODO: Remove this
-			void display_image_dbg(const std::string& name, const cv::Mat& mat, bool wait = false)
-			{
-				cv::imshow(name, mat);
-				if(wait)
-					cv::waitKey();
-			}
-
-			void display_intensity_dbg(const std::string& name, const cv::Mat& mat, bool wait = false)
-			{
-				double maxval;
-				double minval;
-				cv::minMaxLoc(mat, &minval, &maxval);
-				cv::Mat newmat((mat - minval) / (maxval - minval));
-				cv::imshow(name, newmat);
-				if(wait)
-					cv::waitKey();
 			}
 
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::compute_matches(
@@ -2457,10 +2404,12 @@ namespace ocl_patch_matching
 				static std::vector<simple_cl::cl::Event> pre_compute_events;
 				pre_compute_events.clear();
 				// compute rotated kernel size
+				// kernel anchor
+				cv::Point kernel_anchor{(m_result_origin == CLMatcher::ResultOrigin::Center ? cv::Point((kernel.response.cols() - 1) / 2, (kernel.response.rows() - 1) / 2) : cv::Point(0, 0))};
 				cv::Size rotated_kernel_size;
 				cv::Vec4i rotated_kernel_overlaps;
-				cv::Point rotated_upper_left_corner;
-				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, rotated_upper_left_corner, kernel, texture_rotation);
+				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, kernel, texture_rotation, kernel_anchor);
+				auto response_dims{get_response_dimensions(texture, kernel, texture_rotation, kernel_anchor)};
 				// prepare all input data
 				prepare_input_image(texture, pre_compute_events, false, false);
 				bool use_constant{use_constant_kernel(kernel, kernel_mask)};
@@ -2474,18 +2423,17 @@ namespace ocl_patch_matching
 					prepare_kernel_image(kernel, pre_compute_events, false);
 					prepare_kernel_mask(kernel_mask, pre_compute_events, false);
 				}
-				prepare_output_image(texture, kernel, texture_rotation);
+				prepare_output_image(texture, kernel, texture_rotation, response_dims);
 				// get input image from map
 				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
 				// pingpong between the two output buffers until done
 				std::size_t num_feature_maps{static_cast<std::size_t>(texture.response.num_channels())};
 				std::size_t num_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
 				// exec params
-				auto response_dims{get_response_dimensions(texture, kernel, texture_rotation)};
 				simple_cl::cl::Program::ExecParams exec_params{
 					2ull,
 					{0ull, 0ull, 0ull},
-					{static_cast<std::size_t>(response_dims[0]), static_cast<std::size_t>(response_dims[1]), 1ull},
+					{static_cast<std::size_t>(response_dims.width), static_cast<std::size_t>(response_dims.height), 1ull},
 					{m_local_block_size, m_local_block_size, 1ull}
 				};
 				if(!use_constant)
@@ -2510,6 +2458,7 @@ namespace ocl_patch_matching
 						*(m_output_buffer_a),
 						input_size,
 						kernel_size,
+						cl_int2{kernel_anchor.x, kernel_anchor.y},
 						input_piv,
 						rotation_sincos)
 					};
@@ -2532,6 +2481,7 @@ namespace ocl_patch_matching
 								*(m_output_buffer_a),
 								input_size,
 								kernel_size,
+								cl_int2{kernel_anchor.x, kernel_anchor.y},
 								input_piv,
 								rotation_sincos)
 							};
@@ -2552,6 +2502,7 @@ namespace ocl_patch_matching
 								*(m_output_buffer_b),
 								input_size,
 								kernel_size,
+								cl_int2{kernel_anchor.x, kernel_anchor.y},
 								input_piv,
 								rotation_sincos)
 							};
@@ -2596,6 +2547,7 @@ namespace ocl_patch_matching
 							*(m_output_buffer_a),
 							input_size,
 							kernel_size,
+							cl_int2{kernel_anchor.x, kernel_anchor.y},
 							input_piv,
 							rotation_sincos)
 						};
@@ -2619,6 +2571,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_a),
 									input_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									rotation_sincos,
 									kernel_offset)
@@ -2640,6 +2593,7 @@ namespace ocl_patch_matching
 									*(m_output_buffer_b),
 									input_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									rotation_sincos,
 									kernel_offset)
@@ -2659,7 +2613,7 @@ namespace ocl_patch_matching
 						exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
 						// other arguments
 						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-						cl_int2 output_size{response_dims[0], response_dims[1]};
+						cl_int2 output_size{response_dims.width, response_dims.height};
 						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
 						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
 						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
@@ -2679,6 +2633,7 @@ namespace ocl_patch_matching
 							input_size,
 							output_size,
 							kernel_size,
+							cl_int2{kernel_anchor.x, kernel_anchor.y},
 							input_piv,
 							cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
 							rotation_sincos)
@@ -2705,6 +2660,7 @@ namespace ocl_patch_matching
 									input_size,
 									output_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
 									rotation_sincos,
@@ -2729,6 +2685,7 @@ namespace ocl_patch_matching
 									input_size,
 									output_size,
 									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
 									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
 									rotation_sincos,
@@ -2741,7 +2698,6 @@ namespace ocl_patch_matching
 					}
 				}
 				// prepare stuff for minimum extraction while kernel is running
-				// prepare stuff for minimum extraction while kernel is running
 				std::size_t find_min_local_work_size{get_local_work_size(m_kernel_find_min)};
 				simple_cl::cl::Program::ExecParams find_min_exec_params{
 					2ull,
@@ -2750,7 +2706,7 @@ namespace ocl_patch_matching
 					{find_min_local_work_size, find_min_local_work_size, 1ull}
 				};
 				std::size_t find_min_local_buffer_size;
-				prepare_find_min_output_buffer(cv::Size{response_dims[0], response_dims[1]}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
+				prepare_find_min_output_buffer(cv::Size{response_dims.width, response_dims.height}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
 
 				// texture mask
 				static std::vector<simple_cl::cl::Event> texture_mask_events;
@@ -2786,7 +2742,7 @@ namespace ocl_patch_matching
 								*m_output_texture_mask_eroded,
 								cl_int2{texture_mask.cols, texture_mask.rows},
 								cl_int2{kernel_mask.cols, kernel_mask.rows},
-								cl_int2{(kernel_mask.cols - 1) / 2, (kernel_mask.rows - 1) / 2},
+								cl_int2{kernel_anchor.x, kernel_anchor.y},
 								cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
 							)};
 							texture_mask_events.clear();
@@ -2815,7 +2771,7 @@ namespace ocl_patch_matching
 								cl_int2{texture_mask.cols, texture_mask.rows},
 								cl_int2{texture_mask.cols, texture_mask.rows},
 								cl_int2{kernel_mask.cols, kernel_mask.rows},
-								cl_int2{(kernel_mask.cols - 1) / 2, (kernel_mask.rows - 1) / 2},
+								cl_int2{kernel_anchor.x, kernel_anchor.y},
 								cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
 								cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
 							)};
@@ -2843,13 +2799,12 @@ namespace ocl_patch_matching
 							*m_output_texture_mask_eroded,
 							cl_int2{texture_mask.cols, texture_mask.rows},
 							cl_int2{kernel_mask.cols, kernel_mask.rows},
-							cl_int2{(kernel_mask.cols - 1) / 2, (kernel_mask.rows - 1) / 2},
+							cl_int2{kernel_anchor.x, kernel_anchor.y},
 							cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
 						)};
 						texture_mask_events.clear();
 						texture_mask_events.push_back(event);
 					}
-					//read_eroded_texture_mask_image(texmask, cv::Size(texture_mask.cols, texture_mask.rows), texture_mask_events).wait();
 				}
 
 				// read result and wait for command chain to finish execution. If num_batches is odd, read output a, else b.
@@ -2860,59 +2815,22 @@ namespace ocl_patch_matching
 
 				// run kernel for minimum extraction
 				simple_cl::cl::Event find_min_kernel_event{(*m_program_find_min)(
-					m_kernel_find_min,//_masked,
+					m_kernel_find_min_masked,
 					pre_compute_events.begin(),
 					pre_compute_events.end(),
 					find_min_exec_params,
 					(num_batches % 2ull ? *m_output_buffer_a : *m_output_buffer_b),
-					//(erode_texture_mask ? *m_output_texture_mask_eroded : *m_texture_mask),
+					(erode_texture_mask ? *m_output_texture_mask_eroded : *m_texture_mask),
 					*(m_output_buffer_find_min.buffer),
 					simple_cl::cl::LocalMemory<cl_float4>(find_min_local_buffer_size),
-					cl_int2{response_dims[0], response_dims[1]})//,
-					//cl_int2{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]})
+					cl_int2{response_dims.width, response_dims.height},
+					cl_int2{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]})
 				};
 				pre_compute_events.clear();
 				pre_compute_events.push_back(std::move(find_min_kernel_event));
 				// output result
-				cv::Point result_offset;
-				switch(m_result_origin)
-				{
-					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::UpperLeftCorner:
-						result_offset = cv::Point(rotated_kernel_overlaps[0] + rotated_upper_left_corner.x, rotated_kernel_overlaps[2] + rotated_upper_left_corner.y);
-						break;
-					case ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::Center:
-						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
-						break;
-					default:
-						result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
-						break;
-				}
-
-				//// debug stuff
-				//simple_cl::cl::wait_for_events(pre_compute_events.begin(), pre_compute_events.end());
-				//double minval, maxval;
-				//cv::Point min_pos;
-				//cv::Point max_pos;				
-				//cv::Mat texmask_8u(texmask.rows, texmask.cols, CV_8UC1);
-				//texmask.convertTo(texmask_8u, CV_8UC1, 255.0);
-				////display_image_dbg("texmaskorig", texture_mask, false);
-				////display_image_dbg("texmasku8", texmask_8u, true);
-				//cv::minMaxLoc(match_res_out.total_cost_matrix, &minval, &maxval, &min_pos, &max_pos);// , texmask_8u(cv::Rect(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2], response_dims[0], response_dims[1])));
-				//cv::drawMarker(match_res_out.total_cost_matrix, cv::Point(min_pos.x + rotated_kernel_overlaps[0], min_pos.y + rotated_kernel_overlaps[2]), cv::Scalar(maxval, maxval, maxval, maxval), 100, 3);
-				///*display_image_dbg("kernelthing", kernel.response[0], false);
-				//display_intensity_dbg("totalcost", match_res_out.total_cost_matrix, true);*/
-				//std::cout << "Min pos:" << min_pos;
-				//match_res_out.matches.clear();
-				//match_res_out.matches.push_back(Match{cv::Point(min_pos.x + result_offset.x, min_pos.y + result_offset.y), minval});
-
+				cv::Point result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
 				read_min_pos_and_cost(match_res_out, pre_compute_events, result_offset);
-
-				// debug stuff
-				//// debug stuff
-				//pre_compute_events.clear();
-				//cv::Mat erode_out;
-				//read_eroded_texture_mask_image(erode_out, cv::Size(texture_mask.cols, texture_mask.rows), pre_compute_events).wait();
-				//display_intensity("Eroded with kernel mask", erode_out, true);
 			}
 
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::erode_texture_mask(
@@ -2982,7 +2900,8 @@ namespace ocl_patch_matching
 				const Texture& kernel,
 				double texture_rotation) const
 			{
-				return get_response_dimensions(texture, kernel, texture_rotation);
+				auto rdim{get_response_dimensions(texture, kernel, texture_rotation, m_result_origin == CLMatcher::ResultOrigin::Center ? cv::Point((kernel.response.cols() - 1) / 2, (kernel.response.rows() - 1) / 2) : cv::Point(0, 0))};
+				return cv::Vec3i(rdim.width, rdim.height, 1);
 			}
 
 			inline match_response_cv_mat_t ocl_patch_matching::matching_policies::impl::CLMatcherImpl::response_image_data_type(

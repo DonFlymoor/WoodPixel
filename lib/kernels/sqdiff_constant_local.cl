@@ -1,3 +1,4 @@
+#define MASK_THRESHOLD 1e-6f
 // sampler (maybe a constant border color would be better? don't know yet..)
 const sampler_t kernel_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
 
@@ -9,6 +10,7 @@ __kernel void sqdiff_constant(
 	int2 input_size,
 	int2 output_size,
 	int2 kernel_size,
+	int2 kernel_anchor,
 	int2 input_piv,
 	int4 kernel_overlaps,
 	float2 rotation_sincos)
@@ -22,9 +24,8 @@ __kernel void sqdiff_constant(
 	const int lid = lid_y * ls_x + lid_x;
 
 	// "center" index of the kernel. This is also the offset into the input image.
-	const int2 kernel_pivot_idx = (kernel_size - 1) / 2;
-	const int2 kernel_start_idx = -kernel_pivot_idx;
-	const int2 kernel_end_idx = kernel_size - kernel_pivot_idx - 1;
+	const int2 kernel_start_idx = -kernel_anchor;
+	const int2 kernel_end_idx = kernel_size - kernel_anchor - 1;
 	
 	const float2 input_pivot = (float2)(
 		(float)(input_piv.x + gid_x) + 0.5f,
@@ -74,14 +75,13 @@ __kernel void sqdiff_constant(
 		float4 diff;
 		float2 cdelta = (float2)(0.0f);
 		float2 local_mem_coord;
-		float4 image_val;
+		//float4 image_val;
 		// index variables for interpolation
-		int i0, j0, i1, j1;
+		//int i0, j0, i1, j1;
 		// interpolation coefficients
-		float a, b;
+		//float a, b;
 		
 		// iterate over kernel area
-		int kernel_pix_idx;
 		for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 		{
 			for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
@@ -91,30 +91,25 @@ __kernel void sqdiff_constant(
 				// calculate image coord (applies rotation around current texel!)
 				local_mem_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + local_mem_pivot.x;
 				local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
+				
 				// manual bilinear interpolation
-				i0 = clamp((int)floor(local_mem_coord.x - 0.5f), 0, local_buffer_width - 1);
-				j0 = clamp((int)floor(local_mem_coord.y - 0.5f), 0, local_buffer_height - 1);
-				i1 = clamp((int)floor(local_mem_coord.x - 0.5f + 1), 0, local_buffer_width - 1);
-				j1 = clamp((int)floor(local_mem_coord.y - 0.5f + 1), 0, local_buffer_height - 1);
-				a = local_mem_coord.x - 0.5f - floor(local_mem_coord.x - 0.5f);
-				b = local_mem_coord.y - 0.5f - floor(local_mem_coord.y - 0.5f);
-				image_val = mix(mix(image_local_buffer[j0 * local_buffer_width + i0], image_local_buffer[j0 * local_buffer_width + i1], a),
-								mix(image_local_buffer[j1 * local_buffer_width + i0], image_local_buffer[j1 * local_buffer_width + i1], a), b);
-				// squared difference
-				kernel_pix_idx = (kernel_pivot_idx.y + dy) * kernel_size.x + (kernel_pivot_idx.x + dx);			
-				diff = image_val - kernel_tex[kernel_pix_idx];
+				// i0 = clamp((int)floor(local_mem_coord.x - 0.5f), 0, local_buffer_width - 1);
+				// j0 = clamp((int)floor(local_mem_coord.y - 0.5f), 0, local_buffer_height - 1);
+				// i1 = clamp((int)floor(local_mem_coord.x - 0.5f + 1), 0, local_buffer_width - 1);
+				// j1 = clamp((int)floor(local_mem_coord.y - 0.5f + 1), 0, local_buffer_height - 1);
+				// a = local_mem_coord.x - 0.5f - floor(local_mem_coord.x - 0.5f);
+				// b = local_mem_coord.y - 0.5f - floor(local_mem_coord.y - 0.5f);
+				// image_val = mix(mix(image_local_buffer[j0 * local_buffer_width + i0], image_local_buffer[j0 * local_buffer_width + i1], a),
+				// 				mix(image_local_buffer[j1 * local_buffer_width + i0], image_local_buffer[j1 * local_buffer_width + i1], a), b);
+
+				// squared difference		
+				diff = image_local_buffer[(int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x)] - kernel_tex[(kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx)];
 				sqdiff += dot(diff, diff);			
 			}
 		}
 		
 		// write result
 		write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(sqdiff, 0.0f, 0.0f, 0.0f));
-		
-		// // local buffer data output (debug)
-		// if(lid_x == 0 || lid_y == 0)
-		// 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(image_local_buffer[(lid_y + ht) * local_buffer_width + (lid_x + hl)].x, 0.0f, 0.0f, 0.0f));
-		// else
-		// 	write_imagef(response_tex, (int2)(gid_x, gid_y), (float4)(0.0f, 0.0f, 0.0f, 0.0f));
 	}
 }
 
@@ -127,6 +122,7 @@ __kernel void sqdiff_constant_nth_pass(
 	int2 input_size,
 	int2 output_size,
 	int2 kernel_size,
+	int2 kernel_anchor,
 	int2 input_piv,
 	int4 kernel_overlaps,
 	float2 rotation_sincos,
@@ -141,9 +137,8 @@ __kernel void sqdiff_constant_nth_pass(
 	const int lid = lid_y * ls_x + lid_x;
 
 	// "center" index of the kernel. This is also the offset into the input image.
-	const int2 kernel_pivot_idx = (kernel_size - 1) / 2;
-	const int2 kernel_start_idx = -kernel_pivot_idx;
-	const int2 kernel_end_idx = kernel_size - kernel_pivot_idx - 1;
+	const int2 kernel_start_idx = -kernel_anchor;
+	const int2 kernel_end_idx = kernel_size - kernel_anchor - 1;
 	
 	const float2 input_pivot = (float2)(
 		(float)(input_piv.x + gid_x) + 0.5f,
@@ -158,7 +153,7 @@ __kernel void sqdiff_constant_nth_pass(
 	const int hb = kernel_overlaps.w;	// overlap bottom
 	const int local_buffer_width = ls_x + hl + hr;
 	const int local_buffer_height = ls_y + ht + hb;
-	// for sampling the local buffer in the loop below // TODO: SEE IF THAT CRAP WORKS
+	// for sampling the local buffer in the loop below
 	const float2 local_mem_pivot = (float2)((float)(hl + lid_x) + 0.5f, (float)(ht + lid_y) + 0.5f);
 	// load center data
 	image_local_buffer[(ht + lid_y) * local_buffer_width + (hl + lid_x)] = read_imagef(input_tex, kernel_sampler, input_pivot);
@@ -193,14 +188,13 @@ __kernel void sqdiff_constant_nth_pass(
 		float2 cdelta = (float2)(0.0f);
 		float2 local_mem_coord;		
 		// index variables for interpolation
-		int i0, j0, i1, j1;
+		//int i0, j0, i1, j1;
 		// interpolation coefficients
-		float a, b;
+		//float a, b;
 		// interpolated image value
-		float4 image_val;
+		//float4 image_val;
 		
 		// iterate over kernel area
-		int kernel_pix_idx;
 		for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 		{
 			for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
@@ -210,18 +204,19 @@ __kernel void sqdiff_constant_nth_pass(
 				// calculate image coord (applies rotation around current texel!)
 				local_mem_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + local_mem_pivot.x;
 				local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
-				// manual bilinear interpolation
-				i0 = clamp((int)floor(local_mem_coord.x - 0.5f), 0, local_buffer_width - 1);
-				j0 = clamp((int)floor(local_mem_coord.y - 0.5f), 0, local_buffer_height - 1);
-				i1 = clamp((int)floor(local_mem_coord.x - 0.5f + 1), 0, local_buffer_width - 1);
-				j1 = clamp((int)floor(local_mem_coord.y - 0.5f + 1), 0, local_buffer_height - 1);
-				a = local_mem_coord.x - 0.5f - floor(local_mem_coord.x - 0.5f);
-				b = local_mem_coord.y - 0.5f - floor(local_mem_coord.y - 0.5f);
-				image_val = mix(mix(image_local_buffer[j0 * local_buffer_width + i0], image_local_buffer[j0 * local_buffer_width + i1], a),
-								mix(image_local_buffer[j1 * local_buffer_width + i0], image_local_buffer[j1 * local_buffer_width + i1], a), b);
-				// squared difference
-				kernel_pix_idx = (kernel_pivot_idx.y + dy) * kernel_size.x + (kernel_pivot_idx.x + dx);			
-				diff = image_val - kernel_tex[kernel_pix_idx];
+				// manual bilinear interpolation (this is pretty expensive!)
+				
+				// i0 = clamp((int)floor(local_mem_coord.x - 0.5f), 0, local_buffer_width - 1);
+				// j0 = clamp((int)floor(local_mem_coord.y - 0.5f), 0, local_buffer_height - 1);
+				// i1 = clamp((int)floor(local_mem_coord.x - 0.5f + 1), 0, local_buffer_width - 1);
+				// j1 = clamp((int)floor(local_mem_coord.y - 0.5f + 1), 0, local_buffer_height - 1);
+				// a = local_mem_coord.x - 0.5f - floor(local_mem_coord.x - 0.5f);
+				// b = local_mem_coord.y - 0.5f - floor(local_mem_coord.y - 0.5f);
+				// image_val = mix(mix(image_local_buffer[j0 * local_buffer_width + i0], image_local_buffer[j0 * local_buffer_width + i1], a),
+				// 				mix(image_local_buffer[j1 * local_buffer_width + i0], image_local_buffer[j1 * local_buffer_width + i1], a), b);
+
+				// squared difference	
+				diff = image_local_buffer[(int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x)] - kernel_tex[(kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx)];
 				sqdiff += dot(diff, diff);			
 			}
 		}

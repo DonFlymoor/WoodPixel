@@ -1,3 +1,5 @@
+#define MASK_THRESHOLD 1e-6f
+
 const sampler_t mask_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
 
 __kernel void find_min_masked(
@@ -18,7 +20,7 @@ __kernel void find_min_masked(
 
     // first collect data in local memory (cost value, mask value, minpos_x, minpos_y)
     float costval = read_imagef(input_tex, mask_sampler, gid).x;
-    float maskval = read_imagef(texture_mask, mask_sampler, gid + texture_mask_offset).x;
+    float maskval = step(MASK_THRESHOLD, read_imagef(texture_mask, mask_sampler, gid + texture_mask_offset).x);
     // valid texel?  && (maskval > 0.5f)
     local_buffer[local_index] = (gid.x < input_size.x && gid.y < input_size.y) ? (float4)(costval, maskval, imcoord.x, imcoord.y) : (float4)(FLT_MAX, 0.0f, 0.0f, 0.0f);
     // parallel reduction

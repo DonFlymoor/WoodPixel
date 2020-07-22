@@ -82,21 +82,11 @@ namespace ocl_patch_matching
 					bool erode_texture_mask
 				);
 
-				void erode_texture_mask(
-					const cv::Mat& texture_mask,
-					cv::Mat& texture_mask_eroded,
-					const cv::Mat& kernel_mask,
-					const cv::Point& kernel_anchor,
-					double texture_rotation
-				);
-
 				cv::Vec3i response_dimensions(
 					const Texture& texture,
 					const Texture& kernel,
 					double texture_rotation
-				) const;
-
-				
+				) const;				
 
 				match_response_cv_mat_t response_image_data_type(
 					const Texture& texture,
@@ -2833,68 +2823,6 @@ namespace ocl_patch_matching
 				read_min_pos_and_cost(match_res_out, pre_compute_events, result_offset);
 			}
 
-			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::erode_texture_mask(
-				const cv::Mat& texture_mask,
-				cv::Mat& texture_mask_eroded,
-				const cv::Mat& kernel_mask,
-				const cv::Point& kernel_anchor,
-				double texture_rotation)
-			{
-				static std::vector<simple_cl::cl::Event> pre_compute_events;
-				pre_compute_events.clear();
-				// prepare all input data
-				prepare_texture_mask(texture_mask, pre_compute_events, false);
-				bool use_constant{use_constant_kernel(kernel_mask)};
-				if(use_constant)
-					prepare_kernel_mask_buffer(kernel_mask, pre_compute_events, false);
-				else
-					prepare_kernel_mask(kernel_mask, pre_compute_events, false);
-				prepare_erode_output_image(texture_mask);
-				// execution params for kernel
-				simple_cl::cl::Program::ExecParams exec_params{
-					2ull,
-					{0ull, 0ull, 0ull},
-					{static_cast<std::size_t>(texture_mask.cols), static_cast<std::size_t>(texture_mask.rows), 1ull},
-					{m_local_block_size, m_local_block_size, 1ull}
-				};
-				if(use_constant)
-				{
-					simple_cl::cl::Event event{(*m_program_erode_masked)(m_kernel_erode_constant_masked,
-						pre_compute_events.begin(),
-						pre_compute_events.end(),
-						exec_params,
-						*m_texture_mask,
-						*(m_kernel_mask_buffer.buffer),
-						*m_output_texture_mask_eroded,
-						cl_int2{texture_mask.cols, texture_mask.rows},
-						cl_int2{kernel_mask.cols, kernel_mask.rows},
-						cl_int2{kernel_anchor.x, kernel_anchor.y},
-						cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
-					)};
-					pre_compute_events.clear();
-					pre_compute_events.push_back(event);
-				}
-				else
-				{
-					simple_cl::cl::Event event{(*m_program_erode_masked)(m_kernel_erode_masked,
-						pre_compute_events.begin(),
-						pre_compute_events.end(),
-						exec_params,
-						*m_texture_mask,
-						*(m_kernel_mask),
-						*m_output_texture_mask_eroded,
-						cl_int2{texture_mask.cols, texture_mask.rows},
-						cl_int2{kernel_mask.cols, kernel_mask.rows},
-						cl_int2{kernel_anchor.x, kernel_anchor.y},
-						cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
-					)};
-					pre_compute_events.clear();
-					pre_compute_events.push_back(event);
-				}
-				// read back output
-				read_eroded_texture_mask_image(texture_mask_eroded, cv::Size{texture_mask.cols, texture_mask.rows}, pre_compute_events).wait();
-			}
-
 			inline cv::Vec3i ocl_patch_matching::matching_policies::impl::CLMatcherImpl::response_dimensions(
 				const Texture& texture,
 				const Texture& kernel,
@@ -2948,11 +2876,6 @@ void ocl_patch_matching::matching_policies::CLMatcher::initialize_opencl_state(c
 void ocl_patch_matching::matching_policies::CLMatcher::cleanup_opencl_state()
 {
 	impl()->cleanup_opencl_state();
-}
-
-void ocl_patch_matching::matching_policies::CLMatcher::erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation)
-{
-	impl()->erode_texture_mask(texture_mask, texture_mask_eroded, kernel_mask, kernel_anchor, texture_rotation);
 }
 
 void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(

@@ -87,9 +87,6 @@ namespace ocl_patch_matching
         // report OpenCV datatype for response mat
         virtual match_response_cv_mat_t response_image_data_type(const Texture& texture, const Texture& kernel, double texture_rotation) const = 0;
 
-        // erode texture mask
-        virtual void erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation) {}
-
         virtual void compute_matches(
             const Texture& texture,
             const Texture& kernel,
@@ -138,8 +135,6 @@ namespace ocl_patch_matching
         Matcher& operator=(const Matcher&) = delete;
         Matcher& operator=(Matcher&& other) noexcept;
         ~Matcher() noexcept;
-
-        void erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation);
 
         void match(const Texture& texture,const Texture& kernel,double texture_rotation, MatchingResult& result);
         void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& result, bool erode_texture_mask = true);

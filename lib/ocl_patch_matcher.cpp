@@ -25,11 +25,6 @@ namespace ocl_patch_matching
 			{
 			}
 
-			void erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation)
-			{
-				m_matching_policy->erode_texture_mask(texture_mask, texture_mask_eroded, kernel_mask, kernel_anchor, texture_rotation);
-			}
-
 			void match(const Texture& texture, const Texture& kernel, double texture_rotation, MatchingResult& result)
 			{				
 				// calculate response
@@ -90,11 +85,6 @@ ocl_patch_matching::Matcher& ocl_patch_matching::Matcher::operator=(Matcher&& ot
 
 ocl_patch_matching::Matcher::~Matcher() noexcept
 {
-}
-
-void ocl_patch_matching::Matcher::erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation)
-{
-	impl()->erode_texture_mask(texture_mask, texture_mask_eroded, kernel_mask, kernel_anchor, texture_rotation);
 }
 
 void ocl_patch_matching::Matcher::match(const Texture& texture, const Texture& kernel, double texture_rotation, MatchingResult& result)

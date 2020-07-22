@@ -70,8 +70,6 @@ namespace ocl_patch_matching
 				bool erode_texture_mask = true
 			) override;
 
-			void erode_texture_mask(const cv::Mat& texture_mask, cv::Mat& texture_mask_eroded, const cv::Mat& kernel_mask, const cv::Point& kernel_anchor, double texture_rotation) override;
-
 			cv::Vec3i response_dimensions(
 				const Texture& texture,
 				const Texture& kernel,
@@ -96,12 +94,14 @@ namespace ocl_patch_matching
 
 		//};
 
-		//// Hybrid approach which chooses between two matchers based on the template size
-		//template<typename MatcherA, typename MatcherB>
-		//class HybridMatcher : public ocl_patch_matching::MatchingPolicyBase
-		//{
-
-		//};
+		// Hybrid approach which chooses between two matchers based on the template size
+		template<typename MatcherA, typename MatcherB, typename MatcherSelector>
+		class HybridMatcher : public ocl_patch_matching::MatchingPolicyBase
+		{
+		private:
+			MatcherA m_matcher_a_instance;
+			MatcherB m_matcher_b_instance;
+		};
 	}
 }
 #endif

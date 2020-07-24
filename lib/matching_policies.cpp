@@ -31,7 +31,8 @@ namespace ocl_patch_matching
 					std::size_t max_texture_cache_memory,
 					std::size_t local_block_size,
 					std::size_t constant_kernel_max_pixels,
-					std::size_t local_buffer_max_pixels, 
+					std::size_t local_buffer_max_pixels,
+					std::size_t max_pipelined_matching_passes,
 					ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin result_origin,
 					bool use_local_buffer_for_matching,
 					bool use_local_buffer_for_erode
@@ -51,7 +52,7 @@ namespace ocl_patch_matching
 				void compute_matches(
 					const Texture& texture,
 					const Texture& kernel,
-					double texture_rotation,
+					const std::vector<double>& texture_rotations,
 					MatchingResult& match_res_out
 				);
 
@@ -59,7 +60,7 @@ namespace ocl_patch_matching
 					const Texture& texture,
 					const Texture& kernel,
 					const cv::Mat& kernel_mask,
-					double texture_rotation,
+					const std::vector<double>& texture_rotations,
 					MatchingResult& match_res_out
 				);
 
@@ -67,7 +68,7 @@ namespace ocl_patch_matching
 					const Texture& texture,
 					const cv::Mat& texture_mask,
 					const Texture& kernel,
-					double texture_rotation,
+					const std::vector<double>& texture_rotations,
 					MatchingResult& match_res_out,
 					bool erode_texture_mask
 				);
@@ -77,7 +78,7 @@ namespace ocl_patch_matching
 					const cv::Mat& texture_mask,
 					const Texture& kernel,
 					const cv::Mat& kernel_mask,
-					double texture_rotation,
+					const std::vector<double>& texture_rotations,
 					MatchingResult& match_res_out,
 					bool erode_texture_mask
 				);
@@ -95,55 +96,7 @@ namespace ocl_patch_matching
 				) const;
 				
 			private:
-				void select_platform_and_device(std::size_t& platform_idx, std::size_t& device_idx) const;
-				static simple_cl::cl::Image::ImageDesc make_input_image_desc(const Texture& input_tex);
-				static simple_cl::cl::Image::ImageDesc make_output_image_desc(const Texture& input_tex, const Texture& kernel_tex, double texture_rotation, const cv::Size& response_dims);
-				static simple_cl::cl::Image::ImageDesc make_kernel_image_desc(const Texture& kernel_tex);
-				static simple_cl::cl::Image::ImageDesc make_mask_image_desc(const cv::Mat& texture_mask);
-				static simple_cl::cl::Image::ImageDesc make_mask_output_image_desc(const cv::Mat& texture_mask);
-				static simple_cl::cl::Image::ImageDesc make_kernel_mask_image_desc(const cv::Mat& kernel_mask);
-
-				static cv::Size get_response_dimensions(const Texture& texture, const Texture& kernel, double texture_rotation, const cv::Point& kernel_anchor);
-				static cv::Vec2d get_cv_image_normalizer(const cv::Mat& img);
-				
-				void prepare_input_image(const Texture& input, std::vector<simple_cl::cl::Event>& event_list, bool invalidate = false, bool blocking = true);				
-				void prepare_texture_mask(const cv::Mat& texture_mask, std::vector<simple_cl::cl::Event>& event_list, bool blocking = true);
-
-				void prepare_kernel_image(const Texture& kernel_texture, std::vector<simple_cl::cl::Event>& event_list, bool blocking = true);
-				void prepare_kernel_mask(const cv::Mat& kernel_mask, std::vector<simple_cl::cl::Event>& event_list, bool blocking = true);
-				void prepare_kernel_buffer(const Texture& kernel_texture, std::vector<simple_cl::cl::Event>& event_list, bool blocking = true);
-				void prepare_kernel_mask_buffer(const cv::Mat& kernel_mask, std::vector<simple_cl::cl::Event>& event_list, bool blocking = true);
-
-				void prepare_output_image(const Texture& input, const Texture& kernel, double texture_rotation, const cv::Size& response_dims);
-				void prepare_erode_output_image(const cv::Mat& texture_mask);
-				simple_cl::cl::Event clear_output_image_a(float value = 0.0f);
-				simple_cl::cl::Event clear_output_image_b(float value = 0.0f);
-
-				void prepare_find_min_output_buffer(const cv::Size& out_size, std::size_t local_work_size_xy, std::size_t& global_work_size_x, std::size_t& global_work_size_y, std::size_t& local_buffer_size);
-
-				// resource handling
-				void invalidate_input_texture(const std::string& texid);
-
-				// decide if we should use constant memory kernel or images
-				bool use_constant_kernel(const Texture& kernel, const cv::Mat& kernel_mask) const;
-				bool use_constant_kernel(const Texture& kernel) const;
-				bool use_constant_kernel(const cv::Mat& kernel_mask) const;
-
-				// decide when to use local memory optimization
-				bool use_local_mem(const cv::Vec4i& kernel_overlaps, std::size_t used_local_mem, std::size_t local_work_size, std::size_t max_pixels, std::size_t size_per_pixel);
-
-				// decide which work group size to use, the passed local_block_size parameter is the maximum
-				std::size_t get_local_work_size(const simple_cl::cl::Program::CLKernelHandle& kernel) const;
-
-				// calculate rotated kernel bounding box and padding sizes
-				static void calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps, const Texture& kernel, double texture_rotation, const cv::Point& anchor = cv::Point{-1, -1});
-
-				// get results
-				simple_cl::cl::Event read_output_image(cv::Mat& out_mat, const cv::Size& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a);
-				simple_cl::cl::Event read_eroded_texture_mask_image(cv::Mat& out_mat, const cv::Size& output_size, const std::vector<simple_cl::cl::Event>& wait_for);
-				void read_min_pos_and_cost(MatchingResult& res, const std::vector<simple_cl::cl::Event>& wait_for, const cv::Point& res_coord_offset);
-
-				// ------------------------------------------------------------ data members ----------------------------------------------------------------
+				// --------------------------------- private types
 				struct InputTextureData
 				{
 					std::vector<cv::Mat> data;
@@ -164,22 +117,86 @@ namespace ocl_patch_matching
 					std::size_t num_channels;
 				};
 
-				struct KernelBuffer
-				{
-					std::unique_ptr<simple_cl::cl::Buffer> buffer;
-				};
-
-				struct KernelMaskBuffer
-				{
-					std::unique_ptr<simple_cl::cl::Buffer> buffer;
-				};
-
 				struct FindMinBuffer
 				{
 					std::unique_ptr<simple_cl::cl::Buffer> buffer;
 					std::size_t num_work_groups[2];
 				};
 
+				struct MatchingResourceSet
+				{
+					std::vector<simple_cl::cl::Event> event_list;
+					std::vector<simple_cl::cl::Event> erode_event_list;
+					cv::Mat sqdiff_result;
+					std::unique_ptr<simple_cl::cl::Image> output_buffer_a;
+					std::unique_ptr<simple_cl::cl::Image> output_buffer_b;
+					std::unique_ptr<simple_cl::cl::Image> output_texture_mask_eroded;
+					FindMinBuffer output_buffer_find_min;
+					double texture_rotation;
+					cv::Size rotated_kernel_size;
+					cv::Vec4i rotated_kernel_overlaps;
+					cv::Size response_dims;
+					simple_cl::cl::Program::ExecParams find_min_exec_params;
+					std::size_t find_min_local_buffer_size;
+
+					//MatchingResourceSet() = default;
+					//MatchingResourceSet(const MatchingResourceSet&) = delete;
+					//MatchingResourceSet(MatchingResourceSet&&) noexcept = default;
+					//MatchingResourceSet& operator=(const MatchingResourceSet&) = delete;
+					//MatchingResourceSet& operator=(MatchingResourceSet&&) noexcept = default;
+				};
+
+				void select_platform_and_device(std::size_t& platform_idx, std::size_t& device_idx) const;
+				static simple_cl::cl::Image::ImageDesc make_input_image_desc(const Texture& input_tex);
+				static simple_cl::cl::Image::ImageDesc make_output_image_desc(const Texture& input_tex, const Texture& kernel_tex, double texture_rotation, const cv::Size& response_dims);
+				static simple_cl::cl::Image::ImageDesc make_kernel_image_desc(const Texture& kernel_tex);
+				static simple_cl::cl::Image::ImageDesc make_mask_image_desc(const cv::Mat& texture_mask);
+				static simple_cl::cl::Image::ImageDesc make_mask_output_image_desc(const cv::Mat& texture_mask);
+				static simple_cl::cl::Image::ImageDesc make_kernel_mask_image_desc(const cv::Mat& kernel_mask);
+
+				static cv::Size get_response_dimensions(const Texture& texture, const Texture& kernel, double texture_rotation, const cv::Point& kernel_anchor);
+				static cv::Vec2d get_cv_image_normalizer(const cv::Mat& img);
+				
+				void prepare_input_image(const Texture& input, std::vector<simple_cl::cl::Event>& event_list, bool invalidate = false, bool blocking = true);				
+				void prepare_texture_mask(const cv::Mat& texture_mask, std::vector<simple_cl::cl::Event>& event_list, bool blocking = true);
+
+				void prepare_kernel_image(const Texture& kernel_texture, std::vector<simple_cl::cl::Event>& event_list, bool blocking = true);
+				void prepare_kernel_mask(const cv::Mat& kernel_mask, std::vector<simple_cl::cl::Event>& event_list, bool blocking = true);
+				void prepare_kernel_buffer(const Texture& kernel_texture, std::vector<simple_cl::cl::Event>& event_list, bool blocking = true);
+				void prepare_kernel_mask_buffer(const cv::Mat& kernel_mask, std::vector<simple_cl::cl::Event>& event_list, bool blocking = true);
+
+				void prepare_output_image(const Texture& input, const Texture& kernel, double texture_rotation, const cv::Size& response_dims, MatchingResourceSet& res);
+				void prepare_erode_output_image(const cv::Mat& texture_mask, MatchingResourceSet& res);
+				simple_cl::cl::Event clear_output_image_a(float value, MatchingResourceSet& res);
+				simple_cl::cl::Event clear_output_image_b(float value, MatchingResourceSet& res);
+
+				void prepare_find_min_output_buffer(const cv::Size& out_size, std::size_t local_work_size_xy, std::size_t& global_work_size_x, std::size_t& global_work_size_y, std::size_t& local_buffer_size, MatchingResourceSet& res);
+
+				// resource handling
+				void invalidate_input_texture(const std::string& texid);
+
+				// decide if we should use constant memory kernel or images
+				bool use_constant_kernel(const Texture& kernel, const cv::Mat& kernel_mask) const;
+				bool use_constant_kernel(const Texture& kernel) const;
+				bool use_constant_kernel(const cv::Mat& kernel_mask) const;
+
+				// decide when to use local memory optimization
+				bool use_local_mem(const cv::Vec4i& kernel_overlaps, std::size_t used_local_mem, std::size_t local_work_size, std::size_t max_pixels, std::size_t size_per_pixel);
+
+				// decide which work group size to use, the passed local_block_size parameter is the maximum
+				std::size_t get_local_work_size(const simple_cl::cl::Program::CLKernelHandle& kernel) const;
+
+				// calculate rotated kernel bounding box and padding sizes
+				static void calculate_rotated_kernel_dims(cv::Size& rotated_kernel_size, cv::Vec4i& rotated_kernel_overlaps, const Texture& kernel, double texture_rotation, const cv::Point& anchor = cv::Point{-1, -1});
+
+				// get results
+				simple_cl::cl::Event read_output_image(cv::Mat& out_mat, const cv::Size& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a, MatchingResourceSet& res);
+				simple_cl::cl::Event read_eroded_texture_mask_image(cv::Mat& out_mat, const cv::Size& output_size, const std::vector<simple_cl::cl::Event>& wait_for, MatchingResourceSet& res);
+				void read_min_pos_and_cost(MatchingResult& res, const std::vector<simple_cl::cl::Event>& wait_for, const cv::Point& res_coord_offset, MatchingResourceSet& match_res);
+
+				// ------------------------------------------------------------ data members ----------------------------------------------------------------
+
+				// ----------------------------- MATCHING OPTIONS ------------------------------------------
 				// specifies result orgin. either upper left corner or center
 				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin m_result_origin;
 				// decide which opencl device to select if there are more than one
@@ -196,8 +213,10 @@ namespace ocl_patch_matching
 				std::size_t m_constant_kernel_max_pixels;
 				// maximum number of pixels of the workgroup + kernel overlap region for which we use local memory buffers
 				std::size_t m_local_buffer_max_pixels;
+				// maximum number of matching passes to be pipelined (reduce gpu bubbles at the cost of memory overhead)
+				std::size_t m_max_pipelined_matching_passes;
 
-
+				// ---------------------------- OUTPUT RESOURCES ------------------------------------------
 				// Output buffer. Only use a single output image and enlarge it when necessary.
 				std::unique_ptr<simple_cl::cl::Image> m_output_buffer_a;
 				// Second output buffer in case we have more than 4 feature maps. This is used to ping-pong the result between batches
@@ -209,9 +228,12 @@ namespace ocl_patch_matching
 
 				// output buffer for find_min
 				FindMinBuffer m_output_buffer_find_min;
-				// texture mask. This needs to be updated on every match.
-				std::unique_ptr<simple_cl::cl::Image> m_texture_mask;
 
+				// Pool of matching resources to pipeline multiple rotations more efficiently
+				std::vector<MatchingResourceSet> m_matching_resource_pool;
+				
+
+				// ------------------------------ INPUT RESOURCES --------------------------------------
 				// input textures
 				// used to manage indices of textures which became invalid. Instead of deleting from the vectors, create new resources at the free indices.
 				std::stack<std::size_t, std::vector<std::size_t>> m_free_indices;
@@ -219,17 +241,20 @@ namespace ocl_patch_matching
 				std::vector<InputImage> m_input_images;
 				// maps texture id to index into texture cache and collection of input images
 				std::unordered_map<std::string, std::size_t> m_texture_index_map;
+				// texture mask. This needs to be updated on every match.
+				std::unique_ptr<simple_cl::cl::Image> m_texture_mask;
 
 				// kernel
 				// kernel images. Again, 4 feature maps per image. Needs to be updated on every match.
 				KernelImage m_kernel_image;
 				// if the kernel fits into constant memory, we can use buffers instead
-				KernelBuffer m_kernel_buffer;
+				std::unique_ptr<simple_cl::cl::Buffer> m_kernel_buffer;
 				// kernel mask
 				std::unique_ptr<simple_cl::cl::Image> m_kernel_mask;
 				// if this kernel fits into constant memory, we can use buffers instead
-				KernelMaskBuffer m_kernel_mask_buffer;			
+				std::unique_ptr<simple_cl::cl::Buffer> m_kernel_mask_buffer;
 				
+				// ----------------------------- OPENCL STATE ----------------------------------------
 				// OpenCL context
 				std::shared_ptr<simple_cl::cl::Context> m_cl_context;
 
@@ -471,6 +496,7 @@ namespace ocl_patch_matching
 				std::size_t local_block_size,
 				std::size_t constant_kernel_maxdim,
 				std::size_t local_buffer_max_pixels,
+				std::size_t max_pipelined_matching_passes,
 				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin result_origin,
 				bool use_local_buffer_for_matching,
 				bool use_local_buffer_for_erode) :
@@ -482,10 +508,16 @@ namespace ocl_patch_matching
 					m_local_buffer_max_pixels{local_buffer_max_pixels},
 					m_result_origin{result_origin},
 					m_use_local_buffer_for_matching{use_local_buffer_for_matching},
-					m_use_local_buffer_for_erode{use_local_buffer_for_erode}
+					m_use_local_buffer_for_erode{use_local_buffer_for_erode},
+					m_max_pipelined_matching_passes{max_pipelined_matching_passes}
 			{
 				if(!simple_cl::util::is_power_of_two(local_block_size) || local_block_size == 0ull)
 					throw std::invalid_argument("local_block_size must be a positive power of two.");
+				m_matching_resource_pool.reserve(max_pipelined_matching_passes);
+				for(std::size_t i = 0; i < max_pipelined_matching_passes; ++i)
+				{
+					m_matching_resource_pool.push_back(MatchingResourceSet{});
+				}
 			}
 
 			inline ocl_patch_matching::matching_policies::impl::CLMatcherImpl::~CLMatcherImpl() noexcept
@@ -991,7 +1023,7 @@ namespace ocl_patch_matching
 				std::size_t single_kernel_image_size{static_cast<std::size_t>(kernel_data[0].cols) * static_cast<std::size_t>(kernel_data[0].rows) * sizeof(cl_float4)};
 				std::size_t new_buffer_size{kernel_data.size() * single_kernel_image_size};
 				// is buffer not yet existing or too small?
-				if(!m_kernel_buffer.buffer || m_kernel_buffer.buffer->size() < new_buffer_size)
+				if(!m_kernel_buffer || m_kernel_buffer->size() < new_buffer_size)
 				{
 					simple_cl::cl::MemoryFlags flags{
 						simple_cl::cl::DeviceAccess::ReadOnly,
@@ -999,13 +1031,13 @@ namespace ocl_patch_matching
 						simple_cl::cl::HostPointerOption::None
 					};
 					// create new one
-					m_kernel_buffer.buffer.reset(new simple_cl::cl::Buffer(new_buffer_size, flags, m_cl_context));
+					m_kernel_buffer.reset(new simple_cl::cl::Buffer(new_buffer_size, flags, m_cl_context));
 				}
 				
 				// upload data
 				for(std::size_t i{0}; i < kernel_data.size(); ++i)
 				{
-					events.push_back(std::move(m_kernel_buffer.buffer->write_bytes(kernel_data[i].data, single_kernel_image_size, i * single_kernel_image_size, true)));
+					events.push_back(std::move(m_kernel_buffer->write_bytes(kernel_data[i].data, single_kernel_image_size, i * single_kernel_image_size, true)));
 				}
 
 				// wait for upload to finish
@@ -1025,7 +1057,7 @@ namespace ocl_patch_matching
 				// new buffer size
 				std::size_t kernel_mask_size{static_cast<std::size_t>(mask_data.cols) * static_cast<std::size_t>(mask_data.rows) * sizeof(cl_float)};
 				// if kernel mask image nullptr or image is too small, create new one first
-				if(!m_kernel_mask_buffer.buffer || m_kernel_mask_buffer.buffer->size() < kernel_mask_size)
+				if(!m_kernel_mask_buffer || m_kernel_mask_buffer->size() < kernel_mask_size)
 				{
 					simple_cl::cl::MemoryFlags flags{
 						simple_cl::cl::DeviceAccess::ReadOnly,
@@ -1033,71 +1065,71 @@ namespace ocl_patch_matching
 						simple_cl::cl::HostPointerOption::None
 					};
 					// create new one
-					m_kernel_mask_buffer.buffer.reset(new simple_cl::cl::Buffer(kernel_mask_size, flags, m_cl_context));
+					m_kernel_mask_buffer.reset(new simple_cl::cl::Buffer(kernel_mask_size, flags, m_cl_context));
 				}
 				// upload mask data
 				if(blocking)
-					m_kernel_mask_buffer.buffer->write_bytes(mask_data.data, kernel_mask_size, 0ull, true).wait();
+					m_kernel_mask_buffer->write_bytes(mask_data.data, kernel_mask_size, 0ull, true).wait();
 				else
-					event_list.push_back(std::move(m_kernel_mask_buffer.buffer->write_bytes(mask_data.data, kernel_mask_size, 0ull, true)));
+					event_list.push_back(std::move(m_kernel_mask_buffer->write_bytes(mask_data.data, kernel_mask_size, 0ull, true)));
 			}
 
-			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_output_image(const Texture& input, const Texture& kernel, double texture_rotation, const cv::Size& response_dims)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_output_image(const Texture& input, const Texture& kernel, double texture_rotation, const cv::Size& response_dims, MatchingResourceSet& res)
 			{
-				if(m_output_buffer_a) // if output image already exists
+				if(res.output_buffer_a) // if output image already exists
 				{
 					// recreate output image only if it is too small for the new input - kernel combination
-					if(static_cast<std::size_t>(response_dims.width) > m_output_buffer_a->width() || static_cast<std::size_t>(response_dims.height) > m_output_buffer_a->height())
+					if(static_cast<std::size_t>(response_dims.width) > res.output_buffer_a->width() || static_cast<std::size_t>(response_dims.height) > res.output_buffer_a->height())
 					{
 						auto output_desc{make_output_image_desc(input, kernel, texture_rotation, response_dims)};
-						m_output_buffer_a.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
+						res.output_buffer_a.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
 					}
 				}
 				else
 				{
 					auto output_desc{make_output_image_desc(input, kernel, texture_rotation, response_dims)};
-					m_output_buffer_a.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
+					res.output_buffer_a.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
 				}
 
 				// second buffer only needed when we have > 4 feature maps.
 				if(input.response.num_channels() > 4)
 				{
-					if(m_output_buffer_b) // if output image already exists
+					if(res.output_buffer_b) // if output image already exists
 					{
 						// recreate output image only if it is too small for the new input - kernel combination
-						if(static_cast<std::size_t>(response_dims.width) > m_output_buffer_b->width() || static_cast<std::size_t>(response_dims.height) > m_output_buffer_b->height())
+						if(static_cast<std::size_t>(response_dims.width) > res.output_buffer_b->width() || static_cast<std::size_t>(response_dims.height) > res.output_buffer_b->height())
 						{
 							auto output_desc{make_output_image_desc(input, kernel, texture_rotation, response_dims)};
-							m_output_buffer_b.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
+							res.output_buffer_b.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
 						}
 					}
 					else
 					{
 						auto output_desc{make_output_image_desc(input, kernel, texture_rotation, response_dims)};
-						m_output_buffer_b.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
+						res.output_buffer_b.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
 					}
 				}
 			}
 
-			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_erode_output_image(const cv::Mat& texture_mask)
+			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_erode_output_image(const cv::Mat& texture_mask, MatchingResourceSet& res)
 			{
-				if(m_output_texture_mask_eroded) // if output image already exists
+				if(res.output_texture_mask_eroded) // if output image already exists
 				{
 					// recreate output image only if it is too small for the new input - kernel combination
-					if(static_cast<std::size_t>(texture_mask.cols) > m_output_texture_mask_eroded->width() || static_cast<std::size_t>(texture_mask.rows) > m_output_texture_mask_eroded->height())
+					if(static_cast<std::size_t>(texture_mask.cols) > res.output_texture_mask_eroded->width() || static_cast<std::size_t>(texture_mask.rows) > res.output_texture_mask_eroded->height())
 					{
 						auto output_desc{make_mask_output_image_desc(texture_mask)};
-						m_output_texture_mask_eroded.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
+						res.output_texture_mask_eroded.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
 					}
 				}
 				else
 				{
 					auto output_desc{make_mask_output_image_desc(texture_mask)};
-					m_output_texture_mask_eroded.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
+					res.output_texture_mask_eroded.reset(new simple_cl::cl::Image(m_cl_context, output_desc));
 				}
 			}
 
-			void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_find_min_output_buffer(const cv::Size& out_size, std::size_t local_work_size_xy, std::size_t& global_work_size_x, std::size_t& global_work_size_y, std::size_t& local_buffer_size)
+			void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::prepare_find_min_output_buffer(const cv::Size& out_size, std::size_t local_work_size_xy, std::size_t& global_work_size_x, std::size_t& global_work_size_y, std::size_t& local_buffer_size, MatchingResourceSet& res)
 			{
 				// new buffer size
 				std::size_t ow{static_cast<size_t>(out_size.width)};
@@ -1112,7 +1144,7 @@ namespace ocl_patch_matching
 				// local buffer size
 				local_buffer_size = local_work_size_xy * local_work_size_xy;
 				// is buffer not yet existing or too small?
-				if(!m_output_buffer_find_min.buffer || m_output_buffer_find_min.buffer->size() < new_buffer_size)
+				if(!res.output_buffer_find_min.buffer || res.output_buffer_find_min.buffer->size() < new_buffer_size)
 				{
 					simple_cl::cl::MemoryFlags flags{
 						simple_cl::cl::DeviceAccess::WriteOnly,
@@ -1120,22 +1152,22 @@ namespace ocl_patch_matching
 						simple_cl::cl::HostPointerOption::None
 					};
 					// create new one
-					m_output_buffer_find_min.buffer.reset(new simple_cl::cl::Buffer(new_buffer_size, flags, m_cl_context));
+					res.output_buffer_find_min.buffer.reset(new simple_cl::cl::Buffer(new_buffer_size, flags, m_cl_context));
 				}
-				m_output_buffer_find_min.num_work_groups[0] = nwg_x;
-				m_output_buffer_find_min.num_work_groups[1] = nwg_y;
+				res.output_buffer_find_min.num_work_groups[0] = nwg_x;
+				res.output_buffer_find_min.num_work_groups[1] = nwg_y;
 			}
 			
-			inline simple_cl::cl::Event CLMatcherImpl::clear_output_image_a(float value)
+			inline simple_cl::cl::Event CLMatcherImpl::clear_output_image_a(float value, MatchingResourceSet& res)
 			{
 				simple_cl::cl::Image::ImageRegion region{
 					simple_cl::cl::Image::ImageOffset{0ull, 0ull, 0ull},
-					simple_cl::cl::Image::ImageDimensions{m_output_buffer_a->width(), m_output_buffer_a->height(), m_output_buffer_a->layers()}
+					simple_cl::cl::Image::ImageDimensions{res.output_buffer_a->width(), res.output_buffer_a->height(), res.output_buffer_a->layers()}
 				};
-				return m_output_buffer_a->fill(simple_cl::cl::Image::FillColor{value}, region);
+				return res.output_buffer_a->fill(simple_cl::cl::Image::FillColor{value}, region);
 			}
 
-			inline simple_cl::cl::Event CLMatcherImpl::clear_output_image_b(float value)
+			inline simple_cl::cl::Event CLMatcherImpl::clear_output_image_b(float value, MatchingResourceSet& res)
 			{
 				simple_cl::cl::Image::ImageRegion region{
 					simple_cl::cl::Image::ImageOffset{0ull, 0ull, 0ull},
@@ -1254,7 +1286,7 @@ namespace ocl_patch_matching
 				rotated_kernel_size.height = rbb_height;
 			}
 			
-			inline simple_cl::cl::Event ocl_patch_matching::matching_policies::impl::CLMatcherImpl::read_output_image(cv::Mat& out_mat, const cv::Size& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a)
+			inline simple_cl::cl::Event ocl_patch_matching::matching_policies::impl::CLMatcherImpl::read_output_image(cv::Mat& out_mat, const cv::Size& output_size, const std::vector<simple_cl::cl::Event>& wait_for, bool out_a, MatchingResourceSet& res)
 			{
 				// resize output if necessary
 				if((output_size.width != out_mat.cols) ||
@@ -1278,12 +1310,12 @@ namespace ocl_patch_matching
 
 				// read output and return event
 				if(out_a)
-					return m_output_buffer_a->read(region, hostfmt, out_mat.data, wait_for.begin(), wait_for.end());
+					return res.output_buffer_a->read(region, hostfmt, out_mat.data, wait_for.begin(), wait_for.end());
 				else
-					return m_output_buffer_b->read(region, hostfmt, out_mat.data, wait_for.begin(), wait_for.end());
+					return res.output_buffer_b->read(region, hostfmt, out_mat.data, wait_for.begin(), wait_for.end());
 			}
 
-			inline simple_cl::cl::Event ocl_patch_matching::matching_policies::impl::CLMatcherImpl::read_eroded_texture_mask_image(cv::Mat& out_mat, const cv::Size& output_size, const std::vector<simple_cl::cl::Event>& wait_for)
+			inline simple_cl::cl::Event ocl_patch_matching::matching_policies::impl::CLMatcherImpl::read_eroded_texture_mask_image(cv::Mat& out_mat, const cv::Size& output_size, const std::vector<simple_cl::cl::Event>& wait_for, MatchingResourceSet& res)
 			{
 				// resize output if necessary
 				if((output_size.width != out_mat.cols) || (output_size.height != out_mat.rows))
@@ -1305,19 +1337,19 @@ namespace ocl_patch_matching
 				};
 
 				// read output and return event				
-				return m_output_texture_mask_eroded->read(region, hostfmt, out_mat.data, wait_for.begin(), wait_for.end());
+				return res.output_texture_mask_eroded->read(region, hostfmt, out_mat.data, wait_for.begin(), wait_for.end());
 			}
 			
-			void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::read_min_pos_and_cost(MatchingResult& res, const std::vector<simple_cl::cl::Event>& wait_for, const cv::Point& res_coord_offset)
+			void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::read_min_pos_and_cost(MatchingResult& res, const std::vector<simple_cl::cl::Event>& wait_for, const cv::Point& res_coord_offset, MatchingResourceSet& match_res)
 			{
 				static std::vector<cl_float4> work_group_results;
-				if(work_group_results.size() != (m_output_buffer_find_min.num_work_groups[0] * m_output_buffer_find_min.num_work_groups[1]))
+				if(work_group_results.size() != (match_res.output_buffer_find_min.num_work_groups[0] * match_res.output_buffer_find_min.num_work_groups[1]))
 				{
-					work_group_results.resize(m_output_buffer_find_min.num_work_groups[0] * m_output_buffer_find_min.num_work_groups[1], cl_float4{std::numeric_limits<float>::max(), 0.0f, 0.0f, 0.0f});
+					work_group_results.resize(match_res.output_buffer_find_min.num_work_groups[0] * match_res.output_buffer_find_min.num_work_groups[1], cl_float4{std::numeric_limits<float>::max(), 0.0f, 0.0f, 0.0f});
 				}				
 
 				// read results from buffer
-				m_output_buffer_find_min.buffer->read(work_group_results.begin(), m_output_buffer_find_min.num_work_groups[0] * m_output_buffer_find_min.num_work_groups[1], wait_for.begin(), wait_for.end()).wait();
+				match_res.output_buffer_find_min.buffer->read(work_group_results.begin(), match_res.output_buffer_find_min.num_work_groups[0] * match_res.output_buffer_find_min.num_work_groups[1], wait_for.begin(), wait_for.end()).wait();
 				// find minimum
 				cl_float4 minimum{*std::min_element(work_group_results.begin(), work_group_results.end(), [](const cl_float4& lhs, const cl_float4& rhs) { return lhs.x < rhs.x; })};
 				// write min position and cost
@@ -1329,1057 +1361,1188 @@ namespace ocl_patch_matching
 				const Texture& texture,
 				const Texture& kernel,
 				const cv::Mat& kernel_mask,
-				double texture_rotation,
+				const std::vector<double>& texture_rotations,
 				MatchingResult& match_res_out)
 			{
-				static std::vector<simple_cl::cl::Event> pre_compute_events;
-				pre_compute_events.clear();
-				// compute rotated kernel size
-				// kernel anchor
+				// global event list
+				static std::vector<simple_cl::cl::Event> global_events;
+				global_events.clear();
 				cv::Point kernel_anchor{(m_result_origin == CLMatcher::ResultOrigin::Center ? cv::Point((kernel.response.cols() - 1) / 2, (kernel.response.rows() - 1) / 2) : cv::Point(0, 0))};
-				cv::Size rotated_kernel_size;
-				cv::Vec4i rotated_kernel_overlaps;
-				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, kernel, texture_rotation, kernel_anchor);
-				cv::Size response_dims = get_response_dimensions(texture, kernel, texture_rotation, kernel_anchor);
-				// prepare all input data
-				prepare_input_image(texture, pre_compute_events, false, false);
 				bool use_constant{use_constant_kernel(kernel, kernel_mask)};
+				std::size_t num_feature_maps{static_cast<std::size_t>(texture.response.num_channels())};
+				std::size_t num_feature_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
+				std::size_t find_min_local_work_size{get_local_work_size(m_kernel_find_min)};
+				cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+				cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
+				// init result
+				match_res_out.matches.clear();
+				match_res_out.matches.push_back(Match{});
+				match_res_out.matches.back().match_cost = std::numeric_limits<double>::max();
+
+				// upload inputs
+				// input texture
+				prepare_input_image(texture, global_events, false, false);
+				// kernel texture or buffer in case we use the constant buffer
 				if(use_constant)
 				{
-					prepare_kernel_buffer(kernel, pre_compute_events, false);
-					prepare_kernel_mask_buffer(kernel_mask, pre_compute_events, false);
+					prepare_kernel_buffer(kernel, global_events, false);
+					prepare_kernel_mask_buffer(kernel_mask, global_events, false);
 				}
 				else
 				{
-					prepare_kernel_image(kernel, pre_compute_events, false);
-					prepare_kernel_mask(kernel_mask, pre_compute_events, false);
-				}				
-				prepare_output_image(texture, kernel, texture_rotation, response_dims);
-				// get input image from map
+					prepare_kernel_image(kernel, global_events, false);
+					prepare_kernel_mask(kernel_mask, global_events, false);
+				}
+				// Get intput image from image cache
 				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
-				// pingpong between the two output buffers until done
-				std::size_t num_feature_maps{static_cast<std::size_t>(texture.response.num_channels())};
-				std::size_t num_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
-				// exec params
-				simple_cl::cl::Program::ExecParams exec_params{
-					2ull,
-					{0ull, 0ull, 0ull},
-					{static_cast<std::size_t>(response_dims.width), static_cast<std::size_t>(response_dims.height), 1ull},
-					{m_local_block_size, m_local_block_size, 1ull}
-				};
-				if(!use_constant)
+
+				for(std::size_t rot_batch = 0ull; rot_batch < texture_rotations.size(); rot_batch += m_max_pipelined_matching_passes)
 				{
-					// calc local work group size
-					std::size_t wg_size{std::min(get_local_work_size(m_kernel_naive_sqdiff_masked), get_local_work_size(m_kernel_naive_sqdiff_masked_nth_pass))};
-					exec_params.local_work_size[0] = wg_size;
-					exec_params.local_work_size[1] = wg_size;
-					// other arguments
-					cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-					cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-					cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
-					cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-					// first pass
-					simple_cl::cl::Event first_event{(*m_program_naive_sqdiff)(
-						m_kernel_naive_sqdiff_masked,
-						pre_compute_events.begin(),
-						pre_compute_events.end(),
-						exec_params,
-						*(input_image.images[0]),
-						*(m_kernel_image.images[0]),
-						*(m_kernel_mask),
-						*(m_output_buffer_a),
-						input_size,
-						kernel_size,
-						cl_int2{kernel_anchor.x, kernel_anchor.y},
-						input_piv,
-						rotation_sincos)
-					};
-					pre_compute_events.clear();
-					pre_compute_events.push_back(std::move(first_event));
-					// if necessary, more passes
-					for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
+					// number of rotations in this batch
+					std::size_t num_batch_rotations{std::min(m_max_pipelined_matching_passes, texture_rotations.size() - rot_batch * m_max_pipelined_matching_passes)};
+					// reset event lists, initialize sizes and stuff, prepare output resources
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
 					{
-						if(batch % 2ull == 0)
+						std::size_t rotation_index{rot_batch * m_max_pipelined_matching_passes + r};
+						m_matching_resource_pool[r].texture_rotation = texture_rotations[rotation_index];
+						m_matching_resource_pool[r].event_list.clear();
+						m_matching_resource_pool[r].erode_event_list.clear();
+						calculate_rotated_kernel_dims(
+							m_matching_resource_pool[r].rotated_kernel_size,
+							m_matching_resource_pool[r].rotated_kernel_overlaps,
+							kernel,
+							texture_rotations[rotation_index],
+							kernel_anchor
+						);
+						m_matching_resource_pool[r].response_dims = get_response_dimensions(texture, kernel, texture_rotations[rotation_index], kernel_anchor);
+						// prepare sqdiff output image
+						prepare_output_image(texture, kernel, texture_rotations[rotation_index], m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r]);
+						// prepare find min output buffer						
+						simple_cl::cl::Program::ExecParams find_min_exec_params{
+							2ull,
+							{0ull, 0ull, 0ull},
+							{0ull, 0ull, 1ull},
+							{find_min_local_work_size, find_min_local_work_size, 1ull}
+						};
+						std::size_t find_min_local_buffer_size;
+						prepare_find_min_output_buffer(
+							cv::Size{m_matching_resource_pool[r].response_dims.width, m_matching_resource_pool[r].response_dims.height},
+							find_min_local_work_size, find_min_exec_params.global_work_size[0],
+							find_min_exec_params.global_work_size[1],
+							find_min_local_buffer_size,
+							m_matching_resource_pool[r]
+						);
+						m_matching_resource_pool[r].find_min_exec_params = find_min_exec_params;
+						m_matching_resource_pool[r].find_min_local_buffer_size = find_min_local_buffer_size;
+						// append input events to event list of the individual rotation passes
+						m_matching_resource_pool[r].event_list.insert(m_matching_resource_pool[r].event_list.end(), global_events.begin(), global_events.end());
+					}
+
+					// launch sqdiff kernels
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
+					{
+						simple_cl::cl::Program::ExecParams exec_params{
+							2ull,
+							{0ull, 0ull, 0ull},
+							{static_cast<std::size_t>(m_matching_resource_pool[r].response_dims.width), static_cast<std::size_t>(m_matching_resource_pool[r].response_dims.height), 1ull},
+							{0ull, 0ull, 1ull}
+						};
+
+						// other arguments
+						cl_int2 input_piv{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[2]};
+						cl_float2 rotation_sincos{std::sinf(static_cast<float>(m_matching_resource_pool[r].texture_rotation)), std::cosf(static_cast<float>(m_matching_resource_pool[r].texture_rotation))};
+						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
+						cl_int2 output_size{m_matching_resource_pool[r].response_dims.width, m_matching_resource_pool[r].response_dims.height};
+
+						if(!use_constant)
 						{
-							simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
-								m_kernel_naive_sqdiff_masked_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
+							std::size_t wg_size{std::min(get_local_work_size(m_kernel_naive_sqdiff_masked), get_local_work_size(m_kernel_naive_sqdiff_masked_nth_pass))};
+							exec_params.local_work_size[0] = wg_size;
+							exec_params.local_work_size[1] = wg_size;
+							// first pass
+							simple_cl::cl::Event first_event{(*m_program_naive_sqdiff)(
+								m_kernel_naive_sqdiff_masked,
+								m_matching_resource_pool[r].event_list.begin(),
+								m_matching_resource_pool[r].event_list.end(),
 								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_image.images[batch]),
+								*(input_image.images[0]),
+								*(m_kernel_image.images[0]),
 								*(m_kernel_mask),
-								*(m_output_buffer_b),
-								*(m_output_buffer_a),
+								*m_matching_resource_pool[r].output_buffer_a,
 								input_size,
 								kernel_size,
 								cl_int2{kernel_anchor.x, kernel_anchor.y},
 								input_piv,
 								rotation_sincos)
 							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
+							m_matching_resource_pool[r].event_list.clear();
+							m_matching_resource_pool[r].event_list.push_back(std::move(first_event));
+							// if necessary, more passes
+							for(std::size_t batch{1}; batch < num_feature_batches; ++batch) // ping pong between two output buffers
+							{
+								if(batch % 2ull == 0)
+								{
+									simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
+										m_kernel_naive_sqdiff_masked_nth_pass,
+										m_matching_resource_pool[r].event_list.begin(),
+										m_matching_resource_pool[r].event_list.end(),
+										exec_params,
+										*(input_image.images[batch]),
+										*(m_kernel_image.images[batch]),
+										*(m_kernel_mask),
+										*m_matching_resource_pool[r].output_buffer_b,
+										*m_matching_resource_pool[r].output_buffer_a,
+										input_size,
+										kernel_size,
+										cl_int2{kernel_anchor.x, kernel_anchor.y},
+										input_piv,
+										rotation_sincos)
+									};
+									m_matching_resource_pool[r].event_list.clear();
+									m_matching_resource_pool[r].event_list.push_back(std::move(event));
+								}
+								else
+								{
+									simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
+										m_kernel_naive_sqdiff_masked_nth_pass,
+										m_matching_resource_pool[r].event_list.begin(),
+										m_matching_resource_pool[r].event_list.end(),
+										exec_params,
+										*(input_image.images[batch]),
+										*(m_kernel_image.images[batch]),
+										*(m_kernel_mask),
+										*m_matching_resource_pool[r].output_buffer_a,
+										*m_matching_resource_pool[r].output_buffer_b,
+										input_size,
+										kernel_size,
+										cl_int2{kernel_anchor.x, kernel_anchor.y},
+										input_piv,
+										rotation_sincos)
+									};
+									m_matching_resource_pool[r].event_list.clear();
+									m_matching_resource_pool[r].event_list.push_back(std::move(event));
+								}
+							}
 						}
 						else
 						{
-							simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
-								m_kernel_naive_sqdiff_masked_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
-								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_image.images[batch]),
-								*(m_kernel_mask),
-								*(m_output_buffer_a),
-								*(m_output_buffer_b),
-								input_size,
-								kernel_size,
-								cl_int2{kernel_anchor.x, kernel_anchor.y},
-								input_piv,
-								rotation_sincos)
-							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
+							// get safe local wg size
+							std::size_t wg_size{std::min(get_local_work_size(m_kernel_constant_sqdiff_masked), get_local_work_size(m_kernel_constant_sqdiff_masked_nth_pass))};
+							std::size_t wg_size_local{std::min(get_local_work_size(m_kernel_constant_sqdiff_local_masked), get_local_work_size(m_kernel_constant_sqdiff_local_masked_nth_pass))};
+							std::size_t wg_used_local_mem{std::max(m_kernel_constant_sqdiff_local_masked.getKernelInfo().local_memory_usage, m_kernel_constant_sqdiff_local_masked_nth_pass.getKernelInfo().local_memory_usage)};
+							// calculate total buffer size in pixels
+							std::size_t local_buffer_total_size{static_cast<std::size_t>(m_matching_resource_pool[r].rotated_kernel_overlaps[0] + wg_size_local + m_matching_resource_pool[r].rotated_kernel_overlaps[1]) * static_cast<std::size_t>(m_matching_resource_pool[r].rotated_kernel_overlaps[2] + wg_size_local + m_matching_resource_pool[r].rotated_kernel_overlaps[3])};
+							// decide if we should use local memory optimization
+							bool use_local{use_local_mem(m_matching_resource_pool[r].rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4)) && m_use_local_buffer_for_matching};
+							if(!use_local)
+							{
+								exec_params.local_work_size[0] = wg_size;
+								exec_params.local_work_size[1] = wg_size;
+								cl_int kernel_offset{0};
+
+								// first pass
+								simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
+									m_kernel_constant_sqdiff_masked,
+									m_matching_resource_pool[r].event_list.begin(),
+									m_matching_resource_pool[r].event_list.end(),
+									exec_params,
+									*(input_image.images[0]),
+									*(m_kernel_buffer),
+									*(m_kernel_mask_buffer),
+									*m_matching_resource_pool[r].output_buffer_a,
+									input_size,
+									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
+									input_piv,
+									rotation_sincos)
+								};
+								m_matching_resource_pool[r].event_list.clear();
+								m_matching_resource_pool[r].event_list.push_back(std::move(first_event));
+								// if necessary, more passes
+								for(std::size_t batch{1}; batch < num_feature_batches; ++batch) // ping pong between two output buffers
+								{
+									kernel_offset += num_kernel_pixels;
+									if(batch % 2ull == 0)
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+											m_kernel_constant_sqdiff_masked_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											*(m_kernel_buffer),
+											*(m_kernel_mask_buffer),
+											*m_matching_resource_pool[r].output_buffer_b,
+											*m_matching_resource_pool[r].output_buffer_a,
+											input_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+									else
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+											m_kernel_constant_sqdiff_masked_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											*(m_kernel_buffer),
+											*(m_kernel_mask_buffer),
+											*m_matching_resource_pool[r].output_buffer_a,
+											*m_matching_resource_pool[r].output_buffer_b,
+											input_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+								}
+							}
+							else
+							{
+								exec_params.local_work_size[0] = wg_size_local;
+								exec_params.local_work_size[1] = wg_size_local;
+								// pad global work size to a multiple of the work group size.
+								// this is necessary to make the local memory scheme work.
+								exec_params.global_work_size[0] = ((exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+								exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+								cl_int kernel_offset{0};
+								// first pass
+								simple_cl::cl::Event first_event{(*m_program_sqdiff_constant_local_masked)(
+									m_kernel_constant_sqdiff_local_masked,
+									m_matching_resource_pool[r].event_list.begin(),
+									m_matching_resource_pool[r].event_list.end(),
+									exec_params,
+									*(input_image.images[0]),
+									simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
+									*(m_kernel_buffer),
+									*(m_kernel_mask_buffer),
+									*m_matching_resource_pool[r].output_buffer_a,
+									input_size,
+									output_size,
+									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
+									input_piv,
+									cl_int4{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[1], m_matching_resource_pool[r].rotated_kernel_overlaps[2], m_matching_resource_pool[r].rotated_kernel_overlaps[3]},
+									rotation_sincos)
+								};
+								m_matching_resource_pool[r].event_list.clear();
+								m_matching_resource_pool[r].event_list.push_back(std::move(first_event));
+								// if necessary, more passes
+								for(std::size_t batch{1}; batch < num_feature_batches; ++batch) // ping pong between two output buffers
+								{
+									kernel_offset += num_kernel_pixels;
+									if(batch % 2ull == 0)
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant_local_masked)(
+											m_kernel_constant_sqdiff_local_masked_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
+											*(m_kernel_buffer),
+											*(m_kernel_mask_buffer),
+											*m_matching_resource_pool[r].output_buffer_b,
+											*m_matching_resource_pool[r].output_buffer_a,
+											input_size,
+											output_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											cl_int4{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[1], m_matching_resource_pool[r].rotated_kernel_overlaps[2], m_matching_resource_pool[r].rotated_kernel_overlaps[3]},
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+									else
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant_local_masked)(
+											m_kernel_constant_sqdiff_local_masked_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
+											*(m_kernel_buffer),
+											*(m_kernel_mask_buffer),
+											*m_matching_resource_pool[r].output_buffer_a,
+											*m_matching_resource_pool[r].output_buffer_b,
+											input_size,
+											output_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											cl_int4{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[1], m_matching_resource_pool[r].rotated_kernel_overlaps[2], m_matching_resource_pool[r].rotated_kernel_overlaps[3]},
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+								}
+							}
 						}
 					}
-				}
-				else
-				{
-					// get safe local wg size
-					std::size_t wg_size{std::min(get_local_work_size(m_kernel_constant_sqdiff_masked), get_local_work_size(m_kernel_constant_sqdiff_masked_nth_pass))};
-					std::size_t wg_size_local{std::min(get_local_work_size(m_kernel_constant_sqdiff_local_masked), get_local_work_size(m_kernel_constant_sqdiff_local_masked_nth_pass))};
 
-					// calculate total buffer size in pixels
-					std::size_t local_buffer_total_size{static_cast<std::size_t>(rotated_kernel_overlaps[0] + wg_size_local + rotated_kernel_overlaps[1]) * static_cast<std::size_t>(rotated_kernel_overlaps[2] + wg_size_local + rotated_kernel_overlaps[3])};
-
-					// decide if we should use the version with local memory optimization
-					std::size_t wg_used_local_mem{std::max(m_kernel_constant_sqdiff_local_masked.getKernelInfo().local_memory_usage, m_kernel_constant_sqdiff_local_masked_nth_pass.getKernelInfo().local_memory_usage)};					
-					bool use_local{use_local_mem(rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4)) && m_use_local_buffer_for_matching};
-					if(!use_local)
+					// read output and launch find min kernels
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
 					{
-						exec_params.local_work_size[0] = wg_size;
-						exec_params.local_work_size[1] = wg_size;
-						// other arguments
-						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
-						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-						cl_int kernel_offset{0};
-						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
-						// first pass
-						simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
-							m_kernel_constant_sqdiff_masked,
-							pre_compute_events.begin(),
-							pre_compute_events.end(),
-							exec_params,
-							*(input_image.images[0]),
-							*(m_kernel_buffer.buffer),
-							*(m_kernel_mask_buffer.buffer),
-							*(m_output_buffer_a),
-							input_size,
-							kernel_size,
-							cl_int2{kernel_anchor.x, kernel_anchor.y},
-							input_piv,
-							rotation_sincos)
+						simple_cl::cl::Event response_finished_event{read_output_image(m_matching_resource_pool[r].sqdiff_result, m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r].event_list, num_feature_batches % 2ull, m_matching_resource_pool[r])};
+						m_matching_resource_pool[r].event_list.clear();
+						m_matching_resource_pool[r].event_list.push_back(std::move(response_finished_event));
+						// launch find min kernel
+						simple_cl::cl::Event find_min_kernel_event{(*m_program_find_min)(
+							m_kernel_find_min,
+							m_matching_resource_pool[r].event_list.begin(),
+							m_matching_resource_pool[r].event_list.end(),
+							m_matching_resource_pool[r].find_min_exec_params,
+							(num_feature_batches % 2ull ? *m_matching_resource_pool[r].output_buffer_a : *m_matching_resource_pool[r].output_buffer_b),
+							*m_matching_resource_pool[r].output_buffer_find_min.buffer,
+							simple_cl::cl::LocalMemory<cl_float4>(m_matching_resource_pool[r].find_min_local_buffer_size),
+							cl_int2{m_matching_resource_pool[r].response_dims.width, m_matching_resource_pool[r].response_dims.height})
 						};
-						pre_compute_events.clear();
-						pre_compute_events.push_back(std::move(first_event));
-						// if necessary, more passes
-						for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
-						{
-							kernel_offset += num_kernel_pixels;
-							if(batch % 2ull == 0)
-							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-									m_kernel_constant_sqdiff_masked_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
-									exec_params,
-									*(input_image.images[batch]),
-									*(m_kernel_buffer.buffer),
-									*(m_kernel_mask_buffer.buffer),
-									*(m_output_buffer_b),
-									*(m_output_buffer_a),
-									input_size,
-									kernel_size,
-									cl_int2{kernel_anchor.x, kernel_anchor.y},
-									input_piv,
-									rotation_sincos,
-									kernel_offset)
-								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
-							}
-							else
-							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-									m_kernel_constant_sqdiff_masked_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
-									exec_params,
-									*(input_image.images[batch]),
-									*(m_kernel_buffer.buffer),
-									*(m_kernel_mask_buffer.buffer),
-									*(m_output_buffer_a),
-									*(m_output_buffer_b),
-									input_size,
-									kernel_size,
-									cl_int2{kernel_anchor.x, kernel_anchor.y},
-									input_piv,
-									rotation_sincos,
-									kernel_offset)
-								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
-							}
-						}
+						m_matching_resource_pool[r].event_list.clear();
+						m_matching_resource_pool[r].event_list.push_back(std::move(find_min_kernel_event));
 					}
-					else
-					{		
-						exec_params.local_work_size[0] = wg_size_local;
-						exec_params.local_work_size[1] = wg_size_local;
-						// pad global work size to a multiple of the work group size.
-						// this is necessary to make the local memory scheme work.
-						exec_params.global_work_size[0] = ((exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
-						exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
-						// other arguments
-						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-						cl_int2 output_size{response_dims.width, response_dims.height};
-						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
-						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-						cl_int kernel_offset{0};
-						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
-						// first pass
-						simple_cl::cl::Event first_event{(*m_program_sqdiff_constant_local_masked)(
-							m_kernel_constant_sqdiff_local_masked,
-							pre_compute_events.begin(),
-							pre_compute_events.end(),
-							exec_params,
-							*(input_image.images[0]),
-							simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
-							*(m_kernel_buffer.buffer),
-							*(m_kernel_mask_buffer.buffer),
-							*(m_output_buffer_a),
-							input_size,
-							output_size,
-							kernel_size,
-							cl_int2{kernel_anchor.x, kernel_anchor.y},
-							input_piv,
-							cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
-							rotation_sincos)
-						};
-						pre_compute_events.clear();
-						pre_compute_events.push_back(std::move(first_event));
-						// if necessary, more passes
-						for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
+
+					// read output
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
+					{
+						MatchingResult match_res_tmp;
+						cv::Point result_offset = cv::Point(m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[2]);
+						read_min_pos_and_cost(match_res_tmp, m_matching_resource_pool[r].event_list, result_offset, m_matching_resource_pool[r]);
+						if(match_res_out.matches[0].match_cost > match_res_tmp.matches[0].match_cost)
 						{
-							kernel_offset += num_kernel_pixels;
-							if(batch % 2ull == 0)
-							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant_local_masked)(
-									m_kernel_constant_sqdiff_local_masked_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
-									exec_params,
-									*(input_image.images[batch]),
-									simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
-									*(m_kernel_buffer.buffer),
-									*(m_kernel_mask_buffer.buffer),
-									*(m_output_buffer_b),
-									*(m_output_buffer_a),
-									input_size,
-									output_size,
-									kernel_size,
-									cl_int2{kernel_anchor.x, kernel_anchor.y},
-									input_piv,
-									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
-									rotation_sincos,
-									kernel_offset)
-								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
-							}
-							else
-							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant_local_masked)(
-									m_kernel_constant_sqdiff_local_masked_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
-									exec_params,
-									*(input_image.images[batch]),
-									simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
-									*(m_kernel_buffer.buffer),
-									*(m_kernel_mask_buffer.buffer),
-									*(m_output_buffer_a),
-									*(m_output_buffer_b),
-									input_size,
-									output_size,
-									kernel_size,
-									cl_int2{kernel_anchor.x, kernel_anchor.y},
-									input_piv,
-									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
-									rotation_sincos,
-									kernel_offset)
-								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
-							}
+							match_res_out.matches[0].match_cost = match_res_tmp.matches[0].match_cost;
+							match_res_out.matches[0].match_pos = match_res_tmp.matches[0].match_pos;
+							match_res_out.total_cost_matrix = m_matching_resource_pool[r].sqdiff_result;
 						}
 					}
 				}
-				// prepare stuff for minimum extraction while kernel is running
-				std::size_t find_min_local_work_size{get_local_work_size(m_kernel_find_min)};
-				simple_cl::cl::Program::ExecParams find_min_exec_params{
-					2ull,
-					{0ull, 0ull, 0ull},
-					{0ull, 0ull, 1ull},
-					{find_min_local_work_size, find_min_local_work_size, 1ull}
-				};
-				std::size_t find_min_local_buffer_size;
-				prepare_find_min_output_buffer(cv::Size{response_dims.width, response_dims.height}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
-
-				// read result and wait for command chain to finish execution. If num_batches is odd, read output a, else b.
-				simple_cl::cl::Event response_finished_event{read_output_image(match_res_out.total_cost_matrix, response_dims, pre_compute_events, num_batches % 2ull)};
-				pre_compute_events.clear();
-				pre_compute_events.push_back(std::move(response_finished_event));
-
-				// run kernel for minimum extraction
-				simple_cl::cl::Event find_min_kernel_event{(*m_program_find_min)(
-					m_kernel_find_min,
-					pre_compute_events.begin(),
-					pre_compute_events.end(),
-					find_min_exec_params,
-					(num_batches % 2ull ? *m_output_buffer_a : *m_output_buffer_b),
-					*(m_output_buffer_find_min.buffer),
-					simple_cl::cl::LocalMemory<cl_float4>(find_min_local_buffer_size),
-					cl_int2{response_dims.width, response_dims.height})
-				};
-				pre_compute_events.clear();
-				pre_compute_events.push_back(std::move(find_min_kernel_event));
-				// output result
-				cv::Point result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
-				read_min_pos_and_cost(match_res_out, pre_compute_events, result_offset);
 			}
 
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::compute_matches(
 				const Texture& texture,
 				const Texture& kernel,
-				double texture_rotation,
+				const std::vector<double>& texture_rotations,
 				MatchingResult& match_res_out)
 			{
-				static std::vector<simple_cl::cl::Event> pre_compute_events;
-				pre_compute_events.clear();
-				// compute rotated kernel size
-				// kernel anchor
+				// global event list
+				static std::vector<simple_cl::cl::Event> global_events;
+				global_events.clear();
 				cv::Point kernel_anchor{(m_result_origin == CLMatcher::ResultOrigin::Center ? cv::Point((kernel.response.cols() - 1) / 2, (kernel.response.rows() - 1) / 2) : cv::Point(0, 0))};
-				cv::Size rotated_kernel_size;
-				cv::Vec4i rotated_kernel_overlaps;
-				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, kernel, texture_rotation, kernel_anchor);
-				cv::Size response_dims = get_response_dimensions(texture, kernel, texture_rotation, kernel_anchor);
-				// prepare all input data
-				// upload input image
-				prepare_input_image(texture, pre_compute_events, false, false);
-				// upload kernel data
 				bool use_constant{use_constant_kernel(kernel)};
-				if(use_constant)
-					prepare_kernel_buffer(kernel, pre_compute_events, false);
-				else
-					prepare_kernel_image(kernel, pre_compute_events, false);
-				// output images
-				prepare_output_image(texture, kernel, texture_rotation, response_dims);
-				// get input image from map
-				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
-				// pingpong between the two output buffers until done
 				std::size_t num_feature_maps{static_cast<std::size_t>(texture.response.num_channels())};
-				std::size_t num_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
-				// exec params
-				simple_cl::cl::Program::ExecParams exec_params{
-					2ull,
-					{0ull, 0ull, 0ull},
-					{static_cast<std::size_t>(response_dims.width), static_cast<std::size_t>(response_dims.height), 1ull},
-					{m_local_block_size, m_local_block_size, 1ull}
-				};
-				if(!use_constant)
+				std::size_t num_feature_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
+				std::size_t find_min_local_work_size{get_local_work_size(m_kernel_find_min)};
+				cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+				cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
+				// init result
+				match_res_out.matches.clear();
+				match_res_out.matches.push_back(Match{});
+				match_res_out.matches.back().match_cost = std::numeric_limits<double>::max();
+
+				// upload inputs
+				// input texture
+				prepare_input_image(texture, global_events, false, false);
+				// kernel texture or buffer in case we use the constant buffer
+				if(use_constant)
 				{
-					std::size_t wg_size{std::min(get_local_work_size(m_kernel_naive_sqdiff), get_local_work_size(m_kernel_naive_sqdiff_nth_pass))};
-					exec_params.local_work_size[0] = wg_size;
-					exec_params.local_work_size[1] = wg_size;
-					// other arguments
-					cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-					cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-					cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
-					cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-					// first pass
-					simple_cl::cl::Event first_event{(*m_program_naive_sqdiff)(
-						m_kernel_naive_sqdiff,
-						pre_compute_events.begin(),
-						pre_compute_events.end(),
-						exec_params,
-						*(input_image.images[0]),
-						*(m_kernel_image.images[0]),
-						*(m_output_buffer_a),
-						input_size,
-						kernel_size,
-						cl_int2{kernel_anchor.x, kernel_anchor.y},
-						input_piv,
-						rotation_sincos)
-					};
-					pre_compute_events.clear();
-					pre_compute_events.push_back(std::move(first_event));
-					// if necessary, more passes
-					for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
+					prepare_kernel_buffer(kernel, global_events, false);
+				}
+				else
+				{
+					prepare_kernel_image(kernel, global_events, false);
+				}
+				// Get intput image from image cache
+				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
+
+				for(std::size_t rot_batch = 0ull; rot_batch < texture_rotations.size(); rot_batch += m_max_pipelined_matching_passes)
+				{
+					// number of rotations in this batch
+					std::size_t num_batch_rotations{std::min(m_max_pipelined_matching_passes, texture_rotations.size() - rot_batch * m_max_pipelined_matching_passes)};
+					// reset event lists, initialize sizes and stuff, prepare output resources
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
 					{
-						if(batch % 2ull == 0)
+						std::size_t rotation_index{rot_batch * m_max_pipelined_matching_passes + r};
+						m_matching_resource_pool[r].texture_rotation = texture_rotations[rotation_index];
+						m_matching_resource_pool[r].event_list.clear();
+						m_matching_resource_pool[r].erode_event_list.clear();
+						calculate_rotated_kernel_dims(
+							m_matching_resource_pool[r].rotated_kernel_size,
+							m_matching_resource_pool[r].rotated_kernel_overlaps,
+							kernel,
+							texture_rotations[rotation_index],
+							kernel_anchor
+						);
+						m_matching_resource_pool[r].response_dims = get_response_dimensions(texture, kernel, texture_rotations[rotation_index], kernel_anchor);
+						// prepare sqdiff output image
+						prepare_output_image(texture, kernel, texture_rotations[rotation_index], m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r]);
+						// prepare find min output buffer						
+						simple_cl::cl::Program::ExecParams find_min_exec_params{
+							2ull,
+							{0ull, 0ull, 0ull},
+							{0ull, 0ull, 1ull},
+							{find_min_local_work_size, find_min_local_work_size, 1ull}
+						};
+						std::size_t find_min_local_buffer_size;
+						prepare_find_min_output_buffer(
+							cv::Size{m_matching_resource_pool[r].response_dims.width, m_matching_resource_pool[r].response_dims.height},
+							find_min_local_work_size, find_min_exec_params.global_work_size[0],
+							find_min_exec_params.global_work_size[1],
+							find_min_local_buffer_size,
+							m_matching_resource_pool[r]
+						);
+						m_matching_resource_pool[r].find_min_exec_params = find_min_exec_params;
+						m_matching_resource_pool[r].find_min_local_buffer_size = find_min_local_buffer_size;
+						// append input events to event list of the individual rotation passes
+						m_matching_resource_pool[r].event_list.insert(m_matching_resource_pool[r].event_list.end(), global_events.begin(), global_events.end());
+					}
+
+					// launch sqdiff kernels
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
+					{
+						simple_cl::cl::Program::ExecParams exec_params{
+							2ull,
+							{0ull, 0ull, 0ull},
+							{static_cast<std::size_t>(m_matching_resource_pool[r].response_dims.width), static_cast<std::size_t>(m_matching_resource_pool[r].response_dims.height), 1ull},
+							{0ull, 0ull, 1ull}
+						};
+
+						// other arguments
+						cl_int2 input_piv{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[2]};
+						cl_float2 rotation_sincos{std::sinf(static_cast<float>(m_matching_resource_pool[r].texture_rotation)), std::cosf(static_cast<float>(m_matching_resource_pool[r].texture_rotation))};
+						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
+						cl_int2 output_size{m_matching_resource_pool[r].response_dims.width, m_matching_resource_pool[r].response_dims.height};
+
+						if(!use_constant)
 						{
-							simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
-								m_kernel_naive_sqdiff_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
+							std::size_t wg_size{std::min(get_local_work_size(m_kernel_naive_sqdiff), get_local_work_size(m_kernel_naive_sqdiff_nth_pass))};
+							exec_params.local_work_size[0] = wg_size;
+							exec_params.local_work_size[1] = wg_size;
+							// first pass
+							simple_cl::cl::Event first_event{(*m_program_naive_sqdiff)(
+								m_kernel_naive_sqdiff,
+								m_matching_resource_pool[r].event_list.begin(),
+								m_matching_resource_pool[r].event_list.end(),
 								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_image.images[batch]),
-								*(m_output_buffer_b),
-								*(m_output_buffer_a),
+								*(input_image.images[0]),
+								*(m_kernel_image.images[0]),
+								*m_matching_resource_pool[r].output_buffer_a,
 								input_size,
 								kernel_size,
 								cl_int2{kernel_anchor.x, kernel_anchor.y},
 								input_piv,
 								rotation_sincos)
 							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
+							m_matching_resource_pool[r].event_list.clear();
+							m_matching_resource_pool[r].event_list.push_back(std::move(first_event));
+							// if necessary, more passes
+							for(std::size_t batch{1}; batch < num_feature_batches; ++batch) // ping pong between two output buffers
+							{
+								if(batch % 2ull == 0)
+								{
+									simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
+										m_kernel_naive_sqdiff_nth_pass,
+										m_matching_resource_pool[r].event_list.begin(),
+										m_matching_resource_pool[r].event_list.end(),
+										exec_params,
+										*(input_image.images[batch]),
+										*(m_kernel_image.images[batch]),
+										*m_matching_resource_pool[r].output_buffer_b,
+										*m_matching_resource_pool[r].output_buffer_a,
+										input_size,
+										kernel_size,
+										cl_int2{kernel_anchor.x, kernel_anchor.y},
+										input_piv,
+										rotation_sincos)
+									};
+									m_matching_resource_pool[r].event_list.clear();
+									m_matching_resource_pool[r].event_list.push_back(std::move(event));
+								}
+								else
+								{
+									simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
+										m_kernel_naive_sqdiff_nth_pass,
+										m_matching_resource_pool[r].event_list.begin(),
+										m_matching_resource_pool[r].event_list.end(),
+										exec_params,
+										*(input_image.images[batch]),
+										*(m_kernel_image.images[batch]),
+										*m_matching_resource_pool[r].output_buffer_a,
+										*m_matching_resource_pool[r].output_buffer_b,
+										input_size,
+										kernel_size,
+										cl_int2{kernel_anchor.x, kernel_anchor.y},
+										input_piv,
+										rotation_sincos)
+									};
+									m_matching_resource_pool[r].event_list.clear();
+									m_matching_resource_pool[r].event_list.push_back(std::move(event));
+								}
+							}
 						}
 						else
 						{
-							simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
-								m_kernel_naive_sqdiff_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
-								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_image.images[batch]),
-								*(m_output_buffer_a),
-								*(m_output_buffer_b),
-								input_size,
-								kernel_size,
-								cl_int2{kernel_anchor.x, kernel_anchor.y},
-								input_piv,
-								rotation_sincos)
-							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
-						}
-					}
-				}
-				else
-				{					
-					// get safe local wg size
-					std::size_t wg_size{std::min(get_local_work_size(m_kernel_constant_sqdiff), get_local_work_size(m_kernel_constant_sqdiff_nth_pass))};
-					std::size_t wg_size_local{std::min(get_local_work_size(m_kernel_constant_sqdiff_local), get_local_work_size(m_kernel_constant_sqdiff_local_nth_pass))};
-					std::size_t wg_used_local_mem{std::max(m_kernel_constant_sqdiff_local.getKernelInfo().local_memory_usage, m_kernel_constant_sqdiff_local_nth_pass.getKernelInfo().local_memory_usage)};
-
-					// calculate total buffer size in pixels
-					std::size_t local_buffer_total_size{static_cast<std::size_t>(rotated_kernel_overlaps[0] + wg_size_local + rotated_kernel_overlaps[1]) * static_cast<std::size_t>(rotated_kernel_overlaps[2] + wg_size_local + rotated_kernel_overlaps[3])};
-
-					// decide if we should use local memory optimizatio
-					bool use_local{use_local_mem(rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4)) && m_use_local_buffer_for_matching};
-
-					if(!use_local)
-					{
-						exec_params.local_work_size[0] = wg_size;
-						exec_params.local_work_size[1] = wg_size;
-						// other arguments
-						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
-						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-						cl_int kernel_offset{0};
-						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
-						// first pass
-						simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
-							m_kernel_constant_sqdiff,
-							pre_compute_events.begin(),
-							pre_compute_events.end(),
-							exec_params,
-							*(input_image.images[0]),
-							*(m_kernel_buffer.buffer),
-							*(m_output_buffer_a),
-							input_size,
-							kernel_size,
-							cl_int2{kernel_anchor.x, kernel_anchor.y},
-							input_piv,
-							rotation_sincos)
-						};
-						pre_compute_events.clear();
-						pre_compute_events.push_back(std::move(first_event));
-						// if necessary, more passes
-						for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
-						{
-							kernel_offset += num_kernel_pixels;
-							if(batch % 2ull == 0)
+							// get safe local wg size
+							std::size_t wg_size{std::min(get_local_work_size(m_kernel_constant_sqdiff), get_local_work_size(m_kernel_constant_sqdiff_nth_pass))};
+							std::size_t wg_size_local{std::min(get_local_work_size(m_kernel_constant_sqdiff_local), get_local_work_size(m_kernel_constant_sqdiff_local_nth_pass))};
+							std::size_t wg_used_local_mem{std::max(m_kernel_constant_sqdiff_local.getKernelInfo().local_memory_usage, m_kernel_constant_sqdiff_local_nth_pass.getKernelInfo().local_memory_usage)};
+							// calculate total buffer size in pixels
+							std::size_t local_buffer_total_size{static_cast<std::size_t>(m_matching_resource_pool[r].rotated_kernel_overlaps[0] + wg_size_local + m_matching_resource_pool[r].rotated_kernel_overlaps[1]) * static_cast<std::size_t>(m_matching_resource_pool[r].rotated_kernel_overlaps[2] + wg_size_local + m_matching_resource_pool[r].rotated_kernel_overlaps[3])};
+							// decide if we should use local memory optimization
+							bool use_local{use_local_mem(m_matching_resource_pool[r].rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4)) && m_use_local_buffer_for_matching};
+							if(!use_local)
 							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-									m_kernel_constant_sqdiff_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
+								exec_params.local_work_size[0] = wg_size;
+								exec_params.local_work_size[1] = wg_size;
+								cl_int kernel_offset{0};
+
+								// first pass
+								simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
+									m_kernel_constant_sqdiff,
+									m_matching_resource_pool[r].event_list.begin(),
+									m_matching_resource_pool[r].event_list.end(),
 									exec_params,
-									*(input_image.images[batch]),
-									*(m_kernel_buffer.buffer),
-									*(m_output_buffer_b),
-									*(m_output_buffer_a),
+									*(input_image.images[0]),
+									*(m_kernel_buffer),
+									*m_matching_resource_pool[r].output_buffer_a,
 									input_size,
 									kernel_size,
 									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
-									rotation_sincos,
-									kernel_offset)
+									rotation_sincos)
 								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
+								m_matching_resource_pool[r].event_list.clear();
+								m_matching_resource_pool[r].event_list.push_back(std::move(first_event));
+								// if necessary, more passes
+								for(std::size_t batch{1}; batch < num_feature_batches; ++batch) // ping pong between two output buffers
+								{
+									kernel_offset += num_kernel_pixels;
+									if(batch % 2ull == 0)
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+											m_kernel_constant_sqdiff_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											*(m_kernel_buffer),
+											*m_matching_resource_pool[r].output_buffer_b,
+											*m_matching_resource_pool[r].output_buffer_a,
+											input_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+									else
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+											m_kernel_constant_sqdiff_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											*(m_kernel_buffer),
+											*m_matching_resource_pool[r].output_buffer_a,
+											*m_matching_resource_pool[r].output_buffer_b,
+											input_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+								}
 							}
 							else
 							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-									m_kernel_constant_sqdiff_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
+								exec_params.local_work_size[0] = wg_size_local;
+								exec_params.local_work_size[1] = wg_size_local;
+								// pad global work size to a multiple of the work group size.
+								// this is necessary to make the local memory scheme work.
+								exec_params.global_work_size[0] = ((exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+								exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+								cl_int kernel_offset{0};
+								// first pass
+								simple_cl::cl::Event first_event{(*m_program_sqdiff_constant_local)(
+									m_kernel_constant_sqdiff_local,
+									m_matching_resource_pool[r].event_list.begin(),
+									m_matching_resource_pool[r].event_list.end(),
 									exec_params,
-									*(input_image.images[batch]),
-									*(m_kernel_buffer.buffer),
-									*(m_output_buffer_a),
-									*(m_output_buffer_b),
-									input_size,
-									kernel_size,
-									cl_int2{kernel_anchor.x, kernel_anchor.y},
-									input_piv,
-									rotation_sincos,
-									kernel_offset)
-								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
-							}
-						}
-					}
-					else
-					{
-						exec_params.local_work_size[0] = wg_size_local;
-						exec_params.local_work_size[1] = wg_size_local;
-						// pad global work size to a multiple of the work group size.
-						// this is necessary to make the local memory scheme work.
-						exec_params.global_work_size[0] = ((exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
-						exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
-						// other arguments
-						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-						cl_int2 output_size{response_dims.width, response_dims.height};
-						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
-						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-						cl_int kernel_offset{0};
-						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
-						// first pass
-						simple_cl::cl::Event first_event{(*m_program_sqdiff_constant_local)(
-							m_kernel_constant_sqdiff_local,
-							pre_compute_events.begin(),
-							pre_compute_events.end(),
-							exec_params,
-							*(input_image.images[0]),
-							simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
-							*(m_kernel_buffer.buffer),
-							*(m_output_buffer_a),
-							input_size,
-							output_size,
-							kernel_size,
-							cl_int2{kernel_anchor.x, kernel_anchor.y},
-							input_piv,
-							cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
-							rotation_sincos)
-						};
-						pre_compute_events.clear();
-						pre_compute_events.push_back(std::move(first_event));
-						// if necessary, more passes
-						for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
-						{
-							kernel_offset += num_kernel_pixels;
-							if(batch % 2ull == 0)
-							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant_local)(
-									m_kernel_constant_sqdiff_local_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
-									exec_params,
-									*(input_image.images[batch]),
+									*(input_image.images[0]),
 									simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
-									*(m_kernel_buffer.buffer),
-									*(m_output_buffer_b),
-									*(m_output_buffer_a),
+									*(m_kernel_buffer),
+									*m_matching_resource_pool[r].output_buffer_a,
 									input_size,
 									output_size,
 									kernel_size,
 									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
-									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
-									rotation_sincos,
-									kernel_offset)
+									cl_int4{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[1], m_matching_resource_pool[r].rotated_kernel_overlaps[2], m_matching_resource_pool[r].rotated_kernel_overlaps[3]},
+									rotation_sincos)
 								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
-							}
-							else
-							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant_local)(
-									m_kernel_constant_sqdiff_local_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
-									exec_params,
-									*(input_image.images[batch]),
-									simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
-									*(m_kernel_buffer.buffer),
-									*(m_output_buffer_a),
-									*(m_output_buffer_b),
-									input_size,
-									output_size,
-									kernel_size,
-									cl_int2{kernel_anchor.x, kernel_anchor.y},
-									input_piv,
-									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
-									rotation_sincos,
-									kernel_offset)
-								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
+								m_matching_resource_pool[r].event_list.clear();
+								m_matching_resource_pool[r].event_list.push_back(std::move(first_event));
+								// if necessary, more passes
+								for(std::size_t batch{1}; batch < num_feature_batches; ++batch) // ping pong between two output buffers
+								{
+									kernel_offset += num_kernel_pixels;
+									if(batch % 2ull == 0)
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant_local)(
+											m_kernel_constant_sqdiff_local_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
+											*(m_kernel_buffer),
+											*m_matching_resource_pool[r].output_buffer_b,
+											*m_matching_resource_pool[r].output_buffer_a,
+											input_size,
+											output_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											cl_int4{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[1], m_matching_resource_pool[r].rotated_kernel_overlaps[2], m_matching_resource_pool[r].rotated_kernel_overlaps[3]},
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+									else
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant_local)(
+											m_kernel_constant_sqdiff_local_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
+											*(m_kernel_buffer),
+											*m_matching_resource_pool[r].output_buffer_a,
+											*m_matching_resource_pool[r].output_buffer_b,
+											input_size,
+											output_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											cl_int4{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[1], m_matching_resource_pool[r].rotated_kernel_overlaps[2], m_matching_resource_pool[r].rotated_kernel_overlaps[3]},
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+								}
 							}
 						}
 					}
+
+					// read output and launch find min kernels
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
+					{
+						simple_cl::cl::Event response_finished_event{read_output_image(m_matching_resource_pool[r].sqdiff_result, m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r].event_list, num_feature_batches % 2ull, m_matching_resource_pool[r])};
+						m_matching_resource_pool[r].event_list.clear();
+						m_matching_resource_pool[r].event_list.push_back(std::move(response_finished_event));
+						// launch find min kernel
+						simple_cl::cl::Event find_min_kernel_event{(*m_program_find_min)(
+							m_kernel_find_min,
+							m_matching_resource_pool[r].event_list.begin(),
+							m_matching_resource_pool[r].event_list.end(),
+							m_matching_resource_pool[r].find_min_exec_params,
+							(num_feature_batches % 2ull ? *m_matching_resource_pool[r].output_buffer_a : *m_matching_resource_pool[r].output_buffer_b),
+							*m_matching_resource_pool[r].output_buffer_find_min.buffer,
+							simple_cl::cl::LocalMemory<cl_float4>(m_matching_resource_pool[r].find_min_local_buffer_size),
+							cl_int2{m_matching_resource_pool[r].response_dims.width, m_matching_resource_pool[r].response_dims.height})
+						};
+						m_matching_resource_pool[r].event_list.clear();
+						m_matching_resource_pool[r].event_list.push_back(std::move(find_min_kernel_event));
+					}
+
+					// read output
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
+					{
+						MatchingResult match_res_tmp;
+						cv::Point result_offset = cv::Point(m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[2]);
+						read_min_pos_and_cost(match_res_tmp, m_matching_resource_pool[r].event_list, result_offset, m_matching_resource_pool[r]);
+						if(match_res_out.matches[0].match_cost > match_res_tmp.matches[0].match_cost)
+						{
+							match_res_out.matches[0].match_cost = match_res_tmp.matches[0].match_cost;
+							match_res_out.matches[0].match_pos = match_res_tmp.matches[0].match_pos;
+							match_res_out.total_cost_matrix = m_matching_resource_pool[r].sqdiff_result;
+						}
+					}
 				}
-				// prepare stuff for minimum extraction while kernel is running
-				std::size_t find_min_local_work_size{get_local_work_size(m_kernel_find_min)};
-				simple_cl::cl::Program::ExecParams find_min_exec_params{
-					2ull,
-					{0ull, 0ull, 0ull},
-					{0ull, 0ull, 1ull},
-					{find_min_local_work_size, find_min_local_work_size, 1ull}
-				};
-				std::size_t find_min_local_buffer_size;
-				prepare_find_min_output_buffer(cv::Size{response_dims.width, response_dims.height}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
-
-				// read result and wait for command chain to finish execution. If num_batches is odd, read output a, else b.
-				simple_cl::cl::Event response_finished_event{read_output_image(match_res_out.total_cost_matrix, response_dims, pre_compute_events, num_batches % 2ull)};
-				pre_compute_events.clear();
-				pre_compute_events.push_back(std::move(response_finished_event));
-
-				// run kernel for minimum extraction
-				simple_cl::cl::Event find_min_kernel_event{(*m_program_find_min)(
-					m_kernel_find_min,
-					pre_compute_events.begin(),
-					pre_compute_events.end(),
-					find_min_exec_params,
-					(num_batches % 2ull ? *m_output_buffer_a : *m_output_buffer_b),
-					*(m_output_buffer_find_min.buffer),
-					simple_cl::cl::LocalMemory<cl_float4>(find_min_local_buffer_size),
-					cl_int2{response_dims.width, response_dims.height})
-				};
-				pre_compute_events.clear();
-				pre_compute_events.push_back(std::move(find_min_kernel_event));
-				// output result
-				cv::Point result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
-				read_min_pos_and_cost(match_res_out, pre_compute_events, result_offset);
 			}
 
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::compute_matches(
 				const Texture& texture,
 				const cv::Mat& texture_mask,
 				const Texture& kernel,
-				double texture_rotation,
+				const std::vector<double>& texture_rotations,
 				MatchingResult& match_res_out,
 				bool erode_texture_mask)
 			{
-				static std::vector<simple_cl::cl::Event> pre_compute_events;
-				pre_compute_events.clear();
-				// compute rotated kernel size
-				// kernel anchor
+				// global event list
+				static std::vector<simple_cl::cl::Event> global_events;
+				global_events.clear();
 				cv::Point kernel_anchor{(m_result_origin == CLMatcher::ResultOrigin::Center ? cv::Point((kernel.response.cols() - 1) / 2, (kernel.response.rows() - 1) / 2) : cv::Point(0, 0))};
-				cv::Size rotated_kernel_size;
-				cv::Vec4i rotated_kernel_overlaps;
-				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, kernel, texture_rotation, kernel_anchor);
-				auto response_dims{get_response_dimensions(texture, kernel, texture_rotation, kernel_anchor)};
-				// prepare all input data
-				// upload input image
-				prepare_input_image(texture, pre_compute_events, false, false);
-				// upload kernel data
 				bool use_constant{use_constant_kernel(kernel)};
-				if(use_constant)
-					prepare_kernel_buffer(kernel, pre_compute_events, false);
-				else
-					prepare_kernel_image(kernel, pre_compute_events, false);
-				// output images
-				prepare_output_image(texture, kernel, texture_rotation, response_dims);
-				// get input image from map
-				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
-				// pingpong between the two output buffers until done
 				std::size_t num_feature_maps{static_cast<std::size_t>(texture.response.num_channels())};
-				std::size_t num_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
-				// exec params				
-				simple_cl::cl::Program::ExecParams exec_params{
-					2ull,
-					{0ull, 0ull, 0ull},
-					{static_cast<std::size_t>(response_dims.width), static_cast<std::size_t>(response_dims.height), 1ull},
-					{m_local_block_size, m_local_block_size, 1ull}
-				};
-				if(!use_constant)
+				std::size_t num_feature_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
+				std::size_t find_min_local_work_size{get_local_work_size(m_kernel_find_min_masked)};
+				cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+				cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
+				// init result
+				match_res_out.matches.clear();
+				match_res_out.matches.push_back(Match{});
+				match_res_out.matches.back().match_cost = std::numeric_limits<double>::max();
+
+				// upload inputs
+				// input texture
+				prepare_input_image(texture, global_events, false, false);
+				// texture mask
+				prepare_texture_mask(texture_mask, global_events, false);
+				// kernel texture or buffer in case we use the constant buffer
+				if(use_constant)
 				{
-					std::size_t wg_size{std::min(get_local_work_size(m_kernel_naive_sqdiff), get_local_work_size(m_kernel_naive_sqdiff_nth_pass))};
-					exec_params.local_work_size[0] = wg_size;
-					exec_params.local_work_size[1] = wg_size;
-					// other arguments
-					cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-					cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-					cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
-					cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-					// first pass
-					simple_cl::cl::Event first_event{(*m_program_naive_sqdiff)(
-						m_kernel_naive_sqdiff,
-						pre_compute_events.begin(),
-						pre_compute_events.end(),
-						exec_params,
-						*(input_image.images[0]),
-						*(m_kernel_image.images[0]),
-						*(m_output_buffer_a),
-						input_size,
-						kernel_size,
-						cl_int2{kernel_anchor.x, kernel_anchor.y},
-						input_piv,
-						rotation_sincos)
-					};
-					pre_compute_events.clear();
-					pre_compute_events.push_back(std::move(first_event));
-					// if necessary, more passes
-					for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
+					prepare_kernel_buffer(kernel, global_events, false);
+				}
+				else
+				{
+					prepare_kernel_image(kernel, global_events, false);
+				}
+				// Get intput image from image cache
+				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
+
+				for(std::size_t rot_batch = 0ull; rot_batch < texture_rotations.size(); rot_batch += m_max_pipelined_matching_passes)
+				{
+					// number of rotations in this batch
+					std::size_t num_batch_rotations{std::min(m_max_pipelined_matching_passes, texture_rotations.size() - rot_batch * m_max_pipelined_matching_passes)};
+					// reset event lists, initialize sizes and stuff, prepare output resources
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
 					{
-						if(batch % 2ull == 0)
+						std::size_t rotation_index{rot_batch * m_max_pipelined_matching_passes + r};
+						m_matching_resource_pool[r].texture_rotation = texture_rotations[rotation_index];
+						m_matching_resource_pool[r].event_list.clear();
+						m_matching_resource_pool[r].erode_event_list.clear();
+						calculate_rotated_kernel_dims(
+							m_matching_resource_pool[r].rotated_kernel_size,
+							m_matching_resource_pool[r].rotated_kernel_overlaps,
+							kernel,
+							texture_rotations[rotation_index],
+							kernel_anchor
+						);
+						m_matching_resource_pool[r].response_dims = get_response_dimensions(texture, kernel, texture_rotations[rotation_index], kernel_anchor);
+						// prepare sqdiff output image
+						prepare_output_image(texture, kernel, texture_rotations[rotation_index], m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r]);
+						if(erode_texture_mask)
 						{
-							simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
-								m_kernel_naive_sqdiff_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
+							// prepare erode output buffer
+							prepare_erode_output_image(texture_mask, m_matching_resource_pool[r]);
+						}
+						// prepare find min output buffer						
+						simple_cl::cl::Program::ExecParams find_min_exec_params{
+							2ull,
+							{0ull, 0ull, 0ull},
+							{0ull, 0ull, 1ull},
+							{find_min_local_work_size, find_min_local_work_size, 1ull}
+						};
+						std::size_t find_min_local_buffer_size;
+						prepare_find_min_output_buffer(
+							cv::Size{m_matching_resource_pool[r].response_dims.width, m_matching_resource_pool[r].response_dims.height},
+							find_min_local_work_size, find_min_exec_params.global_work_size[0],
+							find_min_exec_params.global_work_size[1],
+							find_min_local_buffer_size,
+							m_matching_resource_pool[r]
+						);
+						m_matching_resource_pool[r].find_min_exec_params = find_min_exec_params;
+						m_matching_resource_pool[r].find_min_local_buffer_size = find_min_local_buffer_size;
+						// append input events to event list of the individual rotation passes
+						m_matching_resource_pool[r].event_list.insert(m_matching_resource_pool[r].event_list.end(), global_events.begin(), global_events.end());
+					}
+
+					// launch sqdiff kernels
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
+					{
+						simple_cl::cl::Program::ExecParams exec_params{
+							2ull,
+							{0ull, 0ull, 0ull},
+							{static_cast<std::size_t>(m_matching_resource_pool[r].response_dims.width), static_cast<std::size_t>(m_matching_resource_pool[r].response_dims.height), 1ull},
+							{0ull, 0ull, 1ull}
+						};
+
+						// other arguments
+						cl_int2 input_piv{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[2]};
+						cl_float2 rotation_sincos{std::sinf(static_cast<float>(m_matching_resource_pool[r].texture_rotation)), std::cosf(static_cast<float>(m_matching_resource_pool[r].texture_rotation))};
+						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
+						cl_int2 output_size{m_matching_resource_pool[r].response_dims.width, m_matching_resource_pool[r].response_dims.height};
+
+						if(!use_constant)
+						{
+							std::size_t wg_size{std::min(get_local_work_size(m_kernel_naive_sqdiff), get_local_work_size(m_kernel_naive_sqdiff_nth_pass))};
+							exec_params.local_work_size[0] = wg_size;
+							exec_params.local_work_size[1] = wg_size;
+							// first pass
+							simple_cl::cl::Event first_event{(*m_program_naive_sqdiff)(
+								m_kernel_naive_sqdiff,
+								m_matching_resource_pool[r].event_list.begin(),
+								m_matching_resource_pool[r].event_list.end(),
 								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_image.images[batch]),
-								*(m_output_buffer_b),
-								*(m_output_buffer_a),
+								*(input_image.images[0]),
+								*(m_kernel_image.images[0]),
+								*m_matching_resource_pool[r].output_buffer_a,
 								input_size,
 								kernel_size,
 								cl_int2{kernel_anchor.x, kernel_anchor.y},
 								input_piv,
 								rotation_sincos)
 							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
+							m_matching_resource_pool[r].event_list.clear();
+							m_matching_resource_pool[r].event_list.push_back(std::move(first_event));
+							// if necessary, more passes
+							for(std::size_t batch{1}; batch < num_feature_batches; ++batch) // ping pong between two output buffers
+							{
+								if(batch % 2ull == 0)
+								{
+									simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
+										m_kernel_naive_sqdiff_nth_pass,
+										m_matching_resource_pool[r].event_list.begin(),
+										m_matching_resource_pool[r].event_list.end(),
+										exec_params,
+										*(input_image.images[batch]),
+										*(m_kernel_image.images[batch]),
+										*m_matching_resource_pool[r].output_buffer_b,
+										*m_matching_resource_pool[r].output_buffer_a,
+										input_size,
+										kernel_size,
+										cl_int2{kernel_anchor.x, kernel_anchor.y},
+										input_piv,
+										rotation_sincos)
+									};
+									m_matching_resource_pool[r].event_list.clear();
+									m_matching_resource_pool[r].event_list.push_back(std::move(event));
+								}
+								else
+								{
+									simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
+										m_kernel_naive_sqdiff_nth_pass,
+										m_matching_resource_pool[r].event_list.begin(),
+										m_matching_resource_pool[r].event_list.end(),
+										exec_params,
+										*(input_image.images[batch]),
+										*(m_kernel_image.images[batch]),
+										*m_matching_resource_pool[r].output_buffer_a,
+										*m_matching_resource_pool[r].output_buffer_b,
+										input_size,
+										kernel_size,
+										cl_int2{kernel_anchor.x, kernel_anchor.y},
+										input_piv,
+										rotation_sincos)
+									};
+									m_matching_resource_pool[r].event_list.clear();
+									m_matching_resource_pool[r].event_list.push_back(std::move(event));
+								}
+							}
 						}
 						else
 						{
-							simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
-								m_kernel_naive_sqdiff_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
-								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_image.images[batch]),
-								*(m_output_buffer_a),
-								*(m_output_buffer_b),
-								input_size,
-								kernel_size,
-								cl_int2{kernel_anchor.x, kernel_anchor.y},
-								input_piv,
-								rotation_sincos)
-							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
-						}
-					}
-				}
-				else
-				{
-					// get safe local wg size
-					std::size_t wg_size{std::min(get_local_work_size(m_kernel_constant_sqdiff), get_local_work_size(m_kernel_constant_sqdiff_nth_pass))};
-					std::size_t wg_size_local{std::min(get_local_work_size(m_kernel_constant_sqdiff_local), get_local_work_size(m_kernel_constant_sqdiff_local_nth_pass))};
-					std::size_t wg_used_local_mem{std::max(m_kernel_constant_sqdiff_local.getKernelInfo().local_memory_usage, m_kernel_constant_sqdiff_local_nth_pass.getKernelInfo().local_memory_usage)};
-
-					// calculate total buffer size in pixels
-					std::size_t local_buffer_total_size{static_cast<std::size_t>(rotated_kernel_overlaps[0] + wg_size_local + rotated_kernel_overlaps[1]) * static_cast<std::size_t>(rotated_kernel_overlaps[2] + wg_size_local + rotated_kernel_overlaps[3])};
-
-					bool use_local{use_local_mem(rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4)) && m_use_local_buffer_for_matching};
-
-					if(!use_local)
-					{
-						exec_params.local_work_size[0] = wg_size;
-						exec_params.local_work_size[1] = wg_size;
-						// other arguments
-						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
-						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-						cl_int kernel_offset{0};
-						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
-						// first pass
-						simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
-							m_kernel_constant_sqdiff,
-							pre_compute_events.begin(),
-							pre_compute_events.end(),
-							exec_params,
-							*(input_image.images[0]),
-							*(m_kernel_buffer.buffer),
-							*(m_output_buffer_a),
-							input_size,
-							kernel_size,
-							cl_int2{kernel_anchor.x, kernel_anchor.y},
-							input_piv,
-							rotation_sincos)
-						};
-						pre_compute_events.clear();
-						pre_compute_events.push_back(std::move(first_event));
-						// if necessary, more passes
-						for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
-						{
-							kernel_offset += num_kernel_pixels;
-							if(batch % 2ull == 0)
+							// get safe local wg size
+							std::size_t wg_size{std::min(get_local_work_size(m_kernel_constant_sqdiff), get_local_work_size(m_kernel_constant_sqdiff_nth_pass))};
+							std::size_t wg_size_local{std::min(get_local_work_size(m_kernel_constant_sqdiff_local), get_local_work_size(m_kernel_constant_sqdiff_local_nth_pass))};
+							std::size_t wg_used_local_mem{std::max(m_kernel_constant_sqdiff_local.getKernelInfo().local_memory_usage, m_kernel_constant_sqdiff_local_nth_pass.getKernelInfo().local_memory_usage)};
+							// calculate total buffer size in pixels
+							std::size_t local_buffer_total_size{static_cast<std::size_t>(m_matching_resource_pool[r].rotated_kernel_overlaps[0] + wg_size_local + m_matching_resource_pool[r].rotated_kernel_overlaps[1]) * static_cast<std::size_t>(m_matching_resource_pool[r].rotated_kernel_overlaps[2] + wg_size_local + m_matching_resource_pool[r].rotated_kernel_overlaps[3])};
+							// decide if we should use local memory optimization
+							bool use_local{use_local_mem(m_matching_resource_pool[r].rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4)) && m_use_local_buffer_for_matching};
+							if(!use_local)
 							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-									m_kernel_constant_sqdiff_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
+								exec_params.local_work_size[0] = wg_size;
+								exec_params.local_work_size[1] = wg_size;
+								cl_int kernel_offset{0};
+
+								// first pass
+								simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
+									m_kernel_constant_sqdiff,
+									m_matching_resource_pool[r].event_list.begin(),
+									m_matching_resource_pool[r].event_list.end(),
 									exec_params,
-									*(input_image.images[batch]),
-									*(m_kernel_buffer.buffer),
-									*(m_output_buffer_b),
-									*(m_output_buffer_a),
+									*(input_image.images[0]),
+									*(m_kernel_buffer),
+									*m_matching_resource_pool[r].output_buffer_a,
 									input_size,
 									kernel_size,
 									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
-									rotation_sincos,
-									kernel_offset)
+									rotation_sincos)
 								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
+								m_matching_resource_pool[r].event_list.clear();
+								m_matching_resource_pool[r].event_list.push_back(std::move(first_event));
+								// if necessary, more passes
+								for(std::size_t batch{1}; batch < num_feature_batches; ++batch) // ping pong between two output buffers
+								{
+									kernel_offset += num_kernel_pixels;
+									if(batch % 2ull == 0)
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+											m_kernel_constant_sqdiff_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											*(m_kernel_buffer),
+											*m_matching_resource_pool[r].output_buffer_b,
+											*m_matching_resource_pool[r].output_buffer_a,
+											input_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+									else
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+											m_kernel_constant_sqdiff_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											*(m_kernel_buffer),
+											*m_matching_resource_pool[r].output_buffer_a,
+											*m_matching_resource_pool[r].output_buffer_b,
+											input_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+								}
 							}
 							else
 							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-									m_kernel_constant_sqdiff_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
+								exec_params.local_work_size[0] = wg_size_local;
+								exec_params.local_work_size[1] = wg_size_local;
+								// pad global work size to a multiple of the work group size.
+								// this is necessary to make the local memory scheme work.
+								exec_params.global_work_size[0] = ((exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+								exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+								cl_int kernel_offset{0};
+								// first pass
+								simple_cl::cl::Event first_event{(*m_program_sqdiff_constant_local)(
+									m_kernel_constant_sqdiff_local,
+									m_matching_resource_pool[r].event_list.begin(),
+									m_matching_resource_pool[r].event_list.end(),
 									exec_params,
-									*(input_image.images[batch]),
-									*(m_kernel_buffer.buffer),
-									*(m_output_buffer_a),
-									*(m_output_buffer_b),
-									input_size,
-									kernel_size,
-									cl_int2{kernel_anchor.x, kernel_anchor.y},
-									input_piv,
-									rotation_sincos,
-									kernel_offset)
-								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
-							}
-						}
-					}
-					else
-					{
-						exec_params.local_work_size[0] = wg_size_local;
-						exec_params.local_work_size[1] = wg_size_local;
-						// pad global work size to a multiple of the work group size.
-						// this is necessary to make the local memory scheme work.
-						exec_params.global_work_size[0] = ((exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
-						exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
-						// other arguments
-						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-						cl_int2 output_size{response_dims.width, response_dims.height};
-						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
-						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-						cl_int kernel_offset{0};
-						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
-						// first pass
-						simple_cl::cl::Event first_event{(*m_program_sqdiff_constant_local)(
-							m_kernel_constant_sqdiff_local,
-							pre_compute_events.begin(),
-							pre_compute_events.end(),
-							exec_params,
-							*(input_image.images[0]),
-							simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
-							*(m_kernel_buffer.buffer),
-							*(m_output_buffer_a),
-							input_size,
-							output_size,
-							kernel_size,
-							cl_int2{kernel_anchor.x, kernel_anchor.y},
-							input_piv,
-							cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
-							rotation_sincos)
-						};
-						pre_compute_events.clear();
-						pre_compute_events.push_back(std::move(first_event));
-						// if necessary, more passes
-						for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
-						{
-							kernel_offset += num_kernel_pixels;
-							if(batch % 2ull == 0)
-							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant_local)(
-									m_kernel_constant_sqdiff_local_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
-									exec_params,
-									*(input_image.images[batch]),
+									*(input_image.images[0]),
 									simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
-									*(m_kernel_buffer.buffer),
-									*(m_output_buffer_b),
-									*(m_output_buffer_a),
+									*(m_kernel_buffer),
+									*m_matching_resource_pool[r].output_buffer_a,
 									input_size,
 									output_size,
 									kernel_size,
 									cl_int2{kernel_anchor.x, kernel_anchor.y},
 									input_piv,
-									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
-									rotation_sincos,
-									kernel_offset)
+									cl_int4{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[1], m_matching_resource_pool[r].rotated_kernel_overlaps[2], m_matching_resource_pool[r].rotated_kernel_overlaps[3]},
+									rotation_sincos)
 								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
-							}
-							else
-							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant_local)(
-									m_kernel_constant_sqdiff_local_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
-									exec_params,
-									*(input_image.images[batch]),
-									simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
-									*(m_kernel_buffer.buffer),
-									*(m_output_buffer_a),
-									*(m_output_buffer_b),
-									input_size,
-									output_size,
-									kernel_size,
-									cl_int2{kernel_anchor.x, kernel_anchor.y},
-									input_piv,
-									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
-									rotation_sincos,
-									kernel_offset)
-								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
+								m_matching_resource_pool[r].event_list.clear();
+								m_matching_resource_pool[r].event_list.push_back(std::move(first_event));
+								// if necessary, more passes
+								for(std::size_t batch{1}; batch < num_feature_batches; ++batch) // ping pong between two output buffers
+								{
+									kernel_offset += num_kernel_pixels;
+									if(batch % 2ull == 0)
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant_local)(
+											m_kernel_constant_sqdiff_local_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
+											*(m_kernel_buffer),
+											*m_matching_resource_pool[r].output_buffer_b,
+											*m_matching_resource_pool[r].output_buffer_a,
+											input_size,
+											output_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											cl_int4{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[1], m_matching_resource_pool[r].rotated_kernel_overlaps[2], m_matching_resource_pool[r].rotated_kernel_overlaps[3]},
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+									else
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant_local)(
+											m_kernel_constant_sqdiff_local_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
+											*(m_kernel_buffer),
+											*m_matching_resource_pool[r].output_buffer_a,
+											*m_matching_resource_pool[r].output_buffer_b,
+											input_size,
+											output_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											cl_int4{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[1], m_matching_resource_pool[r].rotated_kernel_overlaps[2], m_matching_resource_pool[r].rotated_kernel_overlaps[3]},
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+								}
 							}
 						}
 					}
-				}
-				// prepare stuff for minimum extraction while kernel is running
-				std::size_t find_min_local_work_size{get_local_work_size(m_kernel_find_min)};
-				simple_cl::cl::Program::ExecParams find_min_exec_params{
-					2ull,
-					{0ull, 0ull, 0ull},
-					{0ull, 0ull, 1ull},
-					{find_min_local_work_size, find_min_local_work_size, 1ull}
-				};
-				std::size_t find_min_local_buffer_size;
-				prepare_find_min_output_buffer(cv::Size{response_dims.width, response_dims.height}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
 
-				// texture mask
-				static std::vector<simple_cl::cl::Event> texture_mask_events;
-				texture_mask_events.clear();
-				prepare_texture_mask(texture_mask, texture_mask_events, false);
-
-				if(erode_texture_mask)
-				{
-					std::size_t wg_size{std::min(get_local_work_size(m_kernel_erode), get_local_work_size(m_kernel_erode_local))};
-					std::size_t wg_size_local{std::min(get_local_work_size(m_kernel_erode), get_local_work_size(m_kernel_erode_local))};
-					std::size_t wg_used_local_mem{std::max(m_kernel_erode.getKernelInfo().local_memory_usage, m_kernel_erode_local.getKernelInfo().local_memory_usage)};
-					bool erode_use_local{use_local_mem(rotated_kernel_overlaps, m_kernel_erode_local.getKernelInfo().local_memory_usage, wg_size_local, m_local_buffer_max_pixels * 4ull, sizeof(cl_float)) && m_use_local_buffer_for_erode};
-					// erode texture mask with kernel mask				
-					prepare_erode_output_image(texture_mask);					
-					if(!erode_use_local)
+					if(erode_texture_mask)
 					{
-						// execution params for kernel
-						simple_cl::cl::Program::ExecParams erode_exec_params{
-							2ull,
-							{0ull, 0ull, 0ull},
-							{static_cast<std::size_t>(texture_mask.cols), static_cast<std::size_t>(texture_mask.rows), 1ull},
-							{wg_size, wg_size, 1ull}
-						};
-						simple_cl::cl::Event event{(*m_program_erode)(m_kernel_erode,
-							texture_mask_events.begin(),
-							texture_mask_events.end(),
-							erode_exec_params,
-							*m_texture_mask,
-							*m_output_texture_mask_eroded,
-							cl_int2{texture_mask.cols, texture_mask.rows},
-							cl_int2{kernel.response.cols(), kernel.response.rows()},
-							cl_int2{kernel_anchor.x, kernel_anchor.y},
-							cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
-						)};
-						texture_mask_events.clear();
-						texture_mask_events.push_back(event);
+						// launch erode kernels						
+						for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
+						{
+							std::size_t wg_size{std::min(get_local_work_size(m_kernel_erode), get_local_work_size(m_kernel_erode_local))};
+							std::size_t wg_size_local{std::min(get_local_work_size(m_kernel_erode), get_local_work_size(m_kernel_erode_local))};
+							std::size_t wg_used_local_mem{std::max(m_kernel_erode.getKernelInfo().local_memory_usage, m_kernel_erode_local.getKernelInfo().local_memory_usage)};
+							bool erode_use_local{use_local_mem(m_matching_resource_pool[r].rotated_kernel_overlaps, m_kernel_erode_local.getKernelInfo().local_memory_usage, wg_size_local, m_local_buffer_max_pixels * 4ull, sizeof(cl_float)) && m_use_local_buffer_for_erode};
+							if(erode_use_local)
+							{								
+								simple_cl::cl::Program::ExecParams erode_exec_params{
+									2ull,
+									{0ull, 0ull, 0ull},
+									{static_cast<std::size_t>(texture_mask.cols), static_cast<std::size_t>(texture_mask.rows), 1ull},
+									{wg_size_local, wg_size_local, 1ull}
+								};
+								// calculate total buffer size in pixels
+								std::size_t erode_local_buffer_total_size{static_cast<std::size_t>(m_matching_resource_pool[r].rotated_kernel_overlaps[0] + wg_size_local + m_matching_resource_pool[r].rotated_kernel_overlaps[1]) * static_cast<std::size_t>(m_matching_resource_pool[r].rotated_kernel_overlaps[2] + wg_size_local + m_matching_resource_pool[r].rotated_kernel_overlaps[3])};
+								erode_exec_params.global_work_size[0] = ((erode_exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+								erode_exec_params.global_work_size[1] = ((erode_exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+								simple_cl::cl::Event event{(*m_program_erode_local)(m_kernel_erode_local,
+									global_events.begin(),
+									global_events.end(),
+									erode_exec_params,
+									*m_texture_mask,
+									*m_matching_resource_pool[r].output_texture_mask_eroded,
+									simple_cl::cl::LocalMemory<cl_float>(erode_local_buffer_total_size),
+									cl_int2{texture_mask.cols, texture_mask.rows},
+									cl_int2{texture_mask.cols, texture_mask.rows},
+									cl_int2{kernel.response.cols(), kernel.response.rows()},
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
+									cl_int4{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[1], m_matching_resource_pool[r].rotated_kernel_overlaps[2], m_matching_resource_pool[r].rotated_kernel_overlaps[3]},
+									cl_float2{std::sinf(static_cast<float>(m_matching_resource_pool[r].texture_rotation)), std::cosf(static_cast<float>(m_matching_resource_pool[r].texture_rotation))}
+								)};
+								m_matching_resource_pool[r].erode_event_list.clear();
+								m_matching_resource_pool[r].erode_event_list.push_back(event);								
+							}
+							else
+							{
+								simple_cl::cl::Program::ExecParams erode_exec_params{
+										2ull,
+										{0ull, 0ull, 0ull},
+										{static_cast<std::size_t>(texture_mask.cols), static_cast<std::size_t>(texture_mask.rows), 1ull},
+										{0ull, 0ull, 1ull}
+								};
+								erode_exec_params.local_work_size[0] = wg_size;
+								erode_exec_params.local_work_size[1] = wg_size;
+								simple_cl::cl::Event event{(*m_program_erode)(m_kernel_erode,
+									global_events.begin(),
+									global_events.end(),
+									erode_exec_params,
+									*m_texture_mask,
+									*m_matching_resource_pool[r].output_texture_mask_eroded,
+									cl_int2{texture_mask.cols, texture_mask.rows},
+									cl_int2{kernel.response.cols(), kernel.response.rows()},
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
+									cl_float2{std::sinf(static_cast<float>(m_matching_resource_pool[r].texture_rotation)), std::cosf(static_cast<float>(m_matching_resource_pool[r].texture_rotation))}
+								)};
+								m_matching_resource_pool[r].erode_event_list.clear();
+								m_matching_resource_pool[r].erode_event_list.push_back(event);
+							}
+						}
 					}
-					else
+
+					// read output and launch find min kernels
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
 					{
-						// calculate total buffer size in pixels
-						std::size_t erode_local_buffer_total_size{static_cast<std::size_t>(rotated_kernel_overlaps[0] + wg_size_local + rotated_kernel_overlaps[1]) * static_cast<std::size_t>(rotated_kernel_overlaps[2] + wg_size_local + rotated_kernel_overlaps[3])};
-						// execution params for kernel
-						simple_cl::cl::Program::ExecParams erode_exec_params{
-							2ull,
-							{0ull, 0ull, 0ull},
-							{static_cast<std::size_t>(texture_mask.cols), static_cast<std::size_t>(texture_mask.rows), 1ull},
-							{wg_size_local, wg_size_local, 1ull}
+						simple_cl::cl::Event response_finished_event{read_output_image(m_matching_resource_pool[r].sqdiff_result, m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r].event_list, num_feature_batches % 2ull, m_matching_resource_pool[r])};
+						m_matching_resource_pool[r].event_list.clear();
+						m_matching_resource_pool[r].event_list.push_back(std::move(response_finished_event));
+						// if erode texture mask is active, append the erode events from the previous step to make the find min kernels wait on them.
+						if(erode_texture_mask)
+						{
+							m_matching_resource_pool[r].event_list.insert(m_matching_resource_pool[r].event_list.end(), m_matching_resource_pool[r].erode_event_list.begin(), m_matching_resource_pool[r].erode_event_list.end());
+						}
+						// launch find min kernel
+						simple_cl::cl::Event find_min_kernel_event{(*m_program_find_min)(
+							m_kernel_find_min_masked,
+							m_matching_resource_pool[r].event_list.begin(),
+							m_matching_resource_pool[r].event_list.end(),
+							m_matching_resource_pool[r].find_min_exec_params,
+							(num_feature_batches % 2ull ? *m_matching_resource_pool[r].output_buffer_a : *m_matching_resource_pool[r].output_buffer_b),
+							(erode_texture_mask ? *m_matching_resource_pool[r].output_texture_mask_eroded : *m_texture_mask),
+							*m_matching_resource_pool[r].output_buffer_find_min.buffer,
+							simple_cl::cl::LocalMemory<cl_float4>(m_matching_resource_pool[r].find_min_local_buffer_size),
+							cl_int2{m_matching_resource_pool[r].response_dims.width, m_matching_resource_pool[r].response_dims.height},
+							cl_int2{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[2]})
 						};
-						erode_exec_params.global_work_size[0] = ((erode_exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
-						erode_exec_params.global_work_size[1] = ((erode_exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
-						simple_cl::cl::Event event{(*m_program_erode_local)(m_kernel_erode_local,
-							texture_mask_events.begin(),
-							texture_mask_events.end(),
-							erode_exec_params,
-							*m_texture_mask,
-							*m_output_texture_mask_eroded,
-							simple_cl::cl::LocalMemory<cl_float>(erode_local_buffer_total_size),
-							cl_int2{texture_mask.cols, texture_mask.rows},
-							cl_int2{texture_mask.cols, texture_mask.rows},
-							cl_int2{kernel.response.cols(), kernel.response.rows()},
-							cl_int2{kernel_anchor.x, kernel_anchor.y},
-							cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
-							cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
-						)};
-						texture_mask_events.clear();
-						texture_mask_events.push_back(event);
+						m_matching_resource_pool[r].event_list.clear();
+						m_matching_resource_pool[r].event_list.push_back(std::move(find_min_kernel_event));
+					}
+
+					// read output
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
+					{
+						MatchingResult match_res_tmp;
+						cv::Point result_offset = cv::Point(m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[2]);
+						read_min_pos_and_cost(match_res_tmp, m_matching_resource_pool[r].event_list, result_offset, m_matching_resource_pool[r]);
+						if(match_res_out.matches[0].match_cost > match_res_tmp.matches[0].match_cost)
+						{
+							match_res_out.matches[0].match_cost = match_res_tmp.matches[0].match_cost;
+							match_res_out.matches[0].match_pos = match_res_tmp.matches[0].match_pos;
+							match_res_out.total_cost_matrix = m_matching_resource_pool[r].sqdiff_result;
+						}
 					}
 				}
-
-				// read result and wait for command chain to finish execution. If num_batches is odd, read output a, else b.
-				simple_cl::cl::Event response_finished_event{read_output_image(match_res_out.total_cost_matrix, response_dims, pre_compute_events, num_batches % 2ull)};
-				pre_compute_events.clear();
-				pre_compute_events.push_back(std::move(response_finished_event));
-				pre_compute_events.insert(pre_compute_events.end(), texture_mask_events.begin(), texture_mask_events.end());
-
-				// run kernel for minimum extraction
-				simple_cl::cl::Event find_min_kernel_event{(*m_program_find_min)(
-					m_kernel_find_min_masked,
-					pre_compute_events.begin(),
-					pre_compute_events.end(),
-					find_min_exec_params,
-					(num_batches % 2ull ? *m_output_buffer_a : *m_output_buffer_b),
-					(erode_texture_mask ? *m_output_texture_mask_eroded : *m_texture_mask),
-					*(m_output_buffer_find_min.buffer),
-					simple_cl::cl::LocalMemory<cl_float4>(find_min_local_buffer_size),
-					cl_int2{response_dims.width, response_dims.height},
-					cl_int2{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]})
-				};
-				pre_compute_events.clear();
-				pre_compute_events.push_back(std::move(find_min_kernel_event));
-				// output result
-				cv::Point result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
-				read_min_pos_and_cost(match_res_out, pre_compute_events, result_offset);
 			}
 
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::compute_matches(
@@ -2387,440 +2550,487 @@ namespace ocl_patch_matching
 				const cv::Mat& texture_mask,
 				const Texture& kernel,
 				const cv::Mat& kernel_mask,
-				double texture_rotation,
+				const std::vector<double>& texture_rotations,
 				MatchingResult& match_res_out,
 				bool erode_texture_mask)
 			{
-				static std::vector<simple_cl::cl::Event> pre_compute_events;
-				pre_compute_events.clear();
-				// compute rotated kernel size
-				// kernel anchor
+				// global event list
+				static std::vector<simple_cl::cl::Event> global_events;
+				global_events.clear();
 				cv::Point kernel_anchor{(m_result_origin == CLMatcher::ResultOrigin::Center ? cv::Point((kernel.response.cols() - 1) / 2, (kernel.response.rows() - 1) / 2) : cv::Point(0, 0))};
-				cv::Size rotated_kernel_size;
-				cv::Vec4i rotated_kernel_overlaps;
-				calculate_rotated_kernel_dims(rotated_kernel_size, rotated_kernel_overlaps, kernel, texture_rotation, kernel_anchor);
-				auto response_dims{get_response_dimensions(texture, kernel, texture_rotation, kernel_anchor)};
-				// prepare all input data
-				prepare_input_image(texture, pre_compute_events, false, false);
 				bool use_constant{use_constant_kernel(kernel, kernel_mask)};
+				bool erode_use_constant_kernel{use_constant_kernel(kernel_mask)};
+				std::size_t num_feature_maps{static_cast<std::size_t>(texture.response.num_channels())};
+				std::size_t num_feature_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
+				std::size_t find_min_local_work_size{get_local_work_size(m_kernel_find_min_masked)};
+				cl_int2 input_size{texture.response.cols(), texture.response.rows()};
+				cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
+				// init result
+				match_res_out.matches.clear();
+				match_res_out.matches.push_back(Match{});
+				match_res_out.matches.back().match_cost = std::numeric_limits<double>::max();
+
+				// upload inputs
+				// input texture
+				prepare_input_image(texture, global_events, false, false);
+				// texture mask
+				prepare_texture_mask(texture_mask, global_events, false);
+				// kernel texture or buffer in case we use the constant buffer
 				if(use_constant)
 				{
-					prepare_kernel_buffer(kernel, pre_compute_events, false);
-					prepare_kernel_mask_buffer(kernel_mask, pre_compute_events, false);
+					prepare_kernel_buffer(kernel, global_events, false);
+					prepare_kernel_mask_buffer(kernel_mask, global_events, false);
 				}
 				else
 				{
-					prepare_kernel_image(kernel, pre_compute_events, false);
-					prepare_kernel_mask(kernel_mask, pre_compute_events, false);
+					prepare_kernel_image(kernel, global_events, false);
+					prepare_kernel_mask(kernel_mask, global_events, false);
 				}
-				prepare_output_image(texture, kernel, texture_rotation, response_dims);
-				// get input image from map
+				// Get intput image from image cache
 				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
-				// pingpong between the two output buffers until done
-				std::size_t num_feature_maps{static_cast<std::size_t>(texture.response.num_channels())};
-				std::size_t num_batches{num_feature_maps / 4ull + (num_feature_maps % 4ull != 0ull ? 1ull : 0ull)};
-				// exec params
-				simple_cl::cl::Program::ExecParams exec_params{
-					2ull,
-					{0ull, 0ull, 0ull},
-					{static_cast<std::size_t>(response_dims.width), static_cast<std::size_t>(response_dims.height), 1ull},
-					{m_local_block_size, m_local_block_size, 1ull}
-				};
-				if(!use_constant)
+
+				for(std::size_t rot_batch = 0ull; rot_batch < texture_rotations.size(); rot_batch += m_max_pipelined_matching_passes)
 				{
-					std::size_t wg_size{std::min(get_local_work_size(m_kernel_naive_sqdiff_masked), get_local_work_size(m_kernel_naive_sqdiff_masked_nth_pass))};
-					exec_params.local_work_size[0] = wg_size;
-					exec_params.local_work_size[1] = wg_size;
-					// other arguments
-					cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-					cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-					cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
-					cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-					// first pass
-					simple_cl::cl::Event first_event{(*m_program_naive_sqdiff)(
-						m_kernel_naive_sqdiff_masked,
-						pre_compute_events.begin(),
-						pre_compute_events.end(),
-						exec_params,
-						*(input_image.images[0]),
-						*(m_kernel_image.images[0]),
-						*(m_kernel_mask),
-						*(m_output_buffer_a),
-						input_size,
-						kernel_size,
-						cl_int2{kernel_anchor.x, kernel_anchor.y},
-						input_piv,
-						rotation_sincos)
-					};
-					pre_compute_events.clear();
-					pre_compute_events.push_back(std::move(first_event));
-					// if necessary, more passes
-					for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
+					// number of rotations in this batch
+					std::size_t num_batch_rotations{std::min(m_max_pipelined_matching_passes, texture_rotations.size() - rot_batch * m_max_pipelined_matching_passes)};
+					// reset event lists, initialize sizes and stuff, prepare output resources
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
 					{
-						if(batch % 2ull == 0)
+						std::size_t rotation_index{rot_batch * m_max_pipelined_matching_passes + r};
+						m_matching_resource_pool[r].texture_rotation = texture_rotations[rotation_index];
+						m_matching_resource_pool[r].event_list.clear();
+						m_matching_resource_pool[r].erode_event_list.clear();
+						calculate_rotated_kernel_dims(
+							m_matching_resource_pool[r].rotated_kernel_size,
+							m_matching_resource_pool[r].rotated_kernel_overlaps,
+							kernel,
+							texture_rotations[rotation_index],
+							kernel_anchor
+						);
+						m_matching_resource_pool[r].response_dims = get_response_dimensions(texture, kernel, texture_rotations[rotation_index], kernel_anchor);
+						// prepare sqdiff output image
+						prepare_output_image(texture, kernel, texture_rotations[rotation_index], m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r]);
+						if(erode_texture_mask)
 						{
-							simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
-								m_kernel_naive_sqdiff_masked_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
+							// prepare erode output buffer
+							prepare_erode_output_image(texture_mask, m_matching_resource_pool[r]);
+						}
+						// prepare find min output buffer						
+						simple_cl::cl::Program::ExecParams find_min_exec_params{
+							2ull,
+							{0ull, 0ull, 0ull},
+							{0ull, 0ull, 1ull},
+							{find_min_local_work_size, find_min_local_work_size, 1ull}
+						};
+						std::size_t find_min_local_buffer_size;
+						prepare_find_min_output_buffer(
+							cv::Size{m_matching_resource_pool[r].response_dims.width, m_matching_resource_pool[r].response_dims.height},
+							find_min_local_work_size, find_min_exec_params.global_work_size[0],
+							find_min_exec_params.global_work_size[1],
+							find_min_local_buffer_size,
+							m_matching_resource_pool[r]
+						);
+						m_matching_resource_pool[r].find_min_exec_params = find_min_exec_params;
+						m_matching_resource_pool[r].find_min_local_buffer_size = find_min_local_buffer_size;
+						// append input events to event list of the individual rotation passes
+						m_matching_resource_pool[r].event_list.insert(m_matching_resource_pool[r].event_list.end(), global_events.begin(), global_events.end());
+					}
+
+					// launch sqdiff kernels
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
+					{
+						simple_cl::cl::Program::ExecParams exec_params{
+							2ull,
+							{0ull, 0ull, 0ull},
+							{static_cast<std::size_t>(m_matching_resource_pool[r].response_dims.width), static_cast<std::size_t>(m_matching_resource_pool[r].response_dims.height), 1ull},
+							{0ull, 0ull, 1ull}
+						};
+
+						// other arguments
+						cl_int2 input_piv{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[2]};
+						cl_float2 rotation_sincos{std::sinf(static_cast<float>(m_matching_resource_pool[r].texture_rotation)), std::cosf(static_cast<float>(m_matching_resource_pool[r].texture_rotation))};
+						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
+						cl_int2 output_size{m_matching_resource_pool[r].response_dims.width, m_matching_resource_pool[r].response_dims.height};
+						
+						if(!use_constant)
+						{
+							std::size_t wg_size{std::min(get_local_work_size(m_kernel_naive_sqdiff_masked), get_local_work_size(m_kernel_naive_sqdiff_masked_nth_pass))};
+							exec_params.local_work_size[0] = wg_size;
+							exec_params.local_work_size[1] = wg_size;
+							// first pass
+							simple_cl::cl::Event first_event{(*m_program_naive_sqdiff)(
+								m_kernel_naive_sqdiff_masked,
+								m_matching_resource_pool[r].event_list.begin(),
+								m_matching_resource_pool[r].event_list.end(),
 								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_image.images[batch]),
+								*(input_image.images[0]),
+								*(m_kernel_image.images[0]),
 								*(m_kernel_mask),
-								*(m_output_buffer_b),
-								*(m_output_buffer_a),
+								*m_matching_resource_pool[r].output_buffer_a,
 								input_size,
 								kernel_size,
 								cl_int2{kernel_anchor.x, kernel_anchor.y},
 								input_piv,
 								rotation_sincos)
 							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
+							m_matching_resource_pool[r].event_list.clear();
+							m_matching_resource_pool[r].event_list.push_back(std::move(first_event));
+							// if necessary, more passes
+							for(std::size_t batch{1}; batch < num_feature_batches; ++batch) // ping pong between two output buffers
+							{
+								if(batch % 2ull == 0)
+								{
+									simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
+										m_kernel_naive_sqdiff_masked_nth_pass,
+										m_matching_resource_pool[r].event_list.begin(),
+										m_matching_resource_pool[r].event_list.end(),
+										exec_params,
+										*(input_image.images[batch]),
+										*(m_kernel_image.images[batch]),
+										*(m_kernel_mask),
+										*m_matching_resource_pool[r].output_buffer_b,
+										*m_matching_resource_pool[r].output_buffer_a,
+										input_size,
+										kernel_size,
+										cl_int2{kernel_anchor.x, kernel_anchor.y},
+										input_piv,
+										rotation_sincos)
+									};
+									m_matching_resource_pool[r].event_list.clear();
+									m_matching_resource_pool[r].event_list.push_back(std::move(event));
+								}
+								else
+								{
+									simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
+										m_kernel_naive_sqdiff_masked_nth_pass,
+										m_matching_resource_pool[r].event_list.begin(),
+										m_matching_resource_pool[r].event_list.end(),
+										exec_params,
+										*(input_image.images[batch]),
+										*(m_kernel_image.images[batch]),
+										*(m_kernel_mask),
+										*m_matching_resource_pool[r].output_buffer_a,
+										*m_matching_resource_pool[r].output_buffer_b,
+										input_size,
+										kernel_size,
+										cl_int2{kernel_anchor.x, kernel_anchor.y},
+										input_piv,
+										rotation_sincos)
+									};
+									m_matching_resource_pool[r].event_list.clear();
+									m_matching_resource_pool[r].event_list.push_back(std::move(event));
+								}
+							}
 						}
 						else
 						{
-							simple_cl::cl::Event event{(*m_program_naive_sqdiff)(
-								m_kernel_naive_sqdiff_masked_nth_pass,
-								pre_compute_events.begin(),
-								pre_compute_events.end(),
-								exec_params,
-								*(input_image.images[batch]),
-								*(m_kernel_image.images[batch]),
-								*(m_kernel_mask),
-								*(m_output_buffer_a),
-								*(m_output_buffer_b),
-								input_size,
-								kernel_size,
-								cl_int2{kernel_anchor.x, kernel_anchor.y},
-								input_piv,
-								rotation_sincos)
-							};
-							pre_compute_events.clear();
-							pre_compute_events.push_back(std::move(event));
-						}
-					}
-				}
-				else
-				{					
-					// get safe local wg size
-					std::size_t wg_size{std::min(get_local_work_size(m_kernel_constant_sqdiff_masked), get_local_work_size(m_kernel_constant_sqdiff_masked_nth_pass))};
-					std::size_t wg_size_local{std::min(get_local_work_size(m_kernel_constant_sqdiff_local_masked), get_local_work_size(m_kernel_constant_sqdiff_local_masked_nth_pass))};
-					std::size_t wg_used_local_mem{std::max(m_kernel_constant_sqdiff_local_masked.getKernelInfo().local_memory_usage, m_kernel_constant_sqdiff_local_masked_nth_pass.getKernelInfo().local_memory_usage)};
-
-					// calculate total buffer size in pixels
-					std::size_t local_buffer_total_size{static_cast<std::size_t>(rotated_kernel_overlaps[0] + wg_size_local + rotated_kernel_overlaps[1]) * static_cast<std::size_t>(rotated_kernel_overlaps[2] + wg_size_local + rotated_kernel_overlaps[3])};
-
-					// decide if we should use local memory optimization
-					bool use_local{use_local_mem(rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4)) && m_use_local_buffer_for_matching};
-
-					if(!use_local)
-					{
-						exec_params.local_work_size[0] = wg_size;
-						exec_params.local_work_size[1] = wg_size;
-						// other arguments
-						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
-						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-						cl_int kernel_offset{0};
-						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
-						// first pass
-						simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
-							m_kernel_constant_sqdiff_masked,
-							pre_compute_events.begin(),
-							pre_compute_events.end(),
-							exec_params,
-							*(input_image.images[0]),
-							*(m_kernel_buffer.buffer),
-							*(m_kernel_mask_buffer.buffer),
-							*(m_output_buffer_a),
-							input_size,
-							kernel_size,
-							cl_int2{kernel_anchor.x, kernel_anchor.y},
-							input_piv,
-							rotation_sincos)
-						};
-						pre_compute_events.clear();
-						pre_compute_events.push_back(std::move(first_event));
-						// if necessary, more passes
-						for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
-						{
-							kernel_offset += num_kernel_pixels;
-							if(batch % 2ull == 0)
-							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-									m_kernel_constant_sqdiff_masked_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
-									exec_params,
-									*(input_image.images[batch]),
-									*(m_kernel_buffer.buffer),
-									*(m_kernel_mask_buffer.buffer),
-									*(m_output_buffer_b),
-									*(m_output_buffer_a),
-									input_size,
-									kernel_size,
-									cl_int2{kernel_anchor.x, kernel_anchor.y},
-									input_piv,
-									rotation_sincos,
-									kernel_offset)
-								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
-							}
-							else
-							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
-									m_kernel_constant_sqdiff_masked_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
-									exec_params,
-									*(input_image.images[batch]),
-									*(m_kernel_buffer.buffer),
-									*(m_kernel_mask_buffer.buffer),
-									*(m_output_buffer_a),
-									*(m_output_buffer_b),
-									input_size,
-									kernel_size,
-									cl_int2{kernel_anchor.x, kernel_anchor.y},
-									input_piv,
-									rotation_sincos,
-									kernel_offset)
-								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
-							}
-						}
-					}
-					else
-					{
-						exec_params.local_work_size[0] = wg_size_local;
-						exec_params.local_work_size[1] = wg_size_local;
-						// pad global work size to a multiple of the work group size.
-						// this is necessary to make the local memory scheme work.
-						exec_params.global_work_size[0] = ((exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
-						exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
-						// other arguments
-						cl_int2 input_size{texture.response.cols(), texture.response.rows()};
-						cl_int2 output_size{response_dims.width, response_dims.height};
-						cl_int2 kernel_size{kernel.response.cols(), kernel.response.rows()};
-						cl_int2 input_piv{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]};
-						cl_float2 rotation_sincos{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))};
-						cl_int kernel_offset{0};
-						cl_int num_kernel_pixels{kernel.response.cols() * kernel.response.rows()};
-						// first pass
-						simple_cl::cl::Event first_event{(*m_program_sqdiff_constant_local_masked)(
-							m_kernel_constant_sqdiff_local_masked,
-							pre_compute_events.begin(),
-							pre_compute_events.end(),
-							exec_params,
-							*(input_image.images[0]),
-							simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
-							*(m_kernel_buffer.buffer),
-							*(m_kernel_mask_buffer.buffer),
-							*(m_output_buffer_a),
-							input_size,
-							output_size,
-							kernel_size,
-							cl_int2{kernel_anchor.x, kernel_anchor.y},
-							input_piv,
-							cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
-							rotation_sincos)
-						};
-						pre_compute_events.clear();
-						pre_compute_events.push_back(std::move(first_event));
-						// if necessary, more passes
-						for(std::size_t batch{1}; batch < num_batches; ++batch) // ping pong between two output buffers
-						{
-							kernel_offset += num_kernel_pixels;
-							if(batch % 2ull == 0)
-							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant_local_masked)(
-									m_kernel_constant_sqdiff_local_masked_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
-									exec_params,
-									*(input_image.images[batch]),
-									simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
-									*(m_kernel_buffer.buffer),
-									*(m_kernel_mask_buffer.buffer),
-									*(m_output_buffer_b),
-									*(m_output_buffer_a),
-									input_size,
-									output_size,
-									kernel_size,
-									cl_int2{kernel_anchor.x, kernel_anchor.y},
-									input_piv,
-									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
-									rotation_sincos,
-									kernel_offset)
-								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
-							}
-							else
-							{
-								simple_cl::cl::Event event{(*m_program_sqdiff_constant_local_masked)(
-									m_kernel_constant_sqdiff_local_masked_nth_pass,
-									pre_compute_events.begin(),
-									pre_compute_events.end(),
-									exec_params,
-									*(input_image.images[batch]),
-									simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
-									*(m_kernel_buffer.buffer),
-									*(m_kernel_mask_buffer.buffer),
-									*(m_output_buffer_a),
-									*(m_output_buffer_b),
-									input_size,
-									output_size,
-									kernel_size,
-									cl_int2{kernel_anchor.x, kernel_anchor.y},
-									input_piv,
-									cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
-									rotation_sincos,
-									kernel_offset)
-								};
-								pre_compute_events.clear();
-								pre_compute_events.push_back(std::move(event));
-							}
-						}
-					}
-				}
-				// prepare stuff for minimum extraction while kernel is running
-				std::size_t find_min_local_work_size{get_local_work_size(m_kernel_find_min)};
-				simple_cl::cl::Program::ExecParams find_min_exec_params{
-					2ull,
-					{0ull, 0ull, 0ull},
-					{0ull, 0ull, 1ull},
-					{find_min_local_work_size, find_min_local_work_size, 1ull}
-				};
-				std::size_t find_min_local_buffer_size;
-				prepare_find_min_output_buffer(cv::Size{response_dims.width, response_dims.height}, find_min_local_work_size, find_min_exec_params.global_work_size[0], find_min_exec_params.global_work_size[1], find_min_local_buffer_size);
-
-				// texture mask
-				static std::vector<simple_cl::cl::Event> texture_mask_events;
-				texture_mask_events.clear();
-				prepare_texture_mask(texture_mask, texture_mask_events, false);
-
-				cv::Mat texmask;
-				if(erode_texture_mask)
-				{
-					// erode texture mask with kernel mask				
-					prepare_erode_output_image(texture_mask);
-
-					if(use_constant_kernel(kernel_mask))
-					{
-						std::size_t wg_size{std::min(get_local_work_size(m_kernel_erode_masked), get_local_work_size(m_kernel_erode_masked_local))};
-						std::size_t wg_size_local{std::min(get_local_work_size(m_kernel_erode_masked), get_local_work_size(m_kernel_erode_masked_local))};
-						std::size_t wg_used_local_mem{std::max(m_kernel_erode_masked.getKernelInfo().local_memory_usage, m_kernel_erode_masked_local.getKernelInfo().local_memory_usage)};
-						bool erode_use_local{use_local_mem(rotated_kernel_overlaps, m_kernel_erode_masked_local.getKernelInfo().local_memory_usage, wg_size_local, m_local_buffer_max_pixels * 4ull, sizeof(cl_float)) && m_use_local_buffer_for_erode};
-						if(!erode_use_local)
-						{
-							simple_cl::cl::Program::ExecParams erode_exec_params{
-								2ull,
-								{0ull, 0ull, 0ull},
-								{static_cast<std::size_t>(texture_mask.cols), static_cast<std::size_t>(texture_mask.rows), 1ull},
-								{wg_size, wg_size, 1ull}
-							};
-							simple_cl::cl::Event event{(*m_program_erode_masked)(m_kernel_erode_constant_masked,
-								texture_mask_events.begin(),
-								texture_mask_events.end(),
-								erode_exec_params,
-								*m_texture_mask,
-								*(m_kernel_mask_buffer.buffer),
-								*m_output_texture_mask_eroded,
-								cl_int2{texture_mask.cols, texture_mask.rows},
-								cl_int2{kernel_mask.cols, kernel_mask.rows},
-								cl_int2{kernel_anchor.x, kernel_anchor.y},
-								cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
-							)};
-							texture_mask_events.clear();
-							texture_mask_events.push_back(event);
-						}
-						else
-						{
-							simple_cl::cl::Program::ExecParams erode_exec_params{
-								2ull,
-								{0ull, 0ull, 0ull},
-								{static_cast<std::size_t>(texture_mask.cols), static_cast<std::size_t>(texture_mask.rows), 1ull},
-								{wg_size_local, wg_size_local, 1ull}
-							};
+							// get safe local wg size
+							std::size_t wg_size{std::min(get_local_work_size(m_kernel_constant_sqdiff_masked), get_local_work_size(m_kernel_constant_sqdiff_masked_nth_pass))};
+							std::size_t wg_size_local{std::min(get_local_work_size(m_kernel_constant_sqdiff_local_masked), get_local_work_size(m_kernel_constant_sqdiff_local_masked_nth_pass))};
+							std::size_t wg_used_local_mem{std::max(m_kernel_constant_sqdiff_local_masked.getKernelInfo().local_memory_usage, m_kernel_constant_sqdiff_local_masked_nth_pass.getKernelInfo().local_memory_usage)};
 							// calculate total buffer size in pixels
-							std::size_t erode_local_buffer_total_size{static_cast<std::size_t>(rotated_kernel_overlaps[0] + wg_size_local + rotated_kernel_overlaps[1]) * static_cast<std::size_t>(rotated_kernel_overlaps[2] + wg_size_local + rotated_kernel_overlaps[3])};
-							erode_exec_params.global_work_size[0] = ((erode_exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
-							erode_exec_params.global_work_size[1] = ((erode_exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
-							simple_cl::cl::Event event{(*m_program_erode_masked_local)(m_kernel_erode_masked_local,
-								texture_mask_events.begin(),
-								texture_mask_events.end(),
-								erode_exec_params,
-								*m_texture_mask,
-								*(m_kernel_mask_buffer.buffer),
-								*m_output_texture_mask_eroded,
-								simple_cl::cl::LocalMemory<cl_float>(erode_local_buffer_total_size),
-								cl_int2{texture_mask.cols, texture_mask.rows},
-								cl_int2{texture_mask.cols, texture_mask.rows},
-								cl_int2{kernel_mask.cols, kernel_mask.rows},
-								cl_int2{kernel_anchor.x, kernel_anchor.y},
-								cl_int4{rotated_kernel_overlaps[0], rotated_kernel_overlaps[1], rotated_kernel_overlaps[2], rotated_kernel_overlaps[3]},
-								cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
-							)};
-							texture_mask_events.clear();
-							texture_mask_events.push_back(event);
+							std::size_t local_buffer_total_size{static_cast<std::size_t>(m_matching_resource_pool[r].rotated_kernel_overlaps[0] + wg_size_local + m_matching_resource_pool[r].rotated_kernel_overlaps[1]) * static_cast<std::size_t>(m_matching_resource_pool[r].rotated_kernel_overlaps[2] + wg_size_local + m_matching_resource_pool[r].rotated_kernel_overlaps[3])};
+							// decide if we should use local memory optimization
+							bool use_local{use_local_mem(m_matching_resource_pool[r].rotated_kernel_overlaps, wg_used_local_mem, wg_size_local, m_local_buffer_max_pixels, sizeof(cl_float4)) && m_use_local_buffer_for_matching};
+							if(!use_local)
+							{
+								exec_params.local_work_size[0] = wg_size;
+								exec_params.local_work_size[1] = wg_size;								
+								cl_int kernel_offset{0};
+								
+								// first pass
+								simple_cl::cl::Event first_event{(*m_program_sqdiff_constant)(
+									m_kernel_constant_sqdiff_masked,
+									m_matching_resource_pool[r].event_list.begin(),
+									m_matching_resource_pool[r].event_list.end(),
+									exec_params,
+									*(input_image.images[0]),
+									*(m_kernel_buffer),
+									*(m_kernel_mask_buffer),
+									*m_matching_resource_pool[r].output_buffer_a,
+									input_size,
+									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
+									input_piv,
+									rotation_sincos)
+								};
+								m_matching_resource_pool[r].event_list.clear();
+								m_matching_resource_pool[r].event_list.push_back(std::move(first_event));
+								// if necessary, more passes
+								for(std::size_t batch{1}; batch < num_feature_batches; ++batch) // ping pong between two output buffers
+								{
+									kernel_offset += num_kernel_pixels;
+									if(batch % 2ull == 0)
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+											m_kernel_constant_sqdiff_masked_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											*(m_kernel_buffer),
+											*(m_kernel_mask_buffer),
+											*m_matching_resource_pool[r].output_buffer_b,
+											*m_matching_resource_pool[r].output_buffer_a,
+											input_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+									else
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant)(
+											m_kernel_constant_sqdiff_masked_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											*(m_kernel_buffer),
+											*(m_kernel_mask_buffer),
+											*m_matching_resource_pool[r].output_buffer_a,
+											*m_matching_resource_pool[r].output_buffer_b,
+											input_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+								}
+							}
+							else
+							{
+								exec_params.local_work_size[0] = wg_size_local;
+								exec_params.local_work_size[1] = wg_size_local;
+								// pad global work size to a multiple of the work group size.
+								// this is necessary to make the local memory scheme work.
+								exec_params.global_work_size[0] = ((exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+								exec_params.global_work_size[1] = ((exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;								
+								cl_int kernel_offset{0};								
+								// first pass
+								simple_cl::cl::Event first_event{(*m_program_sqdiff_constant_local_masked)(
+									m_kernel_constant_sqdiff_local_masked,
+									m_matching_resource_pool[r].event_list.begin(),
+									m_matching_resource_pool[r].event_list.end(),
+									exec_params,
+									*(input_image.images[0]),
+									simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
+									*(m_kernel_buffer),
+									*(m_kernel_mask_buffer),
+									*m_matching_resource_pool[r].output_buffer_a,
+									input_size,
+									output_size,
+									kernel_size,
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
+									input_piv,
+									cl_int4{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[1], m_matching_resource_pool[r].rotated_kernel_overlaps[2], m_matching_resource_pool[r].rotated_kernel_overlaps[3]},
+									rotation_sincos)
+								};
+								m_matching_resource_pool[r].event_list.clear();
+								m_matching_resource_pool[r].event_list.push_back(std::move(first_event));
+								// if necessary, more passes
+								for(std::size_t batch{1}; batch < num_feature_batches; ++batch) // ping pong between two output buffers
+								{
+									kernel_offset += num_kernel_pixels;
+									if(batch % 2ull == 0)
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant_local_masked)(
+											m_kernel_constant_sqdiff_local_masked_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
+											*(m_kernel_buffer),
+											*(m_kernel_mask_buffer),
+											*m_matching_resource_pool[r].output_buffer_b,
+											*m_matching_resource_pool[r].output_buffer_a,
+											input_size,
+											output_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											cl_int4{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[1], m_matching_resource_pool[r].rotated_kernel_overlaps[2], m_matching_resource_pool[r].rotated_kernel_overlaps[3]},
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+									else
+									{
+										simple_cl::cl::Event event{(*m_program_sqdiff_constant_local_masked)(
+											m_kernel_constant_sqdiff_local_masked_nth_pass,
+											m_matching_resource_pool[r].event_list.begin(),
+											m_matching_resource_pool[r].event_list.end(),
+											exec_params,
+											*(input_image.images[batch]),
+											simple_cl::cl::LocalMemory<cl_float4>(local_buffer_total_size),
+											*(m_kernel_buffer),
+											*(m_kernel_mask_buffer),
+											*m_matching_resource_pool[r].output_buffer_a,
+											*m_matching_resource_pool[r].output_buffer_b,
+											input_size,
+											output_size,
+											kernel_size,
+											cl_int2{kernel_anchor.x, kernel_anchor.y},
+											input_piv,
+											cl_int4{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[1], m_matching_resource_pool[r].rotated_kernel_overlaps[2], m_matching_resource_pool[r].rotated_kernel_overlaps[3]},
+											rotation_sincos,
+											kernel_offset)
+										};
+										m_matching_resource_pool[r].event_list.clear();
+										m_matching_resource_pool[r].event_list.push_back(std::move(event));
+									}
+								}
+							}
 						}
 					}
-					else
+
+					if(erode_texture_mask)
 					{
-						simple_cl::cl::Program::ExecParams erode_exec_params{
-								2ull,
-								{0ull, 0ull, 0ull},
-								{static_cast<std::size_t>(texture_mask.cols), static_cast<std::size_t>(texture_mask.rows), 1ull},
-								{0ull, 0ull, 1ull}
-						};
-						std::size_t erode_local_work_size{get_local_work_size(m_kernel_erode_masked)};
-						erode_exec_params.local_work_size[0] = erode_local_work_size;
-						erode_exec_params.local_work_size[1] = erode_local_work_size;
-						simple_cl::cl::Event event{(*m_program_erode_masked)(m_kernel_erode_masked,
-							texture_mask_events.begin(),
-							texture_mask_events.end(),
-							exec_params,
-							*m_texture_mask,
-							*(m_kernel_mask),
-							*m_output_texture_mask_eroded,
-							cl_int2{texture_mask.cols, texture_mask.rows},
-							cl_int2{kernel_mask.cols, kernel_mask.rows},
-							cl_int2{kernel_anchor.x, kernel_anchor.y},
-							cl_float2{std::sinf(static_cast<float>(texture_rotation)), std::cosf(static_cast<float>(texture_rotation))}
-						)};
-						texture_mask_events.clear();
-						texture_mask_events.push_back(event);
+						// launch erode kernels						
+						for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
+						{
+							if(erode_use_constant_kernel)
+							{
+								std::size_t wg_size{std::min(get_local_work_size(m_kernel_erode_masked), get_local_work_size(m_kernel_erode_masked_local))};
+								std::size_t wg_size_local{std::min(get_local_work_size(m_kernel_erode_masked), get_local_work_size(m_kernel_erode_masked_local))};
+								std::size_t wg_used_local_mem{std::max(m_kernel_erode_masked.getKernelInfo().local_memory_usage, m_kernel_erode_masked_local.getKernelInfo().local_memory_usage)};
+								bool erode_use_local{use_local_mem(m_matching_resource_pool[r].rotated_kernel_overlaps, m_kernel_erode_masked_local.getKernelInfo().local_memory_usage, wg_size_local, m_local_buffer_max_pixels * 4ull, sizeof(cl_float)) && m_use_local_buffer_for_erode};
+								if(!erode_use_local)
+								{
+									simple_cl::cl::Program::ExecParams erode_exec_params{
+										2ull,
+										{0ull, 0ull, 0ull},
+										{static_cast<std::size_t>(texture_mask.cols), static_cast<std::size_t>(texture_mask.rows), 1ull},
+										{wg_size, wg_size, 1ull}
+									};
+									simple_cl::cl::Event event{(*m_program_erode_masked)(m_kernel_erode_constant_masked,
+										global_events.begin(),
+										global_events.end(),
+										erode_exec_params,
+										*m_texture_mask,
+										*(m_kernel_mask_buffer),
+										*m_matching_resource_pool[r].output_texture_mask_eroded,
+										cl_int2{texture_mask.cols, texture_mask.rows},
+										cl_int2{kernel_mask.cols, kernel_mask.rows},
+										cl_int2{kernel_anchor.x, kernel_anchor.y},
+										cl_float2{std::sinf(static_cast<float>(m_matching_resource_pool[r].texture_rotation)), std::cosf(static_cast<float>(m_matching_resource_pool[r].texture_rotation))}
+									)};
+									m_matching_resource_pool[r].erode_event_list.clear();
+									m_matching_resource_pool[r].erode_event_list.push_back(event);
+								}
+								else
+								{
+									simple_cl::cl::Program::ExecParams erode_exec_params{
+										2ull,
+										{0ull, 0ull, 0ull},
+										{static_cast<std::size_t>(texture_mask.cols), static_cast<std::size_t>(texture_mask.rows), 1ull},
+										{wg_size_local, wg_size_local, 1ull}
+									};
+									// calculate total buffer size in pixels
+									std::size_t erode_local_buffer_total_size{static_cast<std::size_t>(m_matching_resource_pool[r].rotated_kernel_overlaps[0] + wg_size_local + m_matching_resource_pool[r].rotated_kernel_overlaps[1]) * static_cast<std::size_t>(m_matching_resource_pool[r].rotated_kernel_overlaps[2] + wg_size_local + m_matching_resource_pool[r].rotated_kernel_overlaps[3])};
+									erode_exec_params.global_work_size[0] = ((erode_exec_params.global_work_size[0] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+									erode_exec_params.global_work_size[1] = ((erode_exec_params.global_work_size[1] + wg_size_local - 1) / wg_size_local) * wg_size_local;
+									simple_cl::cl::Event event{(*m_program_erode_masked_local)(m_kernel_erode_masked_local,
+										global_events.begin(),
+										global_events.end(),
+										erode_exec_params,
+										*m_texture_mask,
+										*(m_kernel_mask_buffer),
+										*m_matching_resource_pool[r].output_texture_mask_eroded,
+										simple_cl::cl::LocalMemory<cl_float>(erode_local_buffer_total_size),
+										cl_int2{texture_mask.cols, texture_mask.rows},
+										cl_int2{texture_mask.cols, texture_mask.rows},
+										cl_int2{kernel_mask.cols, kernel_mask.rows},
+										cl_int2{kernel_anchor.x, kernel_anchor.y},
+										cl_int4{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[1], m_matching_resource_pool[r].rotated_kernel_overlaps[2], m_matching_resource_pool[r].rotated_kernel_overlaps[3]},
+										cl_float2{std::sinf(static_cast<float>(m_matching_resource_pool[r].texture_rotation)), std::cosf(static_cast<float>(m_matching_resource_pool[r].texture_rotation))}
+									)};
+									m_matching_resource_pool[r].erode_event_list.clear();
+									m_matching_resource_pool[r].erode_event_list.push_back(event);
+								}
+							}
+							else
+							{
+								simple_cl::cl::Program::ExecParams erode_exec_params{
+										2ull,
+										{0ull, 0ull, 0ull},
+										{static_cast<std::size_t>(texture_mask.cols), static_cast<std::size_t>(texture_mask.rows), 1ull},
+										{0ull, 0ull, 1ull}
+								};
+								std::size_t erode_local_work_size{get_local_work_size(m_kernel_erode_masked)};
+								erode_exec_params.local_work_size[0] = erode_local_work_size;
+								erode_exec_params.local_work_size[1] = erode_local_work_size;
+								simple_cl::cl::Event event{(*m_program_erode_masked)(m_kernel_erode_masked,
+									global_events.begin(),
+									global_events.end(),
+									erode_exec_params,
+									*m_texture_mask,
+									*(m_kernel_mask),
+									*m_matching_resource_pool[r].output_texture_mask_eroded,
+									cl_int2{texture_mask.cols, texture_mask.rows},
+									cl_int2{kernel_mask.cols, kernel_mask.rows},
+									cl_int2{kernel_anchor.x, kernel_anchor.y},
+									cl_float2{std::sinf(static_cast<float>(m_matching_resource_pool[r].texture_rotation)), std::cosf(static_cast<float>(m_matching_resource_pool[r].texture_rotation))}
+								)};
+								m_matching_resource_pool[r].erode_event_list.clear();
+								m_matching_resource_pool[r].erode_event_list.push_back(event);
+							}
+						}
 					}
-				}
 
-				// read result and wait for command chain to finish execution. If num_batches is odd, read output a, else b.
-				simple_cl::cl::Event response_finished_event{read_output_image(match_res_out.total_cost_matrix, response_dims, pre_compute_events, num_batches % 2ull)};
-				pre_compute_events.clear();
-				pre_compute_events.push_back(std::move(response_finished_event));
-				pre_compute_events.insert(pre_compute_events.end(), texture_mask_events.begin(), texture_mask_events.end());
+					// read output and launch find min kernels
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
+					{
+						simple_cl::cl::Event response_finished_event{read_output_image(m_matching_resource_pool[r].sqdiff_result, m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r].event_list, num_feature_batches % 2ull, m_matching_resource_pool[r])};
+						m_matching_resource_pool[r].event_list.clear();
+						m_matching_resource_pool[r].event_list.push_back(std::move(response_finished_event));
+						// if erode texture mask is active, append the erode events from the previous step to make the find min kernels wait on them.
+						if(erode_texture_mask)
+						{
+							m_matching_resource_pool[r].event_list.insert(m_matching_resource_pool[r].event_list.end(), m_matching_resource_pool[r].erode_event_list.begin(), m_matching_resource_pool[r].erode_event_list.end());
+						}
+						// launch find min kernel
+						simple_cl::cl::Event find_min_kernel_event{(*m_program_find_min)(
+							m_kernel_find_min_masked,
+							m_matching_resource_pool[r].event_list.begin(),
+							m_matching_resource_pool[r].event_list.end(),
+							m_matching_resource_pool[r].find_min_exec_params,
+							(num_feature_batches % 2ull ? *m_matching_resource_pool[r].output_buffer_a : *m_matching_resource_pool[r].output_buffer_b),
+							(erode_texture_mask ? *m_matching_resource_pool[r].output_texture_mask_eroded : *m_texture_mask),
+							*m_matching_resource_pool[r].output_buffer_find_min.buffer,
+							simple_cl::cl::LocalMemory<cl_float4>(m_matching_resource_pool[r].find_min_local_buffer_size),
+							cl_int2{m_matching_resource_pool[r].response_dims.width, m_matching_resource_pool[r].response_dims.height},
+							cl_int2{m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[2]})
+						};
+						m_matching_resource_pool[r].event_list.clear();
+						m_matching_resource_pool[r].event_list.push_back(std::move(find_min_kernel_event));
+					}
 
-				// run kernel for minimum extraction
-				simple_cl::cl::Event find_min_kernel_event{(*m_program_find_min)(
-					m_kernel_find_min_masked,
-					pre_compute_events.begin(),
-					pre_compute_events.end(),
-					find_min_exec_params,
-					(num_batches % 2ull ? *m_output_buffer_a : *m_output_buffer_b),
-					(erode_texture_mask ? *m_output_texture_mask_eroded : *m_texture_mask),
-					*(m_output_buffer_find_min.buffer),
-					simple_cl::cl::LocalMemory<cl_float4>(find_min_local_buffer_size),
-					cl_int2{response_dims.width, response_dims.height},
-					cl_int2{rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]})
-				};
-				pre_compute_events.clear();
-				pre_compute_events.push_back(std::move(find_min_kernel_event));
-				// output result
-				cv::Point result_offset = cv::Point(rotated_kernel_overlaps[0], rotated_kernel_overlaps[2]);
-				read_min_pos_and_cost(match_res_out, pre_compute_events, result_offset);
+					// read output
+					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
+					{
+						MatchingResult match_res_tmp;
+						cv::Point result_offset = cv::Point(m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[2]);
+						read_min_pos_and_cost(match_res_tmp, m_matching_resource_pool[r].event_list, result_offset, m_matching_resource_pool[r]);
+						if(match_res_out.matches[0].match_cost > match_res_tmp.matches[0].match_cost)
+						{
+							match_res_out.matches[0].match_cost = match_res_tmp.matches[0].match_cost;
+							match_res_out.matches[0].match_pos = match_res_tmp.matches[0].match_pos;
+							match_res_out.total_cost_matrix = m_matching_resource_pool[r].sqdiff_result;
+						}
+					}
+				}				
 			}
 
 			inline cv::Vec3i ocl_patch_matching::matching_policies::impl::CLMatcherImpl::response_dimensions(
@@ -2849,8 +3059,26 @@ namespace ocl_patch_matching
 // ----------------------------------------------------------------------- INTERFACE -----------------------------------------------------------------------
 
 // class CLMatcher
-ocl_patch_matching::matching_policies::CLMatcher::CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size, std::size_t constant_kernel_max_pixels, std::size_t local_buffer_max_pixels, ResultOrigin result_origin, bool use_local_mem_for_matching, bool use_local_mem_for_erode) :
-	m_impl(new impl::CLMatcherImpl(device_selection_policy, max_texture_cache_memory, local_block_size, constant_kernel_max_pixels, local_buffer_max_pixels, result_origin, use_local_mem_for_matching, use_local_mem_for_erode))
+ocl_patch_matching::matching_policies::CLMatcher::CLMatcher(
+	DeviceSelectionPolicy device_selection_policy,
+	std::size_t max_texture_cache_memory,
+	std::size_t local_block_size,
+	std::size_t constant_kernel_max_pixels,
+	std::size_t local_buffer_max_pixels,
+	std::size_t max_pipelined_matching_passes,
+	ResultOrigin result_origin,
+	bool use_local_mem_for_matching,
+	bool use_local_mem_for_erode) :
+	m_impl(new impl::CLMatcherImpl(
+		device_selection_policy,
+		max_texture_cache_memory,
+		local_block_size,
+		constant_kernel_max_pixels,
+		local_buffer_max_pixels,
+		max_pipelined_matching_passes,
+		result_origin,
+		use_local_mem_for_matching, 
+		use_local_mem_for_erode))
 {
 }
 
@@ -2882,30 +3110,30 @@ void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(
 	const Texture& texture,
 	const Texture& kernel,
 	const cv::Mat& kernel_mask,
-	double texture_rotation,
+	const std::vector<double>& texture_rotations,
 	MatchingResult& match_res_out)
 {
-	impl()->compute_matches(texture, kernel, kernel_mask, texture_rotation, match_res_out);
+	impl()->compute_matches(texture, kernel, kernel_mask, texture_rotations, match_res_out);
 }
 
 void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(
 	const Texture& texture,
 	const Texture& kernel,
-	double texture_rotation,
+	const std::vector<double>& texture_rotations,
 	MatchingResult& match_res_out)
 {
-	impl()->compute_matches(texture, kernel, texture_rotation, match_res_out);
+	impl()->compute_matches(texture, kernel, texture_rotations, match_res_out);
 }
 
 void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(
 	const Texture& texture,
 	const cv::Mat& texture_mask,
 	const Texture& kernel,
-	double texture_rotation,
+	const std::vector<double>& texture_rotations,
 	MatchingResult& match_res_out,
 	bool erode_texture_mask)
 {
-	impl()->compute_matches(texture, texture_mask, kernel, texture_rotation, match_res_out, erode_texture_mask);
+	impl()->compute_matches(texture, texture_mask, kernel, texture_rotations, match_res_out, erode_texture_mask);
 }
 
 void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(
@@ -2913,11 +3141,11 @@ void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(
 	const cv::Mat& texture_mask,
 	const Texture& kernel,
 	const cv::Mat& kernel_mask,
-	double texture_rotation,
+	const std::vector<double>& texture_rotations,
 	MatchingResult& match_res_out,
 	bool erode_texture_mask)
 {
-	impl()->compute_matches(texture, texture_mask, kernel, kernel_mask, texture_rotation, match_res_out, erode_texture_mask);
+	impl()->compute_matches(texture, texture_mask, kernel, kernel_mask, texture_rotations, match_res_out, erode_texture_mask);
 }
 
 cv::Vec3i ocl_patch_matching::matching_policies::CLMatcher::response_dimensions(

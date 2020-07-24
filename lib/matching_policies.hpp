@@ -26,8 +26,23 @@ namespace ocl_patch_matching
 				Center
 			};
 
-			CLMatcher(DeviceSelectionPolicy device_selection_policy, std::size_t max_texture_cache_memory, std::size_t local_block_size = 16, std::size_t constant_kernel_max_pixels = 50ull, std::size_t local_buffer_max_pixels = 64ull, ResultOrigin result_origin = ResultOrigin::UpperLeftCorner, bool use_local_mem_for_matching = false, bool use_local_mem_for_erode = false);
+			CLMatcher(
+				DeviceSelectionPolicy device_selection_policy,
+				std::size_t max_texture_cache_memory,
+				std::size_t local_block_size = 16,
+				std::size_t constant_kernel_max_pixels = 50ull,
+				std::size_t local_buffer_max_pixels = 64ull,
+				std::size_t max_pipelined_matching_passes = 16ull,
+				ResultOrigin result_origin = ResultOrigin::UpperLeftCorner,
+				bool use_local_mem_for_matching = false,
+				bool use_local_mem_for_erode = false
+			);
 			~CLMatcher() noexcept;
+
+			CLMatcher(const CLMatcher&) = delete;
+			CLMatcher(CLMatcher&&) noexcept = default;
+			CLMatcher& operator=(const CLMatcher&) = delete;
+			CLMatcher& operator=(CLMatcher&&) noexcept = default;
 
 			std::size_t platform_id() const override;
 			std::size_t device_id() const override;
@@ -39,7 +54,7 @@ namespace ocl_patch_matching
 			void compute_matches(
 				const Texture& texture,
 				const Texture& kernel,
-				double texture_rotation,
+				const std::vector<double>& texture_rotations,
 				MatchingResult& match_res_out
 			) override;
 
@@ -47,7 +62,7 @@ namespace ocl_patch_matching
 				const Texture& texture,
 				const cv::Mat& texture_mask,
 				const Texture& kernel,
-				double texture_rotation,
+				const std::vector<double>& texture_rotations,
 				MatchingResult& match_res_out,
 				bool erode_texture_mask = true
 			) override;
@@ -56,7 +71,7 @@ namespace ocl_patch_matching
 				const Texture& texture,
 				const Texture& kernel,
 				const cv::Mat& kernel_mask,
-				double texture_rotation,
+				const std::vector<double>& texture_rotations,
 				MatchingResult& match_res_out
 			) override;
 
@@ -65,7 +80,7 @@ namespace ocl_patch_matching
 				const cv::Mat& texture_mask,
 				const Texture& kernel,
 				const cv::Mat& kernel_mask,
-				double texture_rotation,
+				const std::vector<double>& texture_rotations,
 				MatchingResult& match_res_out,
 				bool erode_texture_mask = true
 			) override;
@@ -98,6 +113,124 @@ namespace ocl_patch_matching
 		template<typename MatcherA, typename MatcherB, typename MatcherSelector>
 		class HybridMatcher : public ocl_patch_matching::MatchingPolicyBase
 		{
+		public:
+			HybridMatcher()
+			{
+
+			}
+
+			~HybridMatcher() noexcept
+			{
+
+			}
+
+			HybridMatcher(const HybridMatcher&) = delete;
+			HybridMatcher(HybridMatcher&&) noexcept = default;
+			HybridMatcher& operator=(const HybridMatcher&) = delete;
+			HybridMatcher& operator=(HybridMatcher&&) noexcept = default;
+
+			std::size_t platform_id() const override 
+			{
+				if(m_matcher_a_instance.uses_opencl())
+					return m_matcher_a_instance.platform_id();
+				else if(m_matcher_b_instance.uses_opencl())
+					return m_matcher_b_instance.platform_id();
+				else
+					return 0ull;
+			};
+
+			std::size_t device_id() const override
+			{
+				if(m_matcher_a_instance.uses_opencl())
+					return m_matcher_a_instance.device_id();
+				else if(m_matcher_b_instance.uses_opencl())
+					return m_matcher_b_instance.device_id();
+				else
+					return 0ull;
+			}
+
+			bool uses_opencl() const override { return m_matcher_a_instance.uses_opencl || m_matcher_b_instance.uses_opencl }
+			
+			void initialize_opencl_state(const std::shared_ptr<simple_cl::cl::Context>& clcontext) override
+			{
+				if(m_matcher_a_instance.uses_opencl())
+					m_matcher_a_instance.initialize_opencl_state(clcontext);
+				if(m_matcher_b_instance.uses_opencl())
+					m_matcher_b_instance.initialize_opencl_state(clcontext);
+			}
+			
+			void cleanup_opencl_state() override
+			{
+				if(m_matcher_a_instance.uses_opencl())
+					m_matcher_a_instance.cleanup_opencl_state();
+				if(m_matcher_b_instance.uses_opencl())
+					m_matcher_b_instance.cleanup_opencl_state();
+			}
+
+			void compute_matches(
+				const Texture& texture,
+				const Texture& kernel,
+				double texture_rotation,
+				MatchingResult& match_res_out
+			) override
+			{
+
+			}
+
+			void compute_matches(
+				const Texture& texture,
+				const cv::Mat& texture_mask,
+				const Texture& kernel,
+				const std::vector<double>& texture_rotations,
+				MatchingResult& match_res_out,
+				bool erode_texture_mask = true
+			) override
+			{
+
+			}
+
+			void compute_matches(
+				const Texture& texture,
+				const Texture& kernel,
+				const cv::Mat& kernel_mask,
+				const std::vector<double>& texture_rotations,
+				MatchingResult& match_res_out
+			) override
+			{
+
+			}
+
+			void compute_matches(
+				const Texture& texture,
+				const cv::Mat& texture_mask,
+				const Texture& kernel,
+				const cv::Mat& kernel_mask,
+				const std::vector<double>& texture_rotations,
+				MatchingResult& match_res_out,
+				bool erode_texture_mask = true
+			) override
+			{
+
+			}
+
+			cv::Vec3i response_dimensions(
+				const Texture& texture,
+				const Texture& kernel,
+				double texture_rotation
+			) const override
+			{
+
+			}
+
+			match_response_cv_mat_t response_image_data_type(
+				const Texture& texture,
+				const Texture& kernel,
+				double texture_rotation
+			) const override
+			{
+
+			}
+
 		private:
 			MatcherA m_matcher_a_instance;
 			MatcherB m_matcher_b_instance;

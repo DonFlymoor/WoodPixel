@@ -73,6 +73,7 @@ TreeMatchGPU::TreeMatchGPU(int min_patch_size, int patch_levels, double patch_qu
 		gpu_matching_options.local_block_size,
 		gpu_matching_options.constant_kernel_max_pixels,
 		gpu_matching_options.max_local_pixels,
+		gpu_matching_options.max_rotations_per_pass,
 		ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::UpperLeftCorner,
 		gpu_matching_options.use_local_mem_for_matching,
 		gpu_matching_options.use_local_mem_for_erode

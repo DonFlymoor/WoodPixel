@@ -39,7 +39,7 @@ int main()
 			new ocl_patch_matching::matching_policies::CLMatcher(
 				ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits,
 				2000000000,
-				16ull, 50ull * 50ull , 1024ull,
+				16ull, 50ull * 50ull , 1024ull, 16ull,
 				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::UpperLeftCorner,
 				false,
 				true

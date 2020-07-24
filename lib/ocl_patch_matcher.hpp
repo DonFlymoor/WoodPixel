@@ -78,10 +78,6 @@ namespace ocl_patch_matching
         virtual void initialize_opencl_state(const std::shared_ptr<simple_cl::cl::Context>&) {}
         virtual void cleanup_opencl_state() {}
 
-        //// matching functions
-        //virtual void compute_matches(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& match_res_out, const std::shared_ptr<simple_cl::cl::Context>&) {}
-        //virtual void find_best_matches(MatchingResult& match_res_out, const std::shared_ptr<simple_cl::cl::Context>&) {}
-
         // calculate response dimensions
         virtual cv::Vec3i response_dimensions(const Texture& texture, const Texture& kernel, double texture_rotation) const = 0;
         // report OpenCV datatype for response mat
@@ -90,36 +86,43 @@ namespace ocl_patch_matching
         virtual void compute_matches(
             const Texture& texture,
             const Texture& kernel,
-            double texture_rotation,
+            const std::vector<double>& texture_rotations,
             MatchingResult& match_res_out
-        ) {};
+        )
+        {};
 
         virtual void compute_matches(
             const Texture& texture,
             const cv::Mat& texture_mask,
             const Texture& kernel,
-            double texture_rotation,
+            const std::vector<double>& texture_rotations,
             MatchingResult& match_res_out,
             bool erode_texture_mask = true
-        ) {};
+        )
+        {
+        };
 
         virtual void compute_matches(
             const Texture& texture,
             const Texture& kernel,
             const cv::Mat& kernel_mask,
-            double texture_rotation,
+            const std::vector<double>& texture_rotations,
             MatchingResult& match_res_out
-        ) {};
+        )
+        {
+        };
 
         virtual void compute_matches(
             const Texture& texture,
             const cv::Mat& texture_mask,
             const Texture& kernel,
             const cv::Mat& kernel_mask,
-            double texture_rotation,
+            const std::vector<double>& texture_rotations,
             MatchingResult& match_res_out,
             bool erode_texture_mask = true
-        ) {};
+        )
+        {
+        };
     };
     MatchingPolicyBase::~MatchingPolicyBase() noexcept { cleanup_opencl_state(); }
 
@@ -136,10 +139,17 @@ namespace ocl_patch_matching
         Matcher& operator=(Matcher&& other) noexcept;
         ~Matcher() noexcept;
 
-        void match(const Texture& texture,const Texture& kernel,double texture_rotation, MatchingResult& result);
+        void match(const Texture& texture, const Texture& kernel, double texture_rotation, MatchingResult& result);
+        void match(const Texture& texture, const Texture& kernel, const std::vector<double>& texture_rotations, MatchingResult& result);
+       
         void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& result, bool erode_texture_mask = true);
+        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const std::vector<double>& texture_rotations, MatchingResult& result, bool erode_texture_mask = true);
+        
         void match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result);
+        void match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, const std::vector<double>& texture_rotations, MatchingResult& result);
+
         void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result, bool erode_texture_mask = true);
+        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, const std::vector<double>& texture_rotations, MatchingResult& result, bool erode_texture_mask = true);
 
        /* void erode(cv::Mat& texture_mask, )*/
         

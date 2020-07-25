@@ -441,39 +441,43 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 
 
 	Texture kernel = m_targets[region.target_index()](region.bounding_box());
-
-	std::vector<MatchPatchResult> results;
-	for(size_t i = 0; i < m_textures.size(); ++i)
-	{
-		for(size_t j = 0; j < m_textures[i].size(); ++j)
-		{
-			results.emplace_back(static_cast<int>(i), static_cast<int>(j));
-		}
-	}
 #ifdef TRLIB_TREE_MATCH_USE_OPENCL
+	std::vector<MatchPatchResult> results;
+
+	for(size_t i = 0; i < m_textures.size(); ++i)
+	{		
+		results.emplace_back(static_cast<int>(i), 0);		
+	}
+	std::vector<double> rotations;
 	for(int i = 0; i < static_cast<int>(results.size()); ++i)
 	{
-		double rotation = m_textures[results[i].texture_index][results[i].texture_rot].angle_rad;
+		rotations.clear();
+		for(std::size_t r = 0; r < m_textures[i].size(); ++r)
+		{
+			rotations.push_back(m_textures[i][r].angle_rad);
+		}
+		
 		cv::Mat texture_mask = m_textures[results[i].texture_index][0].mask();
 		ocl_patch_matching::MatchingResult matching_result;
 		if(cv::countNonZero(texture_mask) > 0)
 		{			
 			if(is_rectangular)
 			{
-				m_cl_matcher.match(m_textures[results[i].texture_index][0], texture_mask, kernel, rotation, matching_result, true);
+				m_cl_matcher.match(m_textures[results[i].texture_index][0], texture_mask, kernel, rotations, matching_result, true);
 			}
 			else
 			{
-				m_cl_matcher.match(m_textures[results[i].texture_index][0], texture_mask, kernel, region.mask(), rotation, matching_result, true);
+				m_cl_matcher.match(m_textures[results[i].texture_index][0], texture_mask, kernel, region.mask(), rotations, matching_result, true);
 			}
 		}
 		results[i].cost = matching_result.matches[0].match_cost;
 		results[i].untransformed_point = matching_result.matches[0].match_pos;
-		auto rotmat = m_textures[results[i].texture_index][results[i].texture_rot].transformation_matrix;
+		auto rotmat = m_textures[results[i].texture_index][matching_result.matches[0].rotation_index].transformation_matrix;
 		results[i].texture_pos = AffineTransformation::transform(rotmat, cv::Point(
 			matching_result.matches[0].match_pos.x,
 			matching_result.matches[0].match_pos.y
 		));
+		results[i].texture_rot = static_cast<int>(matching_result.matches[0].rotation_index);
 	}
 
 	MatchPatchResult result_min = *std::min_element(results.begin(), results.end(), [](const MatchPatchResult& lhs, const MatchPatchResult& rhs) { return lhs.cost < rhs.cost; });	
@@ -490,6 +494,15 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 
 	return patch;
 #else
+	std::vector<MatchPatchResult> results;
+
+	for(size_t i = 0; i < m_textures.size(); ++i)
+	{
+		for(size_t j = 0; j < m_textures[i].size(); ++j)
+		{
+			results.emplace_back(static_cast<int>(i), static_cast<int>(j));
+		}
+	}
 #pragma omp parallel for
 	for(int i = 0; i < static_cast<int>(results.size()); ++i)
 	{

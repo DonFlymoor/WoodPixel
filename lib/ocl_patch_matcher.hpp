@@ -47,6 +47,7 @@ namespace ocl_patch_matching
     struct Match
     {
         cv::Point match_pos;
+        std::size_t rotation_index;
         double match_cost;
     };
 

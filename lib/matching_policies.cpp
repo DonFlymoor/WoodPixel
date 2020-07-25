@@ -1354,7 +1354,7 @@ namespace ocl_patch_matching
 				cl_float4 minimum{*std::min_element(work_group_results.begin(), work_group_results.end(), [](const cl_float4& lhs, const cl_float4& rhs) { return lhs.x < rhs.x; })};
 				// write min position and cost
 				res.matches.clear();
-				res.matches.push_back(Match{cv::Point(static_cast<int>(std::floorf(minimum.z)) + res_coord_offset.x, static_cast<int>(std::floorf(minimum.w)) + res_coord_offset.y), minimum.x});				
+				res.matches.push_back(Match{cv::Point(static_cast<int>(std::floorf(minimum.z)) + res_coord_offset.x, static_cast<int>(std::floorf(minimum.w)) + res_coord_offset.y), 0ull, minimum.x});				
 			}			
 			
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::compute_matches(
@@ -1721,6 +1721,7 @@ namespace ocl_patch_matching
 					// read output
 					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
 					{
+						std::size_t rotation_index{rot_batch * m_max_pipelined_matching_passes + r};
 						MatchingResult match_res_tmp;
 						cv::Point result_offset = cv::Point(m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[2]);
 						read_min_pos_and_cost(match_res_tmp, m_matching_resource_pool[r].event_list, result_offset, m_matching_resource_pool[r]);
@@ -1729,6 +1730,7 @@ namespace ocl_patch_matching
 							match_res_out.matches[0].match_cost = match_res_tmp.matches[0].match_cost;
 							match_res_out.matches[0].match_pos = match_res_tmp.matches[0].match_pos;
 							match_res_out.total_cost_matrix = m_matching_resource_pool[r].sqdiff_result;
+							match_res_out.matches[0].rotation_index = rotation_index;
 						}
 					}
 				}
@@ -2086,6 +2088,7 @@ namespace ocl_patch_matching
 					// read output
 					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
 					{
+						std::size_t rotation_index{rot_batch * m_max_pipelined_matching_passes + r};
 						MatchingResult match_res_tmp;
 						cv::Point result_offset = cv::Point(m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[2]);
 						read_min_pos_and_cost(match_res_tmp, m_matching_resource_pool[r].event_list, result_offset, m_matching_resource_pool[r]);
@@ -2094,6 +2097,7 @@ namespace ocl_patch_matching
 							match_res_out.matches[0].match_cost = match_res_tmp.matches[0].match_cost;
 							match_res_out.matches[0].match_pos = match_res_tmp.matches[0].match_pos;
 							match_res_out.total_cost_matrix = m_matching_resource_pool[r].sqdiff_result;
+							match_res_out.matches[0].rotation_index = rotation_index;
 						}
 					}
 				}
@@ -2532,6 +2536,7 @@ namespace ocl_patch_matching
 					// read output
 					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
 					{
+						std::size_t rotation_index{rot_batch * m_max_pipelined_matching_passes + r};
 						MatchingResult match_res_tmp;
 						cv::Point result_offset = cv::Point(m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[2]);
 						read_min_pos_and_cost(match_res_tmp, m_matching_resource_pool[r].event_list, result_offset, m_matching_resource_pool[r]);
@@ -2540,6 +2545,7 @@ namespace ocl_patch_matching
 							match_res_out.matches[0].match_cost = match_res_tmp.matches[0].match_cost;
 							match_res_out.matches[0].match_pos = match_res_tmp.matches[0].match_pos;
 							match_res_out.total_cost_matrix = m_matching_resource_pool[r].sqdiff_result;
+							match_res_out.matches[0].rotation_index = rotation_index;
 						}
 					}
 				}
@@ -3020,6 +3026,7 @@ namespace ocl_patch_matching
 					// read output
 					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
 					{
+						std::size_t rotation_index{rot_batch * m_max_pipelined_matching_passes + r};
 						MatchingResult match_res_tmp;
 						cv::Point result_offset = cv::Point(m_matching_resource_pool[r].rotated_kernel_overlaps[0], m_matching_resource_pool[r].rotated_kernel_overlaps[2]);
 						read_min_pos_and_cost(match_res_tmp, m_matching_resource_pool[r].event_list, result_offset, m_matching_resource_pool[r]);
@@ -3028,6 +3035,7 @@ namespace ocl_patch_matching
 							match_res_out.matches[0].match_cost = match_res_tmp.matches[0].match_cost;
 							match_res_out.matches[0].match_pos = match_res_tmp.matches[0].match_pos;
 							match_res_out.total_cost_matrix = m_matching_resource_pool[r].sqdiff_result;
+							match_res_out.matches[0].rotation_index = rotation_index;
 						}
 					}
 				}				

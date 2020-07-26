@@ -103,18 +103,14 @@ namespace ocl_patch_matching
 			const impl::CLMatcherImpl* impl() const { return m_impl.get(); }
 		};
 
-		//// Uses OpenCV for template matching
-		//class OpenCVMatcher : public ocl_patch_matching::MatchingPolicyBase
-		//{
-
-		//};
-
 		// Hybrid approach which chooses between two matchers based on the template size
 		template<typename MatcherA, typename MatcherB, typename MatcherSelector>
 		class HybridMatcher : public ocl_patch_matching::MatchingPolicyBase
 		{
 		public:
-			HybridMatcher()
+			HybridMatcher(MatcherA&& matcher_a_instance, MatcherB&& matcher_b_instance) :
+				m_matcher_a_instance(std::move(matcher_a_instance)),
+				m_matcher_b_instance(std::move(m_matcher_b_instance))
 			{
 
 			}
@@ -170,11 +166,14 @@ namespace ocl_patch_matching
 			void compute_matches(
 				const Texture& texture,
 				const Texture& kernel,
-				double texture_rotation,
+				const std::vector<double>& texture_rotations,
 				MatchingResult& match_res_out
 			) override
 			{
-
+				if(MatcherSelector(texture, kernel))
+					m_matcher_a_instance.compute_matches(texture, kernel, texture_rotations, match_res_out);
+				else
+					m_matcher_b_instance.compute_matches(texture, kernel, texture_rotations, match_res_out);
 			}
 
 			void compute_matches(
@@ -186,7 +185,10 @@ namespace ocl_patch_matching
 				bool erode_texture_mask = true
 			) override
 			{
-
+				if(MatcherSelector(texture, kernel))
+					m_matcher_a_instance.compute_matches(texture, texture_mask, kernel, texture_rotations, match_res_out);
+				else
+					m_matcher_b_instance.compute_matches(texture, texture_mask, kernel, texture_rotations, match_res_out);
 			}
 
 			void compute_matches(
@@ -197,7 +199,10 @@ namespace ocl_patch_matching
 				MatchingResult& match_res_out
 			) override
 			{
-
+				if(MatcherSelector(texture, kernel))
+					m_matcher_a_instance.compute_matches(texture, kernel, kernel_mask, texture_rotations, match_res_out);
+				else
+					m_matcher_b_instance.compute_matches(texture, kernel, kernel_mask, texture_rotations, match_res_out);
 			}
 
 			void compute_matches(
@@ -210,7 +215,10 @@ namespace ocl_patch_matching
 				bool erode_texture_mask = true
 			) override
 			{
-
+				if(MatcherSelector(texture, kernel))
+					m_matcher_a_instance.compute_matches(texture, texture_mask, kernel, kernel_mask, texture_rotations, match_res_out);
+				else
+					m_matcher_b_instance.compute_matches(texture, texture_mask, kernel, kernel_mask, texture_rotations, match_res_out);
 			}
 
 			cv::Vec3i response_dimensions(
@@ -219,7 +227,10 @@ namespace ocl_patch_matching
 				double texture_rotation
 			) const override
 			{
-
+				if(MatcherSelector(texture, kernel))
+					m_matcher_a_instance.response_dimensions(texture, kernel, texture_rotation);
+				else
+					m_matcher_b_instance.response_dimensions(texture, kernel, texture_rotation);
 			}
 
 			match_response_cv_mat_t response_image_data_type(
@@ -228,7 +239,10 @@ namespace ocl_patch_matching
 				double texture_rotation
 			) const override
 			{
-
+				if(MatcherSelector(texture, kernel))
+					m_matcher_a_instance.response_image_data_type(texture, kernel, texture_rotation);
+				else
+					m_matcher_b_instance.response_image_data_type(texture, kernel, texture_rotation);
 			}
 
 		private:

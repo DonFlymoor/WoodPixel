@@ -10,13 +10,15 @@ namespace ocl_patch_matching
 		class MatcherImpl
 		{
 		public:
-			MatcherImpl(MatchingPolicyBase* matching_policy) :
+			MatcherImpl(MatchingPolicyBase* matching_policy, Matcher::DeviceSelectionPolicy device_selection_policy) :
 				m_matching_policy(matching_policy),
 				m_context(nullptr)
 			{
 				if(m_matching_policy->uses_opencl())
 				{
-					m_context = simple_cl::cl::Context::createInstance(m_matching_policy->platform_id(), m_matching_policy->device_id());
+					std::size_t plat_id, dev_id;
+					select_platform_and_device(plat_id, dev_id, device_selection_policy);
+					m_context = simple_cl::cl::Context::createInstance(plat_id, dev_id);
 					m_matching_policy->initialize_opencl_state(m_context);
 				}
 			}
@@ -49,6 +51,49 @@ namespace ocl_patch_matching
 				m_matching_policy->compute_matches(texture, texture_mask, kernel, kernel_mask, texture_rotations, result, erode_texture_mask);
 			};
 
+			void select_platform_and_device(std::size_t& platform_idx, std::size_t& device_idx, Matcher::DeviceSelectionPolicy device_selection_policy) const
+			{
+				auto pdevinfo = simple_cl::cl::Context::read_platform_and_device_info();
+				std::size_t plat_idx{0ull};
+				std::size_t dev_idx{0ull};
+
+				if(device_selection_policy == Matcher::DeviceSelectionPolicy::FirstSuitableDevice)
+				{
+					platform_idx = plat_idx;
+					device_idx = dev_idx;
+					return;
+				}
+
+				for(std::size_t p = 0; p < pdevinfo.size(); ++p)
+				{
+					for(std::size_t d = 0; d < pdevinfo[p].devices.size(); ++d)
+					{
+						switch(device_selection_policy)
+						{
+							case Matcher::DeviceSelectionPolicy::MostComputeUnits:
+								if(pdevinfo[p].devices[d].max_compute_units > pdevinfo[plat_idx].devices[dev_idx].max_compute_units)
+								{
+									plat_idx = p;
+									dev_idx = d;
+								}
+								break;
+							case Matcher::DeviceSelectionPolicy::MostGPUThreads:
+								if(pdevinfo[p].devices[d].max_compute_units * pdevinfo[p].devices[d].max_work_group_size > pdevinfo[plat_idx].devices[dev_idx].max_compute_units * pdevinfo[plat_idx].devices[dev_idx].max_work_group_size)
+								{
+									plat_idx = p;
+									dev_idx = d;
+								}
+								break;
+							default:
+								break;
+						}
+					}
+				}
+
+				platform_idx = plat_idx;
+				device_idx = dev_idx;
+			}
+
 		private:
 
 			MatchingPolicyBase* m_matching_policy;
@@ -60,10 +105,9 @@ namespace ocl_patch_matching
 
 // ----------------------------------------- INTERFACE --------------------------------------------------
 
-ocl_patch_matching::Matcher::Matcher(std::unique_ptr<MatchingPolicyBase>&& matching_policy) :
+ocl_patch_matching::Matcher::Matcher(std::unique_ptr<MatchingPolicyBase>&& matching_policy, DeviceSelectionPolicy device_selection_policy) :
 	m_matching_policy(std::move(matching_policy)),
-	m_impl(new impl::MatcherImpl(matching_policy.get()))
-	
+	m_impl(new impl::MatcherImpl(matching_policy.get(), device_selection_policy))	
 {
 }
 

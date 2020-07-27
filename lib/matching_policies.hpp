@@ -13,13 +13,6 @@ namespace ocl_patch_matching
 		class CLMatcher : public ocl_patch_matching::MatchingPolicyBase
 		{
 		public:
-			enum class DeviceSelectionPolicy
-			{
-				MostComputeUnits,
-				MostGPUThreads,
-				FirstSuitableDevice
-			};
-
 			enum class ResultOrigin
 			{
 				UpperLeftCorner,
@@ -27,7 +20,6 @@ namespace ocl_patch_matching
 			};
 
 			CLMatcher(
-				DeviceSelectionPolicy device_selection_policy,
 				std::size_t max_texture_cache_memory,
 				std::size_t local_block_size = 16,
 				std::size_t constant_kernel_max_pixels = 50ull,
@@ -43,9 +35,6 @@ namespace ocl_patch_matching
 			CLMatcher(CLMatcher&&) noexcept = default;
 			CLMatcher& operator=(const CLMatcher&) = delete;
 			CLMatcher& operator=(CLMatcher&&) noexcept = default;
-
-			std::size_t platform_id() const override;
-			std::size_t device_id() const override;
 
 			bool uses_opencl() const override { return true; }
 			void initialize_opencl_state(const std::shared_ptr<simple_cl::cl::Context>& clcontext) override;
@@ -110,7 +99,7 @@ namespace ocl_patch_matching
 		public:
 			HybridMatcher(MatcherA&& matcher_a_instance, MatcherB&& matcher_b_instance) :
 				m_matcher_a_instance(std::move(matcher_a_instance)),
-				m_matcher_b_instance(std::move(m_matcher_b_instance))
+				m_matcher_b_instance(std::move(matcher_b_instance))
 			{
 
 			}
@@ -124,26 +113,6 @@ namespace ocl_patch_matching
 			HybridMatcher(HybridMatcher&&) noexcept = default;
 			HybridMatcher& operator=(const HybridMatcher&) = delete;
 			HybridMatcher& operator=(HybridMatcher&&) noexcept = default;
-
-			std::size_t platform_id() const override 
-			{
-				if(m_matcher_a_instance.uses_opencl())
-					return m_matcher_a_instance.platform_id();
-				else if(m_matcher_b_instance.uses_opencl())
-					return m_matcher_b_instance.platform_id();
-				else
-					return 0ull;
-			};
-
-			std::size_t device_id() const override
-			{
-				if(m_matcher_a_instance.uses_opencl())
-					return m_matcher_a_instance.device_id();
-				else if(m_matcher_b_instance.uses_opencl())
-					return m_matcher_b_instance.device_id();
-				else
-					return 0ull;
-			}
 
 			bool uses_opencl() const override { return m_matcher_a_instance.uses_opencl || m_matcher_b_instance.uses_opencl }
 			

@@ -26,8 +26,7 @@ namespace ocl_patch_matching
 			class CLMatcherImpl
 			{
 			public:
-				CLMatcherImpl(
-					ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy, 
+				CLMatcherImpl( 
 					std::size_t max_texture_cache_memory,
 					std::size_t local_block_size,
 					std::size_t constant_kernel_max_pixels,
@@ -42,9 +41,6 @@ namespace ocl_patch_matching
 				CLMatcherImpl(CLMatcherImpl&&) = delete;
 				CLMatcherImpl& operator=(const CLMatcherImpl&) = delete;
 				CLMatcherImpl& operator=(CLMatcherImpl&&) = delete;
-
-				std::size_t platform_id() const;
-				std::size_t device_id() const;
 
 				void initialize_opencl_state(const std::shared_ptr<simple_cl::cl::Context>& clcontext);
 				void cleanup_opencl_state();
@@ -138,15 +134,8 @@ namespace ocl_patch_matching
 					cv::Size response_dims;
 					simple_cl::cl::Program::ExecParams find_min_exec_params;
 					std::size_t find_min_local_buffer_size;
-
-					//MatchingResourceSet() = default;
-					//MatchingResourceSet(const MatchingResourceSet&) = delete;
-					//MatchingResourceSet(MatchingResourceSet&&) noexcept = default;
-					//MatchingResourceSet& operator=(const MatchingResourceSet&) = delete;
-					//MatchingResourceSet& operator=(MatchingResourceSet&&) noexcept = default;
 				};
 
-				void select_platform_and_device(std::size_t& platform_idx, std::size_t& device_idx) const;
 				static simple_cl::cl::Image::ImageDesc make_input_image_desc(const Texture& input_tex);
 				static simple_cl::cl::Image::ImageDesc make_output_image_desc(const Texture& input_tex, const Texture& kernel_tex, double texture_rotation, const cv::Size& response_dims);
 				static simple_cl::cl::Image::ImageDesc make_kernel_image_desc(const Texture& kernel_tex);
@@ -199,8 +188,6 @@ namespace ocl_patch_matching
 				// ----------------------------- MATCHING OPTIONS ------------------------------------------
 				// specifies result orgin. either upper left corner or center
 				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin m_result_origin;
-				// decide which opencl device to select if there are more than one
-				ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy m_selection_policy;
 				// enable / disable local buffer for matching step
 				bool m_use_local_buffer_for_matching;
 				// enable / disable local buffer for erode step
@@ -491,7 +478,6 @@ namespace ocl_patch_matching
 			// ctors and stuff
 
 			inline ocl_patch_matching::matching_policies::impl::CLMatcherImpl::CLMatcherImpl(
-				ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy device_selection_policy,
 				std::size_t max_texture_cache_memory,
 				std::size_t local_block_size,
 				std::size_t constant_kernel_maxdim,
@@ -500,7 +486,6 @@ namespace ocl_patch_matching
 				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin result_origin,
 				bool use_local_buffer_for_matching,
 				bool use_local_buffer_for_erode) :
-					m_selection_policy(device_selection_policy),
 					m_max_tex_cache_size(max_texture_cache_memory),
 					m_kernel_image{std::vector<std::unique_ptr<simple_cl::cl::Image>>(), 0ull},
 					m_local_block_size{local_block_size},
@@ -522,63 +507,6 @@ namespace ocl_patch_matching
 
 			inline ocl_patch_matching::matching_policies::impl::CLMatcherImpl::~CLMatcherImpl() noexcept
 			{
-			}
-
-			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::select_platform_and_device(std::size_t& platform_idx, std::size_t& device_idx) const
-			{
-				auto pdevinfo = simple_cl::cl::Context::read_platform_and_device_info();
-				std::size_t plat_idx{0ull};
-				std::size_t dev_idx{0ull};
-
-				if(m_selection_policy == ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::FirstSuitableDevice)
-				{
-					platform_idx = plat_idx;
-					device_idx = dev_idx;
-					return;
-				}
-
-				for(std::size_t p = 0; p < pdevinfo.size(); ++p)
-				{
-					for(std::size_t d = 0; d < pdevinfo[p].devices.size(); ++d)
-					{
-						switch(m_selection_policy)
-						{
-							case ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits:
-								if(pdevinfo[p].devices[d].max_compute_units > pdevinfo[plat_idx].devices[dev_idx].max_compute_units) 
-								{ 
-									plat_idx = p;
-									dev_idx = d;
-								}
-								break;
-							case ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostGPUThreads:
-								if(pdevinfo[p].devices[d].max_compute_units * pdevinfo[p].devices[d].max_work_group_size > pdevinfo[plat_idx].devices[dev_idx].max_compute_units * pdevinfo[plat_idx].devices[dev_idx].max_work_group_size)
-								{
-									plat_idx = p;
-									dev_idx = d;
-								}
-								break;
-							default:
-								break;
-						}
-					}
-				}
-
-				platform_idx = plat_idx;
-				device_idx = dev_idx;
-			}
-
-			inline std::size_t ocl_patch_matching::matching_policies::impl::CLMatcherImpl::platform_id() const
-			{
-				std::size_t pidx, didx;
-				select_platform_and_device(pidx, didx);
-				return pidx;
-			}
-
-			inline std::size_t ocl_patch_matching::matching_policies::impl::CLMatcherImpl::device_id() const
-			{
-				std::size_t pidx, didx;
-				select_platform_and_device(pidx, didx);
-				return didx;
 			}
 
 			inline void ocl_patch_matching::matching_policies::impl::CLMatcherImpl::invalidate_input_texture(const std::string& texid)
@@ -3068,7 +2996,6 @@ namespace ocl_patch_matching
 
 // class CLMatcher
 ocl_patch_matching::matching_policies::CLMatcher::CLMatcher(
-	DeviceSelectionPolicy device_selection_policy,
 	std::size_t max_texture_cache_memory,
 	std::size_t local_block_size,
 	std::size_t constant_kernel_max_pixels,
@@ -3078,7 +3005,6 @@ ocl_patch_matching::matching_policies::CLMatcher::CLMatcher(
 	bool use_local_mem_for_matching,
 	bool use_local_mem_for_erode) :
 	m_impl(new impl::CLMatcherImpl(
-		device_selection_policy,
 		max_texture_cache_memory,
 		local_block_size,
 		constant_kernel_max_pixels,
@@ -3092,16 +3018,6 @@ ocl_patch_matching::matching_policies::CLMatcher::CLMatcher(
 
 ocl_patch_matching::matching_policies::CLMatcher::~CLMatcher() noexcept
 {
-}
-
-std::size_t ocl_patch_matching::matching_policies::CLMatcher::platform_id() const
-{
-	return impl()->platform_id();
-}
-
-std::size_t ocl_patch_matching::matching_policies::CLMatcher::device_id() const
-{
-	return impl()->device_id();
 }
 
 void ocl_patch_matching::matching_policies::CLMatcher::initialize_opencl_state(const std::shared_ptr<simple_cl::cl::Context>& clcontext)

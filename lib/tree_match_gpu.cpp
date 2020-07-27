@@ -68,7 +68,6 @@ TreeMatchGPU::TreeMatchGPU(int min_patch_size, int patch_levels, double patch_qu
 	m_subpatch_size(min_patch_size / 4, min_patch_size / 4),
 	m_filter_bank(filter_resolution, frequency_octaves, num_filter_directions),
 	m_cl_matcher(std::unique_ptr<cltm::matching_policies::CLMatcher>(new cltm::matching_policies::CLMatcher(
-		gpu_matching_options.device_selection_policy,
 		gpu_matching_options.max_texture_cache_memory,
 		gpu_matching_options.local_block_size,
 		gpu_matching_options.constant_kernel_max_pixels,
@@ -77,7 +76,7 @@ TreeMatchGPU::TreeMatchGPU(int min_patch_size, int patch_levels, double patch_qu
 		ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::UpperLeftCorner,
 		gpu_matching_options.use_local_mem_for_matching,
 		gpu_matching_options.use_local_mem_for_erode
-	)))
+	)), gpu_matching_options.device_selection_policy)
 #endif
 {
 	cv::Point boundary_size(min_patch_size / 4, min_patch_size / 4);

@@ -1,4 +1,4 @@
-﻿/** \file simple_cl.h
+﻿/** \file simple_cl.hpp
 *	\author Fabian Friederichs
 *
 *	\brief Provides a minimal set of C++ wrappers for basic OpenCL 1.2 facilities like programs, kernels, buffers and images.

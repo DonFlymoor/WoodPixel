@@ -1,4 +1,5 @@
 #define MASK_THRESHOLD 1e-6f
+#define PIXEL_CENTER_OFFSET 0.5f
 // sampler (maybe a constant border color would be better? don't know yet..)
 const sampler_t input_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_LINEAR;
 const sampler_t kernel_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
@@ -22,12 +23,12 @@ __kernel void sqdiff_naive_masked(
 	const int2 kernel_end_idx = kernel_size - kernel_anchor - 1;
 	
 	const float2 input_pivot = (float2)(
-		(float)(input_piv.x + gid_x) + 0.5f,
-		(float)(input_piv.y + gid_y) + 0.5f
+		(float)(input_piv.x + gid_x) + PIXEL_CENTER_OFFSET,
+		(float)(input_piv.y + gid_y) + PIXEL_CENTER_OFFSET
 	);
 	const float2 kernel_pivot = (float2)(
-		(float)kernel_anchor.x + 0.5f,
-		(float)kernel_anchor.y + 0.5f
+		(float)kernel_anchor.x + PIXEL_CENTER_OFFSET,
+		(float)kernel_anchor.y + PIXEL_CENTER_OFFSET
 	);
 	
 	float sqdiff = 0.0f;
@@ -84,12 +85,12 @@ __kernel void sqdiff_naive_masked_nth_pass(
 	const int2 kernel_end_idx = kernel_size - kernel_anchor - 1;
 	
 	const float2 input_pivot = (float2)(
-		(float)(input_piv.x + gid_x) + 0.5f,
-		(float)(input_piv.y + gid_y) + 0.5f
+		(float)(input_piv.x + gid_x) + PIXEL_CENTER_OFFSET,
+		(float)(input_piv.y + gid_y) + PIXEL_CENTER_OFFSET
 	);
 	const float2 kernel_pivot = (float2)(
-		(float)kernel_anchor.x + 0.5f,
-		(float)kernel_anchor.y + 0.5f
+		(float)kernel_anchor.x + PIXEL_CENTER_OFFSET,
+		(float)kernel_anchor.y + PIXEL_CENTER_OFFSET
 	);
 	
 	float sqdiff = 0.0f;
@@ -145,12 +146,12 @@ __kernel void sqdiff_naive(
 	const int2 kernel_end_idx = kernel_size - kernel_anchor - 1;
 	
 	const float2 input_pivot = (float2)(
-		(float)(input_piv.x + gid_x) + 0.5f,
-		(float)(input_piv.y + gid_y) + 0.5f
+		(float)(input_piv.x + gid_x) + PIXEL_CENTER_OFFSET,
+		(float)(input_piv.y + gid_y) + PIXEL_CENTER_OFFSET
 	);
 	const float2 kernel_pivot = (float2)(
-		(float)kernel_anchor.x + 0.5f,
-		(float)kernel_anchor.y + 0.5f
+		(float)kernel_anchor.x + PIXEL_CENTER_OFFSET,
+		(float)kernel_anchor.y + PIXEL_CENTER_OFFSET
 	);
 	
 	float sqdiff = 0.0f;
@@ -202,12 +203,12 @@ __kernel void sqdiff_naive_nth_pass(
 	const int2 kernel_end_idx = kernel_size - kernel_anchor - 1;
 	
 	const float2 input_pivot = (float2)(
-		(float)(input_piv.x + gid_x) + 0.5f,
-		(float)(input_piv.y + gid_y) + 0.5f
+		(float)(input_piv.x + gid_x) + PIXEL_CENTER_OFFSET,
+		(float)(input_piv.y + gid_y) + PIXEL_CENTER_OFFSET
 	);
 	const float2 kernel_pivot = (float2)(
-		(float)kernel_anchor.x + 0.5f,
-		(float)kernel_anchor.y + 0.5f
+		(float)kernel_anchor.x + PIXEL_CENTER_OFFSET,
+		(float)kernel_anchor.y + PIXEL_CENTER_OFFSET
 	);
 	
 	float sqdiff = 0.0f;

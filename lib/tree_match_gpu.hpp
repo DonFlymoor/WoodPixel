@@ -48,6 +48,7 @@ public:
 	{
 		ocl_patch_matching::Matcher::DeviceSelectionPolicy device_selection_policy = ocl_patch_matching::Matcher::DeviceSelectionPolicy::MostComputeUnits;
 		std::size_t max_texture_cache_memory = 536870912ull;
+		std::size_t max_num_kernel_pixels_gpu = 64ull * 64ull;
 		std::size_t local_block_size = 16ull;
 		std::size_t constant_kernel_max_pixels = 50ull * 50ull;
 		std::size_t max_local_pixels = 1024;
@@ -174,6 +175,7 @@ private:
 	// OpenCL Matcher
 #ifdef TRLIB_TREE_MATCH_USE_OPENCL
 	ocl_patch_matching::Matcher m_cl_matcher;
+	std::size_t m_max_num_kernel_pixels_gpu;
 #endif
 };
 

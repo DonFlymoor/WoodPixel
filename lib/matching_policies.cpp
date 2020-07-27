@@ -1324,7 +1324,7 @@ namespace ocl_patch_matching
 				// Get intput image from image cache
 				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
 
-				for(std::size_t rot_batch = 0ull; rot_batch < texture_rotations.size(); rot_batch += m_max_pipelined_matching_passes)
+				for(std::size_t rot_batch = 0ull; rot_batch * m_max_pipelined_matching_passes < texture_rotations.size(); ++rot_batch)
 				{
 					// number of rotations in this batch
 					std::size_t num_batch_rotations{std::min(m_max_pipelined_matching_passes, texture_rotations.size() - rot_batch * m_max_pipelined_matching_passes)};
@@ -1700,7 +1700,7 @@ namespace ocl_patch_matching
 				// Get intput image from image cache
 				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
 
-				for(std::size_t rot_batch = 0ull; rot_batch < texture_rotations.size(); rot_batch += m_max_pipelined_matching_passes)
+				for(std::size_t rot_batch = 0ull; rot_batch * m_max_pipelined_matching_passes < texture_rotations.size(); ++rot_batch)
 				{
 					// number of rotations in this batch
 					std::size_t num_batch_rotations{std::min(m_max_pipelined_matching_passes, texture_rotations.size() - rot_batch * m_max_pipelined_matching_passes)};
@@ -2071,7 +2071,7 @@ namespace ocl_patch_matching
 				// Get intput image from image cache
 				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
 
-				for(std::size_t rot_batch = 0ull; rot_batch < texture_rotations.size(); rot_batch += m_max_pipelined_matching_passes)
+				for(std::size_t rot_batch = 0ull; rot_batch * m_max_pipelined_matching_passes < texture_rotations.size(); ++rot_batch)
 				{
 					// number of rotations in this batch
 					std::size_t num_batch_rotations{std::min(m_max_pipelined_matching_passes, texture_rotations.size() - rot_batch * m_max_pipelined_matching_passes)};
@@ -2523,7 +2523,7 @@ namespace ocl_patch_matching
 				// Get intput image from image cache
 				InputImage& input_image{m_input_images[m_texture_index_map[texture.id]]};
 
-				for(std::size_t rot_batch = 0ull; rot_batch < texture_rotations.size(); rot_batch += m_max_pipelined_matching_passes)
+				for(std::size_t rot_batch = 0ull; rot_batch * m_max_pipelined_matching_passes < texture_rotations.size(); ++rot_batch)
 				{
 					// number of rotations in this batch
 					std::size_t num_batch_rotations{std::min(m_max_pipelined_matching_passes, texture_rotations.size() - rot_batch * m_max_pipelined_matching_passes)};

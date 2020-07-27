@@ -35,6 +35,14 @@ __kernel void find_min_masked(
             // avoid diverging branches
             float selector = mix(step(lhs.y, rhs.y), step(rhs.x, lhs.x), lhs.y * rhs.y) * min(lhs.y + rhs.y, 1.0f);
             local_buffer[local_index] = mix(lhs, rhs, selector);
+            // if(lhs.y > MASK_THRESHOLD && rhs.y > MASK_THRESHOLD)
+            //     local_buffer[local_index] = (lhs.x < rhs.x ? lhs : rhs);
+            // else if(lhs.y > MASK_THRESHOLD)
+            //     local_buffer[local_index] = lhs;
+            // else if(rhs.y > MASK_THRESHOLD)
+            //     local_buffer[local_index] = rhs;
+            // else
+            //     local_buffer[local_index] = lhs;
         }
     }
     // write out result
@@ -71,6 +79,7 @@ __kernel void find_min(
             // avoid diverging branches
             float selector = step(rhs.x, lhs.x);
             local_buffer[local_index] = mix(lhs, rhs, selector);
+            //local_buffer[local_index] = (lhs.x < rhs.x ? lhs : rhs);
         }
     }
     // write out result

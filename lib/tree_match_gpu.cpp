@@ -76,7 +76,8 @@ TreeMatchGPU::TreeMatchGPU(int min_patch_size, int patch_levels, double patch_qu
 		ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::UpperLeftCorner,
 		gpu_matching_options.use_local_mem_for_matching,
 		gpu_matching_options.use_local_mem_for_erode
-	)), gpu_matching_options.device_selection_policy)
+	)), gpu_matching_options.device_selection_policy),
+	m_max_num_kernel_pixels_gpu(gpu_matching_options.max_num_kernel_pixels_gpu)
 #endif
 {
 	cv::Point boundary_size(min_patch_size / 4, min_patch_size / 4);
@@ -252,7 +253,6 @@ cv::Mat TreeMatchGPU::fit_single_patch(const boost::filesystem::path& filename)
 		}
 	}
 
-	// TODO: replace with CL matching
 #pragma omp parallel for
 	for(int i = 0; i < static_cast<int>(results.size()); ++i)
 	{
@@ -441,57 +441,107 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 
 	Texture kernel = m_targets[region.target_index()](region.bounding_box());
 #ifdef TRLIB_TREE_MATCH_USE_OPENCL
-	std::vector<MatchPatchResult> results;
-
-	for(size_t i = 0; i < m_textures.size(); ++i)
-	{		
-		results.emplace_back(static_cast<int>(i), 0);		
-	}
-	std::vector<double> rotations;
-	for(int i = 0; i < static_cast<int>(results.size()); ++i)
+	if(static_cast<std::size_t>(kernel.response.cols()) * static_cast<std::size_t>(kernel.response.rows()) <= m_max_num_kernel_pixels_gpu)
 	{
-		rotations.clear();
-		for(std::size_t r = 0; r < m_textures[i].size(); ++r)
+		std::vector<MatchPatchResult> results;
+
+		for(size_t i = 0; i < m_textures.size(); ++i)
 		{
-			rotations.push_back(m_textures[i][r].angle_rad);
+			results.emplace_back(static_cast<int>(i), 0);
 		}
-		
-		cv::Mat texture_mask = m_textures[results[i].texture_index][0].mask();
-		ocl_patch_matching::MatchingResult matching_result;
-		if(cv::countNonZero(texture_mask) > 0)
-		{			
-			if(is_rectangular)
+		std::vector<double> rotations;
+		for(int i = 0; i < static_cast<int>(results.size()); ++i)
+		{
+			rotations.clear();
+			for(std::size_t r = 0; r < m_textures[i].size(); ++r)
 			{
-				m_cl_matcher.match(m_textures[results[i].texture_index][0], texture_mask, kernel, rotations, matching_result, true);
+				rotations.push_back(m_textures[i][r].angle_rad);
 			}
-			else
-			{
-				m_cl_matcher.match(m_textures[results[i].texture_index][0], texture_mask, kernel, region.mask(), rotations, matching_result, true);
-			}
-		}
-		results[i].cost = matching_result.matches[0].match_cost;
-		results[i].untransformed_point = matching_result.matches[0].match_pos;
-		auto rotmat = m_textures[results[i].texture_index][matching_result.matches[0].rotation_index].transformation_matrix;
-		results[i].texture_pos = AffineTransformation::transform(rotmat, cv::Point(
-			matching_result.matches[0].match_pos.x,
-			matching_result.matches[0].match_pos.y
-		));
-		results[i].texture_rot = static_cast<int>(matching_result.matches[0].rotation_index);
-	}
 
-	MatchPatchResult result_min = *std::min_element(results.begin(), results.end(), [](const MatchPatchResult& lhs, const MatchPatchResult& rhs) { return lhs.cost < rhs.cost; });	
-	
-	if(result_min.cost == std::numeric_limits<double>::max())
+			cv::Mat texture_mask = m_textures[results[i].texture_index][0].mask();
+			ocl_patch_matching::MatchingResult matching_result;
+			if(cv::countNonZero(texture_mask) > 0)
+			{
+				if(is_rectangular)
+				{
+					m_cl_matcher.match(m_textures[results[i].texture_index][0], texture_mask, kernel, rotations, matching_result, true);
+				}
+				else
+				{
+					m_cl_matcher.match(m_textures[results[i].texture_index][0], texture_mask, kernel, region.mask(), rotations, matching_result, true);
+				}
+			}
+			results[i].cost = matching_result.matches[0].match_cost;
+			results[i].untransformed_point = matching_result.matches[0].match_pos;
+			auto rotmat = m_textures[results[i].texture_index][matching_result.matches[0].rotation_index].transformation_matrix;
+			results[i].texture_pos = AffineTransformation::transform(rotmat, cv::Point(
+				matching_result.matches[0].match_pos.x,
+				matching_result.matches[0].match_pos.y
+			));
+			results[i].texture_rot = static_cast<int>(matching_result.matches[0].rotation_index);
+		}
+
+		MatchPatchResult result_min = *std::min_element(results.begin(), results.end(), [](const MatchPatchResult& lhs, const MatchPatchResult& rhs) { return lhs.cost < rhs.cost; });
+
+		if(result_min.cost == std::numeric_limits<double>::max())
+		{
+			std::cout << "Finished. No more texture samples available." << std::endl;
+		}
+
+		const cv::Mat error_mat = m_targets[region.target_index()].response(region.bounding_box()).dist_sqr_mat(m_textures[result_min.texture_index][result_min.texture_rot].response(cv::Rect(result_min.texture_pos, region.bounding_box().size())));
+
+		Patch patch(region, result_min.texture_pos, m_textures[result_min.texture_index][result_min.texture_rot].transformation_matrix, result_min.texture_index, result_min.texture_rot, error_mat, result_min.cost);
+		add_patch(patch);
+
+		return patch;
+	}
+	else
 	{
-		std::cout << "Finished. No more texture samples available." << std::endl;
+		std::vector<MatchPatchResult> results;
+
+		for(size_t i = 0; i < m_textures.size(); ++i)
+		{
+			for(size_t j = 0; j < m_textures[i].size(); ++j)
+			{
+				results.emplace_back(static_cast<int>(i), static_cast<int>(j));
+			}
+		}
+	#pragma omp parallel for
+		for(int i = 0; i < static_cast<int>(results.size()); ++i)
+		{
+			cv::Mat texture_mask;
+			cv::erode(m_textures[results[i].texture_index][results[i].texture_rot].mask(), texture_mask, region.mask(), cv::Point(0, 0), 1, cv::BORDER_CONSTANT, 0);
+			texture_mask = texture_mask(cv::Rect(0, 0, texture_mask.cols - kernel.response.cols() + 1, texture_mask.rows - kernel.response.rows() + 1));
+			// TODO: all of this stuff is going to be replaced by the cl implementation
+			if(cv::countNonZero(texture_mask) > 0)
+			{
+				cv::Mat match;
+				if(is_rectangular)
+				{
+					match = m_textures[results[i].texture_index][results[i].texture_rot].template_match(kernel);
+				}
+				else
+				{
+					match = m_textures[results[i].texture_index][results[i].texture_rot].template_match(kernel, region.mask());
+				}
+				cv::minMaxLoc(match, &results[i].cost, 0, &results[i].texture_pos, 0, texture_mask);
+			}
+		}
+
+		MatchPatchResult result_min = *std::min_element(results.begin(), results.end(), [](const MatchPatchResult& lhs, const MatchPatchResult& rhs) { return lhs.cost < rhs.cost; });
+
+		if(result_min.cost == std::numeric_limits<double>::max())
+		{
+			std::cout << "Finished. No more texture samples available." << std::endl;
+		}
+
+		const cv::Mat error_mat = m_targets[region.target_index()].response(region.bounding_box()).dist_sqr_mat(m_textures[result_min.texture_index][result_min.texture_rot].response(cv::Rect(result_min.texture_pos, region.bounding_box().size())));
+
+		Patch patch(region, result_min.texture_pos, m_textures[result_min.texture_index][result_min.texture_rot].transformation_matrix, result_min.texture_index, result_min.texture_rot, error_mat, result_min.cost);
+		add_patch(patch);
+
+		return patch;
 	}
-
-	const cv::Mat error_mat = m_targets[region.target_index()].response(region.bounding_box()).dist_sqr_mat(m_textures[result_min.texture_index][result_min.texture_rot].response(cv::Rect(result_min.texture_pos, region.bounding_box().size())));
-
-	Patch patch(region, result_min.texture_pos, m_textures[result_min.texture_index][result_min.texture_rot].transformation_matrix, result_min.texture_index, result_min.texture_rot, error_mat, result_min.cost);
-	add_patch(patch);
-
-	return patch;
 #else
 	std::vector<MatchPatchResult> results;
 

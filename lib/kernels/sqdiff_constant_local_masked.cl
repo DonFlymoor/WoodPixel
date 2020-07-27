@@ -1,4 +1,5 @@
 #define MASK_THRESHOLD 1e-6f
+#define PIXEL_CENTER_OFFSET 0.5f
 const sampler_t kernel_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
 
 __kernel void sqdiff_constant_masked(
@@ -28,8 +29,8 @@ __kernel void sqdiff_constant_masked(
 	const int2 kernel_end_idx = kernel_size - kernel_anchor - 1;
 	
 	const float2 input_pivot = (float2)(
-		(float)(input_piv.x + gid_x) + 0.5f,
-		(float)(input_piv.y + gid_y) + 0.5f
+		(float)(input_piv.x + gid_x) + PIXEL_CENTER_OFFSET,
+		(float)(input_piv.y + gid_y) + PIXEL_CENTER_OFFSET
 	);
 
 	// load data into local memory
@@ -41,7 +42,7 @@ __kernel void sqdiff_constant_masked(
 	const int local_buffer_width = ls_x + hl + hr;
 	const int local_buffer_height = ls_y + ht + hb;
 	// for sampling the local buffer in the loop below
-	const float2 local_mem_pivot = (float2)((float)(hl + lid_x) + 0.5f, (float)(ht + lid_y) + 0.5f);
+	const float2 local_mem_pivot = (float2)((float)(hl + lid_x) + PIXEL_CENTER_OFFSET, (float)(ht + lid_y) + PIXEL_CENTER_OFFSET);
 	// load center data
 	image_local_buffer[(ht + lid_y) * local_buffer_width + (hl + lid_x)] = read_imagef(input_tex, kernel_sampler, input_pivot);
 	// load overlap texels
@@ -145,8 +146,8 @@ __kernel void sqdiff_constant_masked_nth_pass(
 	const int2 kernel_end_idx = kernel_size - kernel_anchor - 1;
 	
 	const float2 input_pivot = (float2)(
-		(float)(input_piv.x + gid_x) + 0.5f,
-		(float)(input_piv.y + gid_y) + 0.5f
+		(float)(input_piv.x + gid_x) + PIXEL_CENTER_OFFSET,
+		(float)(input_piv.y + gid_y) + PIXEL_CENTER_OFFSET
 	);
 
 	// load data into local memory
@@ -158,7 +159,7 @@ __kernel void sqdiff_constant_masked_nth_pass(
 	const int local_buffer_width = ls_x + hl + hr;
 	const int local_buffer_height = ls_y + ht + hb;
 	// for sampling the local buffer in the loop below
-	const float2 local_mem_pivot = (float2)((float)(hl + lid_x) + 0.5f, (float)(ht + lid_y) + 0.5f);
+	const float2 local_mem_pivot = (float2)((float)(hl + lid_x) + PIXEL_CENTER_OFFSET, (float)(ht + lid_y) + PIXEL_CENTER_OFFSET);
 	// load center data
 	image_local_buffer[(ht + lid_y) * local_buffer_width + (hl + lid_x)] = read_imagef(input_tex, kernel_sampler, input_pivot);
 	// load overlap texels

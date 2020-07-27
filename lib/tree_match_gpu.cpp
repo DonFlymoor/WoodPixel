@@ -410,7 +410,6 @@ bool TreeMatchGPU::find_next_patch_adaptive()
 	return true;
 }
 
-// TODO: Main part of the work should go here I guess.
 Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 {
 	if(m_textures.empty())
@@ -603,7 +602,7 @@ std::vector<Patch> TreeMatchGPU::match_patch(const PatchRegion& region)
 				throw(std::invalid_argument((boost::format("TreeMatchGPU::match_patch encountered invalid subpatch as input: %d %d %d") %
 					sub_region.target_index() % sub_region.coordinate().x % sub_region.coordinate().y).str()));
 			}
-			// TODO: Stuff
+			
 			sub_patches.push_back(match_patch_impl(sub_region, sub_region.mask()));
 
 			if(!sub_patches.back().region_target.valid())

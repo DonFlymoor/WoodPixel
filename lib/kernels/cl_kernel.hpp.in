@@ -1,8 +1,20 @@
+/** \file kernel_${kernel_name}.hpp
+*	\author Fabian Friederichs
+*
+*	\brief OpenCL kernel sources and headers.
+*/
+
 #ifndef _CL_KERNEL_${kernel_name}_HPP_
 #define _CL_KERNEL_${kernel_name}_HPP_
+/**
+ *	\namespace ocl_patch_matching::matching_policies::impl::kernels
+ * 	\brief	Contains source code and compiler options of the OpenCL kernels.
+ */
 namespace kernels
 {
+	/// OpenCL kernel source
 	const char* ${kernel_name}_src = R"KERNELSOURCE(${kernel_source})KERNELSOURCE";
+	/// OpenCL kernel compiler options
 	const char* ${kernel_name}_copt = R"COMPILEROPT(${kernel_compiler_options})COMPILEROPT";
 }
 #endif

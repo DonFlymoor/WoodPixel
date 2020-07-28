@@ -40,21 +40,28 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "patch.hpp"
 #include "texture.hpp"
 
+/**
+ *	\brief	Variant of the TreeMatch class which provides code paths which uses the new OpenCL matching classes for accelerating the matching process.
+ *	If TRLIB_TREE_MATCH_USE_OPENCL is defined, the OpenCL codepaths are enabled, otherwise it behaves exactly like the old matcher class.
+ */
 class TreeMatchGPU
 {
 public:
 #ifdef TRLIB_TREE_MATCH_USE_OPENCL
+	/**
+	 *	\brief	Packs options for the OpenCL template matching code path.
+	*/
 	struct GPUMatchingOptions
 	{
-		ocl_patch_matching::Matcher::DeviceSelectionPolicy device_selection_policy = ocl_patch_matching::Matcher::DeviceSelectionPolicy::MostComputeUnits;
-		std::size_t max_texture_cache_memory = 536870912ull;
-		std::size_t max_num_kernel_pixels_gpu = 64ull * 64ull;
-		std::size_t local_block_size = 16ull;
-		std::size_t constant_kernel_max_pixels = 50ull * 50ull;
-		std::size_t max_local_pixels = 1024;
-		std::size_t max_rotations_per_pass = 16ull;
-		bool use_local_mem_for_matching = false;
-		bool use_local_mem_for_erode = true;
+		ocl_patch_matching::Matcher::DeviceSelectionPolicy device_selection_policy = ocl_patch_matching::Matcher::DeviceSelectionPolicy::MostComputeUnits; ///< Specifies how to choose the GPU device if there are more than one.
+		std::size_t max_texture_cache_memory = 536870912ull;	///< Maximum GPU memory to use for caching input textures. Currently ignored.
+		std::size_t max_num_kernel_pixels_gpu = 64ull * 64ull;	///< Maximum number of pixels in a kernel for which the OpenCL matching variant is applied.
+		std::size_t local_block_size = 16ull;					///< Local work group size (total work group size in number of processing elements is this quantity squared!).
+		std::size_t constant_kernel_max_pixels = 50ull * 50ull; ///< Maximum number of kernel pixels for which the constant buffer optimization shall be used.
+		std::size_t max_local_pixels = 1024;					///< Maximum number of image window pixels for which the local (shared) memory optimization shall be used.
+		std::size_t max_rotations_per_pass = 16ull;				///< Batch size for the processing of input texture rotations. Higher numbers keep the GPU busy but consume more memory.
+		bool use_local_mem_for_matching = false;				///< Enables / disables the local memory optimization.
+		bool use_local_mem_for_erode = true;					///< Enables / disables the local memory optimization for the erode step applied to the texture mask.
 	};
 #endif
 #ifdef TRLIB_TREE_MATCH_USE_OPENCL

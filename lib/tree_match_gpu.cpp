@@ -51,6 +51,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "texture.hpp"
 #include "timer.hpp"
 
+#ifndef TRLIB_MATCHING_NUM_THREADS
+#define TRLIB_MATCHING_NUM_THREADS omp_get_max_threads()
+#define TRLIB_OMP_MATCH_THREADS
+#else
+#define TRLIB_OMP_DISABLE_DYNAMIC
+#define TRLIB_OMP_MATCH_THREADS num_threads(TRLIB_MATCHING_NUM_THREADS)
+#endif
+
+
+
 #define PI 3.14159265359
 
 namespace fs = boost::filesystem;
@@ -412,6 +422,9 @@ bool TreeMatchGPU::find_next_patch_adaptive()
 
 Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 {
+#ifdef TRLIB_RECORD_MATCHING_PERFORMANCE_DATA
+	std::ofstream perfrecfile("trlib_matching_performance_data.csv", std::ios_base::binary | std::ios_base::app | std::ios_base::out);
+#endif
 	if(m_textures.empty())
 	{
 		throw(std::invalid_argument("TreeMatchGPU::match_patch_impl called but no textures supplied."));
@@ -449,6 +462,9 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 			results.emplace_back(static_cast<int>(i), 0);
 		}
 		std::vector<double> rotations;
+	#ifdef TRLIB_RECORD_MATCHING_PERFORMANCE_DATA
+		auto t1 = std::chrono::high_resolution_clock::now();
+	#endif
 		for(int i = 0; i < static_cast<int>(results.size()); ++i)
 		{
 			rotations.clear();
@@ -482,6 +498,19 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 
 		MatchPatchResult result_min = *std::min_element(results.begin(), results.end(), [](const MatchPatchResult& lhs, const MatchPatchResult& rhs) { return lhs.cost < rhs.cost; });
 
+#ifdef TRLIB_RECORD_MATCHING_PERFORMANCE_DATA
+		auto musecs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - t1).count();
+		perfrecfile <<
+			"gpu" << ", " <<
+			"1" << ", " <<
+			std::to_string(kernel.response.cols()) << ", " <<
+			std::to_string(kernel.response.rows()) << ", " <<
+			std::to_string(cv::countNonZero(region.mask())) << ", " <<
+			std::to_string(m_textures[result_min.texture_index][0].response.cols()) << ", " <<
+			std::to_string(m_textures[result_min.texture_index][0].response.rows()) << ", " <<
+			std::to_string(musecs) << std::endl;
+#endif
+
 		if(result_min.cost == std::numeric_limits<double>::max())
 		{
 			std::cout << "Finished. No more texture samples available." << std::endl;
@@ -491,7 +520,6 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 
 		Patch patch(region, result_min.texture_pos, m_textures[result_min.texture_index][result_min.texture_rot].transformation_matrix, result_min.texture_index, result_min.texture_rot, error_mat, result_min.cost);
 		add_patch(patch);
-
 		return patch;
 	}
 	else
@@ -505,7 +533,13 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 				results.emplace_back(static_cast<int>(i), static_cast<int>(j));
 			}
 		}
-	#pragma omp parallel for
+	#ifdef TRLIB_RECORD_MATCHING_PERFORMANCE_DATA
+		auto t1 = std::chrono::high_resolution_clock::now();
+	#endif
+	#ifdef TRLIB_OMP_DISABLE_DYNAMIC
+		omp_set_dynamic(false);
+	#endif
+		#pragma omp parallel for TRLIB_OMP_MATCH_THREADS
 		for(int i = 0; i < static_cast<int>(results.size()); ++i)
 		{
 			cv::Mat texture_mask;
@@ -526,8 +560,24 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 				cv::minMaxLoc(match, &results[i].cost, 0, &results[i].texture_pos, 0, texture_mask);
 			}
 		}
+	#ifdef TRLIB_OMP_DISABLE_DYNAMIC
+		omp_set_dynamic(true);
+	#endif
 
 		MatchPatchResult result_min = *std::min_element(results.begin(), results.end(), [](const MatchPatchResult& lhs, const MatchPatchResult& rhs) { return lhs.cost < rhs.cost; });
+
+#ifdef TRLIB_RECORD_MATCHING_PERFORMANCE_DATA
+		auto musecs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - t1).count();
+		perfrecfile <<
+			"cpu" << ", " <<
+			std::to_string(TRLIB_MATCHING_NUM_THREADS) << ", " <<
+			std::to_string(kernel.response.cols()) << ", " <<
+			std::to_string(kernel.response.rows()) << ", " <<
+			std::to_string(cv::countNonZero(region.mask())) << ", " <<
+			std::to_string(m_textures[result_min.texture_index][result_min.texture_rot].response.cols()) << ", " <<
+			std::to_string(m_textures[result_min.texture_index][result_min.texture_rot].response.rows()) << ", " <<
+			std::to_string(musecs) << std::endl;
+#endif
 
 		if(result_min.cost == std::numeric_limits<double>::max())
 		{
@@ -551,7 +601,13 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 			results.emplace_back(static_cast<int>(i), static_cast<int>(j));
 		}
 	}
-#pragma omp parallel for
+#ifdef TRLIB_RECORD_MATCHING_PERFORMANCE_DATA
+	auto t1 = std::chrono::high_resolution_clock::now();
+#endif
+#ifdef TRLIB_OMP_DISABLE_DYNAMIC
+	omp_set_dynamic(false);
+#endif
+#pragma omp parallel for TRLIB_OMP_MATCH_THREADS
 	for(int i = 0; i < static_cast<int>(results.size()); ++i)
 	{
 		cv::Mat texture_mask;
@@ -572,8 +628,24 @@ Patch TreeMatchGPU::match_patch_impl(const PatchRegion& region, cv::Mat mask)
 			cv::minMaxLoc(match, &results[i].cost, 0, &results[i].texture_pos, 0, texture_mask);
 		}
 	}
+#ifdef TRLIB_OMP_DISABLE_DYNAMIC
+	omp_set_dynamic(true);
+#endif
 
 	MatchPatchResult result_min = *std::min_element(results.begin(), results.end(), [](const MatchPatchResult& lhs, const MatchPatchResult& rhs) { return lhs.cost < rhs.cost; });
+
+#ifdef TRLIB_RECORD_MATCHING_PERFORMANCE_DATA
+	auto musecs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - t1).count();
+	perfrecfile <<
+		"cpu" << ", " <<
+		std::to_string(TRLIB_MATCHING_NUM_THREADS) << ", " <<
+		std::to_string(kernel.response.cols()) << ", " <<
+		std::to_string(kernel.response.rows()) << ", " <<
+		std::to_string(cv::countNonZero(region.mask())) << ", " <<
+		std::to_string(m_textures[result_min.texture_index][result_min.texture_rot].response.cols()) << ", " <<
+		std::to_string(m_textures[result_min.texture_index][result_min.texture_rot].response.rows()) << ", " <<
+		std::to_string(musecs) << std::endl;
+#endif
 
 	if(result_min.cost == std::numeric_limits<double>::max())
 	{

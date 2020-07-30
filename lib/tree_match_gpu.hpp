@@ -57,9 +57,9 @@ public:
 		std::size_t max_texture_cache_memory = 536870912ull;	///< Maximum GPU memory to use for caching input textures. Currently ignored.
 		std::size_t max_num_kernel_pixels_gpu = 64ull * 64ull;	///< Maximum number of pixels in a kernel for which the OpenCL matching variant is applied.
 		std::size_t local_block_size = 16ull;					///< Local work group size (total work group size in number of processing elements is this quantity squared!).
-		std::size_t constant_kernel_max_pixels = 50ull * 50ull; ///< Maximum number of kernel pixels for which the constant buffer optimization shall be used.
-		std::size_t max_local_pixels = 1024;					///< Maximum number of image window pixels for which the local (shared) memory optimization shall be used.
-		std::size_t max_rotations_per_pass = 16ull;				///< Batch size for the processing of input texture rotations. Higher numbers keep the GPU busy but consume more memory.
+		std::size_t constant_kernel_max_pixels = 500 * 500ull;	///< Maximum number of kernel pixels for which the constant buffer optimization shall be used.
+		std::size_t max_local_pixels = 4096ull;					///< Maximum number of image window pixels for which the local (shared) memory optimization shall be used.
+		std::size_t max_rotations_per_pass = 1ull;				///< Batch size for the processing of input texture rotations. Higher numbers keep the GPU busy but consume more memory.
 		bool use_local_mem_for_matching = false;				///< Enables / disables the local memory optimization.
 		bool use_local_mem_for_erode = true;					///< Enables / disables the local memory optimization for the erode step applied to the texture mask.
 	};

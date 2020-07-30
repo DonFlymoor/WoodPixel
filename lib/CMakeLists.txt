@@ -93,6 +93,7 @@ SET(SRC
 
 SET(trlib_enable_opencl_template_matching OFF CACHE BOOL "Enables or disables opencl patch matching features.")
 SET(trlib_record_matching_performance_data OFF CACHE BOOL "Enables or disables performance data output.")
+SET(trlib_record_matching_num_threads 0 CACHE STRING "Maximum number of threads for CPU matching.")
 if(${trlib_enable_opencl_template_matching})
 	list(APPEND SRC
 		ocl_patch_matcher.hpp
@@ -128,4 +129,4 @@ if(${trlib_record_matching_performance_data})
 	TARGET_COMPILE_DEFINITIONS(${LIB_NAME} PUBLIC TRLIB_RECORD_MATCHING_PERFORMANCE_DATA)
 endif()
 
-TARGET_COMPILE_DEFINITIONS(${LIB_NAME} PRIVATE TRLIB_MATCHING_NUM_THREADS=16)
+TARGET_COMPILE_DEFINITIONS(${LIB_NAME} PRIVATE TRLIB_MATCHING_NUM_THREADS=${trlib_record_matching_num_threads})

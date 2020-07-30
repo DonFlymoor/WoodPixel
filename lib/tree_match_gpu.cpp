@@ -55,8 +55,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #define TRLIB_MATCHING_NUM_THREADS omp_get_max_threads()
 #define TRLIB_OMP_MATCH_THREADS
 #else
+#if TRLIB_MATCHING_NUM_THREADS == 0
+#undef TRLIB_MATCHING_NUM_THREADS
+#define TRLIB_MATCHING_NUM_THREADS omp_get_max_threads()
+#define TRLIB_OMP_MATCH_THREADS num_threads(TRLIB_MATCHING_NUM_THREADS)
+#else
 #define TRLIB_OMP_DISABLE_DYNAMIC
 #define TRLIB_OMP_MATCH_THREADS num_threads(TRLIB_MATCHING_NUM_THREADS)
+#endif
 #endif
 
 
@@ -65,9 +71,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 namespace fs = boost::filesystem;
 namespace pt = boost::property_tree;
+#ifdef TRLIB_TREE_MATCH_USE_OPENCL
 namespace cltm = ocl_patch_matching;
+#endif
 
-#ifdef TRLIB_TREE_MATCHING_USE_OPENCL
+#ifndef TRLIB_TREE_MATCH_USE_OPENCL
 TreeMatchGPU::TreeMatchGPU(int min_patch_size, int patch_levels, double patch_quality_factor, int filter_resolution, double frequency_octaves, int num_filter_directions) :
 	m_patch_quality_factor(patch_quality_factor),
 	m_subpatch_size(min_patch_size / 4, min_patch_size / 4),

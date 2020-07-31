@@ -74,7 +74,7 @@ __kernel void sqdiff_constant(
 	{
 		float sqdiff = 0.0f;
 		float4 diff;
-		float2 cdelta = (float2)(0.0f);
+		//float2 cdelta = (float2)(0.0f);
 		float2 local_mem_coord;
 		//float4 image_val;
 		// index variables for interpolation
@@ -83,15 +83,21 @@ __kernel void sqdiff_constant(
 		//float a, b;
 		
 		// iterate over kernel area
+
+		// columns of the rotation matrix
+		const float2 r0 = (float2)(rotation_sincos.y, rotation_sincos.x);
+		const float2 r1 = (float2)(-rotation_sincos.x, rotation_sincos.y);
+
 		for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 		{
 			for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
 			{
-				cdelta = (float2)((float)dx, (float)dy);
+				// cdelta = (float2)((float)dx, (float)dy);
 				
 				// calculate image coord (applies rotation around current texel!)
-				local_mem_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + local_mem_pivot.x;
-				local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
+				// local_mem_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + local_mem_pivot.x;
+				// local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
+				local_mem_coord = (float)dx * r0 + (float)dy * r1 + local_mem_pivot;
 				
 				// manual bilinear interpolation
 				// i0 = clamp((int)floor(local_mem_coord.x - 0.5f), 0, local_buffer_width - 1);
@@ -186,7 +192,7 @@ __kernel void sqdiff_constant_nth_pass(
 	{
 		float sqdiff = 0.0f;
 		float4 diff;
-		float2 cdelta = (float2)(0.0f);
+		//float2 cdelta = (float2)(0.0f);
 		float2 local_mem_coord;		
 		// index variables for interpolation
 		//int i0, j0, i1, j1;
@@ -196,15 +202,18 @@ __kernel void sqdiff_constant_nth_pass(
 		//float4 image_val;
 		
 		// iterate over kernel area
+
+		// columns of the rotation matrix
+		const float2 r0 = (float2)(rotation_sincos.y, rotation_sincos.x);
+		const float2 r1 = (float2)(-rotation_sincos.x, rotation_sincos.y);
+
 		for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 		{
 			for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
-			{
-				cdelta = (float2)((float)dx, (float)dy);
-				
+			{				
 				// calculate image coord (applies rotation around current texel!)
-				local_mem_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + local_mem_pivot.x;
-				local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
+				local_mem_coord = (float)dx * r0 + (float)dy * r1 + local_mem_pivot;
+
 				// manual bilinear interpolation (this is pretty expensive!)
 				
 				// i0 = clamp((int)floor(local_mem_coord.x - 0.5f), 0, local_buffer_width - 1);

@@ -30,20 +30,26 @@ __kernel void sqdiff_constant_masked(
 	
 	float sqdiff = 0.0f;
 	float4 diff;
-	float2 cdelta = (float2)(0.0f);
+	//float2 cdelta = (float2)(0.0f);
 	float2 image_coord;
 	
 	// iterate over kernel area
 	int kernel_pix_idx;
+
+	// columns of the rotation matrix
+	const float2 r0 = (float2)(rotation_sincos.y, rotation_sincos.x);
+	const float2 r1 = (float2)(-rotation_sincos.x, rotation_sincos.y);
+
 	for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 	{
 		for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
 		{
-			cdelta = (float2)((float)dx, (float)dy);
+			//cdelta = (float2)((float)dx, (float)dy);
 			
 			// calculate image coord (applies rotation around current texel!)
-			image_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + input_pivot.x;
-			image_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + input_pivot.y;
+			// image_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + input_pivot.x;
+			// image_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + input_pivot.y;
+			image_coord = (float)dx * r0 + (float)dy * r1 + input_pivot;
 
 			// squared difference
 			kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx);
@@ -86,23 +92,29 @@ __kernel void sqdiff_constant_masked_nth_pass(
 	
 	float sqdiff = 0.0f;
 	float4 diff;
-	float2 cdelta = (float2)(0.0f);
+	//float2 cdelta = (float2)(0.0f);
 	float2 image_coord;
 	
 	// iterate over kernel area
 	int kernel_pix_idx;
+
+	// columns of the rotation matrix
+	const float2 r0 = (float2)(rotation_sincos.y, rotation_sincos.x);
+	const float2 r1 = (float2)(-rotation_sincos.x, rotation_sincos.y);
+
 	for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 	{
 		for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
 		{
-			cdelta = (float2)((float)dx, (float)dy);
+			//cdelta = (float2)((float)dx, (float)dy);
 			
 			// calculate image coord (applies rotation around current texel!)
-			image_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + input_pivot.x;
-			image_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + input_pivot.y;
+			// image_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + input_pivot.x;
+			// image_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + input_pivot.y;
+			image_coord = (float)dx * r0 + (float)dy * r1 + input_pivot;
 
 			// squared difference
-			kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx) + kernel_offset;
+			kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx);
 			if(kernel_mask[kernel_pix_idx] > MASK_THRESHOLD)
 			{
 				diff = read_imagef(input_tex, input_sampler, image_coord) - kernel_tex[kernel_pix_idx];
@@ -140,20 +152,22 @@ __kernel void sqdiff_constant(
 	
 	float sqdiff = 0.0f;
 	float4 diff;
-	float2 cdelta = (float2)(0.0f);
+	//float2 cdelta = (float2)(0.0f);
 	float2 image_coord;
 	
 	// iterate over kernel area
 	int kernel_pix_idx;
+
+	// columns of the rotation matrix
+	const float2 r0 = (float2)(rotation_sincos.y, rotation_sincos.x);
+	const float2 r1 = (float2)(-rotation_sincos.x, rotation_sincos.y);
+
 	for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 	{
 		for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
-		{
-			cdelta = (float2)((float)dx, (float)dy);
-			
+		{			
 			// calculate image coord (applies rotation around current texel!)
-			image_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + input_pivot.x;
-			image_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + input_pivot.y;
+			image_coord = (float)dx * r0 + (float)dy * r1 + input_pivot;
 
 			// squared difference
 			kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx);
@@ -192,23 +206,27 @@ __kernel void sqdiff_constant_nth_pass(
 	
 	float sqdiff = 0.0f;
 	float4 diff;
-	float2 cdelta = (float2)(0.0f);
+	//float2 cdelta = (float2)(0.0f);
 	float2 image_coord;
 	
 	// iterate over kernel area
 	int kernel_pix_idx;
+
+	// columns of the rotation matrix
+	const float2 r0 = (float2)(rotation_sincos.y, rotation_sincos.x);
+	const float2 r1 = (float2)(-rotation_sincos.x, rotation_sincos.y);
+
 	for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 	{
 		for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
 		{
-			cdelta = (float2)((float)dx, (float)dy);
+			//cdelta = (float2)((float)dx, (float)dy);
 			
 			// calculate image coord (applies rotation around current texel!)
-			image_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + input_pivot.x;
-			image_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + input_pivot.y;
+			image_coord = (float)dx * r0 + (float)dy * r1 + input_pivot;
 
 			// squared difference
-			kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx) + kernel_offset;
+			kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx);
 			diff = read_imagef(input_tex, input_sampler, image_coord) - kernel_tex[kernel_pix_idx];
 			sqdiff += dot(diff, diff);
 		}

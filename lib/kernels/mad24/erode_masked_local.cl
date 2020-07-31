@@ -84,9 +84,9 @@ __kernel void erode_constant_local(
 			{
 				// calculate image coord (applies rotation around current texel!)
 				local_mem_coord = (float)dx * r0 + (float)dy * r1 + local_mem_pivot;
-				if(kernel_tex[(kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx)] > MASK_THRESHOLD) // no divergence because kernel values are the same for every thread
+				if(kernel_tex[mad24((kernel_anchor.y + dy), kernel_size.x, (kernel_anchor.x + dx))] > MASK_THRESHOLD) // no divergence because kernel values are the same for every thread
 				{
-					float image_val = step(MASK_THRESHOLD, local_buffer[(int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x)]);			
+					float image_val = step(MASK_THRESHOLD, local_buffer[mad24((int)floor(local_mem_coord.y), local_buffer_width, (int)floor(local_mem_coord.x))]);			
 					minval = min(minval, image_val);
 				}
 			}

@@ -37,14 +37,13 @@ int main()
 	ocl_patch_matching::Matcher matcher(
 		std::unique_ptr<ocl_patch_matching::matching_policies::CLMatcher>(
 			new ocl_patch_matching::matching_policies::CLMatcher(
-				ocl_patch_matching::matching_policies::CLMatcher::DeviceSelectionPolicy::MostComputeUnits,
 				2000000000,
-				16ull, 50ull * 50ull , 1024ull, 16ull,
+				16ull, 500ull * 500ull , 4096ull, 16ull,
 				ocl_patch_matching::matching_policies::CLMatcher::ResultOrigin::UpperLeftCorner,
-				false,
+				true,
 				true
 			)
-		));
+		), ocl_patch_matching::Matcher::DeviceSelectionPolicy::MostComputeUnits);
 
 	/*double scale = 0.1666;
 	cv::Mat texture_mask{cv::imread("img/furnier_texture_mask.png", CV_LOAD_IMAGE_GRAYSCALE)};

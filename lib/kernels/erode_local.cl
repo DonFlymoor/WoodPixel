@@ -69,22 +69,20 @@ __kernel void erode_local(
 	if(gid_x < output_size.x && gid_y < output_size.y)
 	{
 		float minval = 1.0f;
-		float2 cdelta = (float2)(0.0f);
 		// iterate over kernel area
-		int local_buffer_idx;
 		float2 local_mem_coord;
+
+		// columns of the rotation matrix
+		const float2 r0 = (float2)(rotation_sincos.y, rotation_sincos.x);
+		const float2 r1 = (float2)(-rotation_sincos.x, rotation_sincos.y);
+
 		for(int dy = kernel_start_idx.y; dy != kernel_end_idx.y; ++dy)
 		{
 			for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
 			{
-				cdelta = (float2)((float)dx, (float)dy);
-				
 				// calculate image coord (applies rotation around current texel!)
-				local_mem_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + local_mem_pivot.x;
-				local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
-				local_buffer_idx = (int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x);
-				
-				float image_val = step(MASK_THRESHOLD, local_buffer[local_buffer_idx]);			
+				local_mem_coord = (float)dx * r0 + (float)dy * r1 + local_mem_pivot;				
+				float image_val = step(MASK_THRESHOLD, local_buffer[(int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x)]);			
 				minval = min(minval, image_val);				
 			}
 		}

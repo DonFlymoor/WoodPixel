@@ -94,7 +94,7 @@ __kernel void sqdiff_constant_masked(
 			for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
 			{
 				//cdelta = (float2)((float)dx, (float)dy);
-				kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx);
+				kernel_pix_idx = mad24((kernel_anchor.y + dy), kernel_size.x, (kernel_anchor.x + dx));
 				if(kernel_mask[kernel_pix_idx] > MASK_THRESHOLD)
 				{
 					// calculate image coord (applies rotation around current texel!)
@@ -218,7 +218,7 @@ __kernel void sqdiff_constant_masked_nth_pass(
 			{
 				//cdelta = (float2)((float)dx, (float)dy);
 				// squared difference
-				kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx);
+				kernel_pix_idx = mad24((kernel_anchor.y + dy), kernel_size.x, (kernel_anchor.x + dx));
 				if(kernel_mask[kernel_pix_idx] > MASK_THRESHOLD)
 				{
 					// // calculate image coord (applies rotation around current texel!)

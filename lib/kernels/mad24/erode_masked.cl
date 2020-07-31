@@ -86,7 +86,7 @@ __kernel void erode_constant(
 		for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
 		{
 			// squared difference
-			if(kernel_tex[(kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx)] > MASK_THRESHOLD) // no divergence because kernel values are the same for every thread
+			if(kernel_tex[mad24((kernel_anchor.y + dy), kernel_size.x, (kernel_anchor.x + dx))] > MASK_THRESHOLD) // no divergence because kernel values are the same for every thread
 			{
 				// calculate image coord (applies rotation around current texel!)
 				image_coord = (float)dx * r0 + (float)dy * r1 + input_pivot;		

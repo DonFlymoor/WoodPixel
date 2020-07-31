@@ -68,8 +68,8 @@ namespace ocl_patch_matching
         inline virtual ~MatchingPolicyBase() noexcept = 0;
 
         /**
-         *  /brief  Override and return true if the implementation requires an OpenCL context.
-         *  /return Returns false if not overridden.
+         *  \brief  Override and return true if the implementation requires an OpenCL context.
+         *  \return Returns false if not overridden.
         */
         virtual bool uses_opencl() const { return false; }
         /**

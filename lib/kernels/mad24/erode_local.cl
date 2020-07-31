@@ -2,9 +2,8 @@
 
 const sampler_t mask_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
 
-__kernel void erode_constant_local(
+__kernel void erode_local(
 	__read_only image2d_t input_tex,
-	__constant float* kernel_tex,
 	__write_only image2d_t response_tex,
 	__local float* local_buffer,
 	int2 input_size,
@@ -67,7 +66,6 @@ __kernel void erode_constant_local(
 
 	// synchronize all local buffer writes
 	barrier(CLK_LOCAL_MEM_FENCE);
-
 	if(gid_x < output_size.x && gid_y < output_size.y)
 	{
 		float minval = 1.0f;
@@ -83,12 +81,9 @@ __kernel void erode_constant_local(
 			for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
 			{
 				// calculate image coord (applies rotation around current texel!)
-				local_mem_coord = (float)dx * r0 + (float)dy * r1 + local_mem_pivot;
-				if(kernel_tex[(kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx)] > MASK_THRESHOLD) // no divergence because kernel values are the same for every thread
-				{
-					float image_val = step(MASK_THRESHOLD, local_buffer[(int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x)]);			
-					minval = min(minval, image_val);
-				}
+				local_mem_coord = (float)dx * r0 + (float)dy * r1 + local_mem_pivot;				
+				float image_val = step(MASK_THRESHOLD, local_buffer[mad24((int)floor(local_mem_coord.y), local_buffer_width, (int)floor(local_mem_coord.x))]);			
+				minval = min(minval, image_val);				
 			}
 		}
 		// write result

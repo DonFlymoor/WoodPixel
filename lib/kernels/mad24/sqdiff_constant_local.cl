@@ -1,12 +1,12 @@
 #define MASK_THRESHOLD 1e-6f
 #define PIXEL_CENTER_OFFSET 0.5f
+// sampler (maybe a constant border color would be better? don't know yet..)
 const sampler_t kernel_sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
 
-__kernel void sqdiff_constant_masked(
+__kernel void sqdiff_constant(
 	__read_only image2d_t input_tex,
 	__local float4* image_local_buffer,
 	__constant float4* kernel_tex,
-	__constant float* kernel_mask,
 	__write_only image2d_t response_tex,
 	int2 input_size,
 	int2 output_size,
@@ -41,6 +41,7 @@ __kernel void sqdiff_constant_masked(
 	const int hb = kernel_overlaps.w;	// overlap bottom
 	const int local_buffer_width = ls_x + hl + hr;
 	const int local_buffer_height = ls_y + ht + hb;
+
 	// for sampling the local buffer in the loop below
 	const float2 local_mem_pivot = (float2)((float)(hl + lid_x) + PIXEL_CENTER_OFFSET, (float)(ht + lid_y) + PIXEL_CENTER_OFFSET);
 	// load center data
@@ -75,15 +76,13 @@ __kernel void sqdiff_constant_masked(
 		float4 diff;
 		//float2 cdelta = (float2)(0.0f);
 		float2 local_mem_coord;
+		//float4 image_val;
 		// index variables for interpolation
 		//int i0, j0, i1, j1;
 		// interpolation coefficients
 		//float a, b;
-		// interpolated image value
-		//float4 image_val;
 		
 		// iterate over kernel area
-		int kernel_pix_idx;
 
 		// columns of the rotation matrix
 		const float2 r0 = (float2)(rotation_sincos.y, rotation_sincos.x);
@@ -93,28 +92,26 @@ __kernel void sqdiff_constant_masked(
 		{
 			for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
 			{
-				//cdelta = (float2)((float)dx, (float)dy);
-				kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx);
-				if(kernel_mask[kernel_pix_idx] > MASK_THRESHOLD)
-				{
-					// calculate image coord (applies rotation around current texel!)
-					// local_mem_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + local_mem_pivot.x;
-					// local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
-					local_mem_coord = (float)dx * r0 + (float)dy * r1 + local_mem_pivot;
-					// manual bilinear interpolation
-					// i0 = clamp((int)floor(local_mem_coord.x - 0.5f), 0, local_buffer_width - 1);
-					// j0 = clamp((int)floor(local_mem_coord.y - 0.5f), 0, local_buffer_height - 1);
-					// i1 = clamp((int)floor(local_mem_coord.x - 0.5f + 1), 0, local_buffer_width - 1);
-					// j1 = clamp((int)floor(local_mem_coord.y - 0.5f + 1), 0, local_buffer_height - 1);
-					// a = local_mem_coord.x - 0.5f - floor(local_mem_coord.x - 0.5f);
-					// b = local_mem_coord.y - 0.5f - floor(local_mem_coord.y - 0.5f);
-					// image_val = mix(mix(image_local_buffer[j0 * local_buffer_width + i0], image_local_buffer[j0 * local_buffer_width + i1], a),
-					// 				mix(image_local_buffer[j1 * local_buffer_width + i0], image_local_buffer[j1 * local_buffer_width + i1], a), b);
-					// squared difference
-					
-					diff = image_local_buffer[(int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x)] - kernel_tex[kernel_pix_idx];
-					sqdiff += dot(diff, diff);
-				}
+				// cdelta = (float2)((float)dx, (float)dy);
+				
+				// calculate image coord (applies rotation around current texel!)
+				// local_mem_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + local_mem_pivot.x;
+				// local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
+				local_mem_coord = (float)dx * r0 + (float)dy * r1 + local_mem_pivot;
+				
+				// manual bilinear interpolation
+				// i0 = clamp((int)floor(local_mem_coord.x - 0.5f), 0, local_buffer_width - 1);
+				// j0 = clamp((int)floor(local_mem_coord.y - 0.5f), 0, local_buffer_height - 1);
+				// i1 = clamp((int)floor(local_mem_coord.x - 0.5f + 1), 0, local_buffer_width - 1);
+				// j1 = clamp((int)floor(local_mem_coord.y - 0.5f + 1), 0, local_buffer_height - 1);
+				// a = local_mem_coord.x - 0.5f - floor(local_mem_coord.x - 0.5f);
+				// b = local_mem_coord.y - 0.5f - floor(local_mem_coord.y - 0.5f);
+				// image_val = mix(mix(image_local_buffer[j0 * local_buffer_width + i0], image_local_buffer[j0 * local_buffer_width + i1], a),
+				// 				mix(image_local_buffer[j1 * local_buffer_width + i0], image_local_buffer[j1 * local_buffer_width + i1], a), b);
+
+				// squared difference		
+				diff = image_local_buffer[(int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x)] - kernel_tex[mad24((kernel_anchor.y + dy), kernel_size.x, (kernel_anchor.x + dx))];
+				sqdiff += dot(diff, diff);			
 			}
 		}
 		
@@ -123,11 +120,10 @@ __kernel void sqdiff_constant_masked(
 	}
 }
 
-__kernel void sqdiff_constant_masked_nth_pass(
+__kernel void sqdiff_constant_nth_pass(
 	__read_only image2d_t input_tex,
 	__local float4* image_local_buffer,
 	__constant float4* kernel_tex,
-	__constant float* kernel_mask,
 	__read_only image2d_t prev_response_tex,
 	__write_only image2d_t response_tex,
 	int2 input_size,
@@ -197,7 +193,7 @@ __kernel void sqdiff_constant_masked_nth_pass(
 		float sqdiff = 0.0f;
 		float4 diff;
 		//float2 cdelta = (float2)(0.0f);
-		float2 local_mem_coord;
+		float2 local_mem_coord;		
 		// index variables for interpolation
 		//int i0, j0, i1, j1;
 		// interpolation coefficients
@@ -206,7 +202,6 @@ __kernel void sqdiff_constant_masked_nth_pass(
 		//float4 image_val;
 		
 		// iterate over kernel area
-		int kernel_pix_idx;
 
 		// columns of the rotation matrix
 		const float2 r0 = (float2)(rotation_sincos.y, rotation_sincos.x);
@@ -217,31 +212,29 @@ __kernel void sqdiff_constant_masked_nth_pass(
 			for(int dx = kernel_start_idx.x; dx != kernel_end_idx.x; ++dx)
 			{
 				//cdelta = (float2)((float)dx, (float)dy);
-				// squared difference
-				kernel_pix_idx = (kernel_anchor.y + dy) * kernel_size.x + (kernel_anchor.x + dx);
-				if(kernel_mask[kernel_pix_idx] > MASK_THRESHOLD)
-				{
-					// // calculate image coord (applies rotation around current texel!)
-					// local_mem_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + local_mem_pivot.x;
-					// local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
-					local_mem_coord = (float)dx * r0 + (float)dy * r1 + local_mem_pivot;
-					// // manual bilinear interpolation
-					// i0 = clamp((int)floor(local_mem_coord.x - 0.5f), 0, local_buffer_width - 1);
-					// j0 = clamp((int)floor(local_mem_coord.y - 0.5f), 0, local_buffer_height - 1);
-					// i1 = clamp((int)floor(local_mem_coord.x - 0.5f + 1), 0, local_buffer_width - 1);
-					// j1 = clamp((int)floor(local_mem_coord.y - 0.5f + 1), 0, local_buffer_height - 1);
-					// a = local_mem_coord.x - 0.5f - floor(local_mem_coord.x - 0.5f);
-					// b = local_mem_coord.y - 0.5f - floor(local_mem_coord.y - 0.5f);
-					// image_val = mix(mix(image_local_buffer[j0 * local_buffer_width + i0], image_local_buffer[j0 * local_buffer_width + i1], a),
-					// 				mix(image_local_buffer[j1 * local_buffer_width + i0], image_local_buffer[j1 * local_buffer_width + i1], a), b);
+				
+				// calculate image coord (applies rotation around current texel!)
+				// local_mem_coord.x = rotation_sincos.y * cdelta.x - rotation_sincos.x * cdelta.y + local_mem_pivot.x;
+				// local_mem_coord.y = rotation_sincos.x * cdelta.x + rotation_sincos.y * cdelta.y + local_mem_pivot.y;
+				local_mem_coord = (float)dx * r0 + (float)dy * r1 + local_mem_pivot;
 
-					// nearest neighbour sampling					
-					diff = image_local_buffer[(int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x)] - kernel_tex[kernel_pix_idx];
-					sqdiff += dot(diff, diff);
-				}
+				// manual bilinear interpolation (this is pretty expensive!)
+				
+				// i0 = clamp((int)floor(local_mem_coord.x - 0.5f), 0, local_buffer_width - 1);
+				// j0 = clamp((int)floor(local_mem_coord.y - 0.5f), 0, local_buffer_height - 1);
+				// i1 = clamp((int)floor(local_mem_coord.x - 0.5f + 1), 0, local_buffer_width - 1);
+				// j1 = clamp((int)floor(local_mem_coord.y - 0.5f + 1), 0, local_buffer_height - 1);
+				// a = local_mem_coord.x - 0.5f - floor(local_mem_coord.x - 0.5f);
+				// b = local_mem_coord.y - 0.5f - floor(local_mem_coord.y - 0.5f);
+				// image_val = mix(mix(image_local_buffer[j0 * local_buffer_width + i0], image_local_buffer[j0 * local_buffer_width + i1], a),
+				// 				mix(image_local_buffer[j1 * local_buffer_width + i0], image_local_buffer[j1 * local_buffer_width + i1], a), b);
+
+				// squared difference	
+				diff = image_local_buffer[(int)floor(local_mem_coord.y) * local_buffer_width + (int)floor(local_mem_coord.x)] - kernel_tex[mad24((kernel_anchor.y + dy), kernel_size.x, (kernel_anchor.x + dx))];
+				sqdiff += dot(diff, diff);			
 			}
 		}
-		
+
 		// write result
 		int2 out_coord = (int2)(gid_x, gid_y);
 		write_imagef(response_tex, out_coord, (float4)(sqdiff, 0.0f, 0.0f, 0.0f) + read_imagef(prev_response_tex, kernel_sampler, out_coord));

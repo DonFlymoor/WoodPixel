@@ -105,13 +105,15 @@ namespace ocl_patch_matching
          *  \param texture              Input texture.
          *  \param kernel               Kernel or template to be searched for in texture.
          *  \param texture_rotations    Input texture rotations to try.
-         *  \param[out] match_res_out   Result of the matching pass.     
+         *  \param[out] match_res_out   Result of the matching pass.
+         *  \param return_cost_matrix   The full cost matrix the best match was found in is returned if this is true, otherwise only the matching position and rotation will be reported.
         */
         virtual void compute_matches(
             const Texture& texture,
             const Texture& kernel,
             const std::vector<double>& texture_rotations,
-            MatchingResult& match_res_out
+            MatchingResult& match_res_out,
+            bool return_cost_matrix = false
         )
         {};
 
@@ -125,6 +127,7 @@ namespace ocl_patch_matching
          *  \param texture_rotations    Input texture rotations to try.
          *  \param[out] match_res_out   Result of the matching pass
          *  \param erode_texture_mask   If true, the texture mask is eroded with the kernel's bounding box as structuring element before use.
+         *  \param return_cost_matrix   The full cost matrix the best match was found in is returned if this is true, otherwise only the matching position and rotation will be reported.
         */
         virtual void compute_matches(
             const Texture& texture,
@@ -132,7 +135,8 @@ namespace ocl_patch_matching
             const Texture& kernel,
             const std::vector<double>& texture_rotations,
             MatchingResult& match_res_out,
-            bool erode_texture_mask = true
+            bool erode_texture_mask = true,
+            bool return_cost_matrix = false
         )
         {
         };
@@ -146,13 +150,15 @@ namespace ocl_patch_matching
          *  \param kernel_mask          Kernel mask. Must be a grayscale (single channel!) image of the same dimension as kernel.
          *  \param texture_rotations    Input texture rotations to try.
          *  \param[out] match_res_out   Result of the matching pass
+         *  \param return_cost_matrix   The full cost matrix the best match was found in is returned if this is true, otherwise only the matching position and rotation will be reported.
         */
         virtual void compute_matches(
             const Texture& texture,
             const Texture& kernel,
             const cv::Mat& kernel_mask,
             const std::vector<double>& texture_rotations,
-            MatchingResult& match_res_out
+            MatchingResult& match_res_out,
+            bool return_cost_matrix = false
         )
         {
         };
@@ -169,6 +175,7 @@ namespace ocl_patch_matching
          *  \param texture_rotations    Input texture rotations to try.
          *  \param[out] match_res_out   Result of the matching pass
          *  \param erode_texture_mask   If true, the texture mask is eroded with the kernel mask as structuring element before use.
+         *  \param return_cost_matrix   The full cost matrix the best match was found in is returned if this is true, otherwise only the matching position and rotation will be reported.
         */
         virtual void compute_matches(
             const Texture& texture,
@@ -177,7 +184,8 @@ namespace ocl_patch_matching
             const cv::Mat& kernel_mask,
             const std::vector<double>& texture_rotations,
             MatchingResult& match_res_out,
-            bool erode_texture_mask = true
+            bool erode_texture_mask = true,
+            bool return_cost_matrix = false
         )
         {
         };
@@ -226,8 +234,9 @@ namespace ocl_patch_matching
          *  \param kernel               Kernel or template to be searched for in texture.
          *  \param texture_rotation     Input texture rotation.
          *  \param[out] match_res_out   Result of the matching pass.
+         *  \param return_cost_matrix   The full cost matrix the best match was found in is returned if this is true, otherwise only the matching position and rotation will be reported.
         */
-        void match(const Texture& texture, const Texture& kernel, double texture_rotation, MatchingResult& result);
+        void match(const Texture& texture, const Texture& kernel, double texture_rotation, MatchingResult& result, bool return_cost_matrix = false);
         
         /**
          *  \brief                      Performs one matching pass given texture, kernel and a number of rotations.
@@ -235,8 +244,9 @@ namespace ocl_patch_matching
          *  \param kernel               Kernel or template to be searched for in texture.
          *  \param texture_rotations    Input texture rotations to try.
          *  \param[out] match_res_out   Result of the matching pass.
+         *  \param return_cost_matrix   The full cost matrix the best match was found in is returned if this is true, otherwise only the matching position and rotation will be reported.
         */
-        void match(const Texture& texture, const Texture& kernel, const std::vector<double>& texture_rotations, MatchingResult& result);
+        void match(const Texture& texture, const Texture& kernel, const std::vector<double>& texture_rotations, MatchingResult& result, bool return_cost_matrix = false);
        
        /**
          *  \brief                      Performs one matching pass given texture, kernel and texture rotation. Possible matches are masked using texture_mask.
@@ -248,8 +258,9 @@ namespace ocl_patch_matching
          *  \param texture_rotation    Input texture rotation.
          *  \param[out] match_res_out   Result of the matching pass
          *  \param erode_texture_mask   If true, the texture mask is eroded with the kernel's bounding box as structuring element before use.
+         *  \param return_cost_matrix   The full cost matrix the best match was found in is returned if this is true, otherwise only the matching position and rotation will be reported.
         */
-        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& result, bool erode_texture_mask = true);
+        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& result, bool erode_texture_mask = true, bool return_cost_matrix = false);
         
          /**
          *  \brief                      Performs one matching pass given texture, kernel and a number of rotations. Possible matches are masked using texture_mask.
@@ -261,8 +272,9 @@ namespace ocl_patch_matching
          *  \param texture_rotations    Input texture rotations to try.
          *  \param[out] match_res_out   Result of the matching pass
          *  \param erode_texture_mask   If true, the texture mask is eroded with the kernel's bounding box as structuring element before use.
+         *  \param return_cost_matrix   The full cost matrix the best match was found in is returned if this is true, otherwise only the matching position and rotation will be reported.
         */
-        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const std::vector<double>& texture_rotations, MatchingResult& result, bool erode_texture_mask = true);
+        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const std::vector<double>& texture_rotations, MatchingResult& result, bool erode_texture_mask = true, bool return_cost_matrix = false);
         
         /**
          *  \brief                      Performs one matching pass given texture, kernel and texture rotations. Possible matches are masked using texture_mask.
@@ -274,8 +286,9 @@ namespace ocl_patch_matching
          *  \param texture_rotation     Input texture rotation.
          *  \param[out] match_res_out   Result of the matching pass
          *  \param erode_texture_mask   If true, the texture mask is eroded with the kernel's bounding box as structuring element before use.
+         *  \param return_cost_matrix   The full cost matrix the best match was found in is returned if this is true, otherwise only the matching position and rotation will be reported.
         */
-        void match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result);
+        void match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result, bool return_cost_matrix = false);
 
        /**
          *  \brief                      Performs one matching pass given texture, kernel and a number of rotations. The kernel is masked using kernel_mask.
@@ -286,8 +299,9 @@ namespace ocl_patch_matching
          *  \param kernel_mask          Kernel mask. Must be a grayscale (single channel!) image of the same dimension as kernel.
          *  \param texture_rotations    Input texture rotations to try.
          *  \param[out] match_res_out   Result of the matching pass
+         *  \param return_cost_matrix   The full cost matrix the best match was found in is returned if this is true, otherwise only the matching position and rotation will be reported.
         */
-        void match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, const std::vector<double>& texture_rotations, MatchingResult& result);
+        void match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, const std::vector<double>& texture_rotations, MatchingResult& result, bool return_cost_matrix = false);
 
         /**
          *  \brief                      Performs one matching pass given texture, kernel and texture rotation. Possible matches are masked using texture_mask and the kernel is masked using kernel_mask.
@@ -301,8 +315,9 @@ namespace ocl_patch_matching
          *  \param texture_rotation     Input texture rotation.
          *  \param[out] match_res_out   Result of the matching pass
          *  \param erode_texture_mask   If true, the texture mask is eroded with the kernel mask as structuring element before use.
+         *  \param return_cost_matrix   The full cost matrix the best match was found in is returned if this is true, otherwise only the matching position and rotation will be reported.
         */
-        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result, bool erode_texture_mask = true);
+        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result, bool erode_texture_mask = true, bool return_cost_matrix = false);
 
         /**
          *  \brief                      Performs one matching pass given texture, kernel and a number of rotations. Possible matches are masked using texture_mask and the kernel is masked using kernel_mask.
@@ -316,8 +331,9 @@ namespace ocl_patch_matching
          *  \param texture_rotations    Input texture rotations to try.
          *  \param[out] match_res_out   Result of the matching pass
          *  \param erode_texture_mask   If true, the texture mask is eroded with the kernel mask as structuring element before use.
+         *  \param return_cost_matrix   The full cost matrix the best match was found in is returned if this is true, otherwise only the matching position and rotation will be reported.
         */
-        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, const std::vector<double>& texture_rotations, MatchingResult& result, bool erode_texture_mask = true);
+        void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, const std::vector<double>& texture_rotations, MatchingResult& result, bool erode_texture_mask = true, bool return_cost_matrix = false);
         
         /**
          *  \brief Returns a reference to the concrete matching policy instance.

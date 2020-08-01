@@ -27,28 +27,28 @@ namespace ocl_patch_matching
 			{
 			}
 
-			void match(const Texture& texture, const Texture& kernel, const std::vector<double>& texture_rotations, MatchingResult& result)
+			void match(const Texture& texture, const Texture& kernel, const std::vector<double>& texture_rotations, MatchingResult& result, bool return_cost_matrix)
 			{				
 				// calculate response
-				m_matching_policy->compute_matches(texture, kernel, texture_rotations, result);			
+				m_matching_policy->compute_matches(texture, kernel, texture_rotations, result, return_cost_matrix);
 			};
 
-			void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const std::vector<double>& texture_rotations, MatchingResult& result, bool erode_texture_mask)
+			void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const std::vector<double>& texture_rotations, MatchingResult& result, bool erode_texture_mask, bool return_cost_matrix)
 			{
 				// calculate response
-				m_matching_policy->compute_matches(texture, texture_mask, kernel, texture_rotations, result, erode_texture_mask);
+				m_matching_policy->compute_matches(texture, texture_mask, kernel, texture_rotations, result, erode_texture_mask, return_cost_matrix);
 			};
 
-			void match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, const std::vector<double>& texture_rotations, MatchingResult& result)
+			void match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, const std::vector<double>& texture_rotations, MatchingResult& result, bool return_cost_matrix)
 			{
 				// calculate response
-				m_matching_policy->compute_matches(texture, kernel, kernel_mask, texture_rotations, result);
+				m_matching_policy->compute_matches(texture, kernel, kernel_mask, texture_rotations, result, return_cost_matrix);
 			};
 
-			void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, const std::vector<double>& texture_rotations, MatchingResult& result, bool erode_texture_mask)
+			void match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, const std::vector<double>& texture_rotations, MatchingResult& result, bool erode_texture_mask, bool return_cost_matrix)
 			{
 				// calculate response
-				m_matching_policy->compute_matches(texture, texture_mask, kernel, kernel_mask, texture_rotations, result, erode_texture_mask);
+				m_matching_policy->compute_matches(texture, texture_mask, kernel, kernel_mask, texture_rotations, result, erode_texture_mask, return_cost_matrix);
 			};
 
 			void select_platform_and_device(std::size_t& platform_idx, std::size_t& device_idx, Matcher::DeviceSelectionPolicy device_selection_policy) const
@@ -131,50 +131,50 @@ ocl_patch_matching::Matcher::~Matcher() noexcept
 {
 }
 
-void ocl_patch_matching::Matcher::match(const Texture& texture, const Texture& kernel, const std::vector<double>& texture_rotations, MatchingResult& result)
+void ocl_patch_matching::Matcher::match(const Texture& texture, const Texture& kernel, const std::vector<double>& texture_rotations, MatchingResult& result, bool return_cost_matrix)
 {
-	impl()->match(texture, kernel, texture_rotations, result);
+	impl()->match(texture, kernel, texture_rotations, result, return_cost_matrix);
 }
 
-void ocl_patch_matching::Matcher::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const std::vector<double>& texture_rotations, MatchingResult& result, bool erode_texture_mask)
+void ocl_patch_matching::Matcher::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const std::vector<double>& texture_rotations, MatchingResult& result, bool erode_texture_mask, bool return_cost_matrix)
 {
-	impl()->match(texture, texture_mask, kernel, texture_rotations, result, erode_texture_mask);
+	impl()->match(texture, texture_mask, kernel, texture_rotations, result, erode_texture_mask, return_cost_matrix);
 }
 
-void ocl_patch_matching::Matcher::match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, const std::vector<double>& texture_rotations, MatchingResult& result)
+void ocl_patch_matching::Matcher::match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, const std::vector<double>& texture_rotations, MatchingResult& result, bool return_cost_matrix)
 {
-	impl()->match(texture, kernel, kernel_mask, texture_rotations, result);
+	impl()->match(texture, kernel, kernel_mask, texture_rotations, result, return_cost_matrix);
 }
 
-void ocl_patch_matching::Matcher::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, const std::vector<double>& texture_rotations, MatchingResult& result, bool erode_texture_mask)
+void ocl_patch_matching::Matcher::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, const std::vector<double>& texture_rotations, MatchingResult& result, bool erode_texture_mask, bool return_cost_matrix)
 {
-	impl()->match(texture, texture_mask, kernel, kernel_mask, texture_rotations, result, erode_texture_mask);
+	impl()->match(texture, texture_mask, kernel, kernel_mask, texture_rotations, result, erode_texture_mask, return_cost_matrix);
 }
 
-void ocl_patch_matching::Matcher::match(const Texture& texture, const Texture& kernel, double texture_rotation, MatchingResult& result)
+void ocl_patch_matching::Matcher::match(const Texture& texture, const Texture& kernel, double texture_rotation, MatchingResult& result, bool return_cost_matrix)
 {
 	static std::vector<double> rots(1, 0.0);
 	rots[0] = texture_rotation;
-	impl()->match(texture, kernel, rots, result);
+	impl()->match(texture, kernel, rots, result, return_cost_matrix);
 }
 
-void ocl_patch_matching::Matcher::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& result, bool erode_texture_mask)
+void ocl_patch_matching::Matcher::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, double texture_rotation, MatchingResult& result, bool erode_texture_mask, bool return_cost_matrix)
 {
 	static std::vector<double> rots(1, 0.0);
 	rots[0] = texture_rotation;
-	impl()->match(texture, texture_mask, kernel, rots, result, erode_texture_mask);
+	impl()->match(texture, texture_mask, kernel, rots, result, erode_texture_mask, return_cost_matrix);
 }
 
-void ocl_patch_matching::Matcher::match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result)
+void ocl_patch_matching::Matcher::match(const Texture& texture, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result, bool return_cost_matrix)
 {
 	static std::vector<double> rots(1, 0.0);
 	rots[0] = texture_rotation;
-	impl()->match(texture, kernel, kernel_mask, rots, result);
+	impl()->match(texture, kernel, kernel_mask, rots, result, return_cost_matrix);
 }
 
-void ocl_patch_matching::Matcher::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result, bool erode_texture_mask)
+void ocl_patch_matching::Matcher::match(const Texture& texture, const cv::Mat& texture_mask, const Texture& kernel, const cv::Mat& kernel_mask, double texture_rotation, MatchingResult& result, bool erode_texture_mask, bool return_cost_matrix)
 {
 	static std::vector<double> rots(1, 0.0);
 	rots[0] = texture_rotation;
-	impl()->match(texture, texture_mask, kernel, kernel_mask, rots, result, erode_texture_mask);
+	impl()->match(texture, texture_mask, kernel, kernel_mask, rots, result, erode_texture_mask, return_cost_matrix);
 }

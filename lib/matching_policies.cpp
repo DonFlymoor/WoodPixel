@@ -57,7 +57,8 @@ namespace ocl_patch_matching
 					const Texture& texture,
 					const Texture& kernel,
 					const std::vector<double>& texture_rotations,
-					MatchingResult& match_res_out
+					MatchingResult& match_res_out,
+					bool return_cost_matrix
 				);
 
 				void compute_matches(
@@ -65,7 +66,8 @@ namespace ocl_patch_matching
 					const Texture& kernel,
 					const cv::Mat& kernel_mask,
 					const std::vector<double>& texture_rotations,
-					MatchingResult& match_res_out
+					MatchingResult& match_res_out,
+					bool return_cost_matrix
 				);
 
 				void compute_matches(
@@ -74,7 +76,8 @@ namespace ocl_patch_matching
 					const Texture& kernel,
 					const std::vector<double>& texture_rotations,
 					MatchingResult& match_res_out,
-					bool erode_texture_mask
+					bool erode_texture_mask,
+					bool return_cost_matrix
 				);
 
 				void compute_matches(
@@ -84,7 +87,8 @@ namespace ocl_patch_matching
 					const cv::Mat& kernel_mask,
 					const std::vector<double>& texture_rotations,
 					MatchingResult& match_res_out,
-					bool erode_texture_mask
+					bool erode_texture_mask,
+					bool return_cost_matrix
 				);
 
 				cv::Vec3i response_dimensions(
@@ -1400,7 +1404,8 @@ namespace ocl_patch_matching
 				const Texture& kernel,
 				const cv::Mat& kernel_mask,
 				const std::vector<double>& texture_rotations,
-				MatchingResult& match_res_out)
+				MatchingResult& match_res_out,
+				bool return_cost_matrix)
 			{
 				// global event list
 				static std::vector<simple_cl::cl::Event> global_events;
@@ -1738,9 +1743,12 @@ namespace ocl_patch_matching
 					// read output and launch find min kernels
 					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
 					{
-						simple_cl::cl::Event response_finished_event{read_output_image(m_matching_resource_pool[r].sqdiff_result, m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r].event_list, num_feature_batches % 2ull, m_matching_resource_pool[r])};
-						m_matching_resource_pool[r].event_list.clear();
-						m_matching_resource_pool[r].event_list.push_back(std::move(response_finished_event));
+						if(return_cost_matrix)
+						{
+							simple_cl::cl::Event response_finished_event{read_output_image(m_matching_resource_pool[r].sqdiff_result, m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r].event_list, num_feature_batches % 2ull, m_matching_resource_pool[r])};
+							m_matching_resource_pool[r].event_list.clear();
+							m_matching_resource_pool[r].event_list.push_back(std::move(response_finished_event));
+						}
 						// launch find min kernel
 						simple_cl::cl::Event find_min_kernel_event{(*m_program_find_min)(
 							m_kernel_find_min,
@@ -1778,7 +1786,8 @@ namespace ocl_patch_matching
 				const Texture& texture,
 				const Texture& kernel,
 				const std::vector<double>& texture_rotations,
-				MatchingResult& match_res_out)
+				MatchingResult& match_res_out,
+				bool return_cost_matrix)
 			{
 				// global event list
 				static std::vector<simple_cl::cl::Event> global_events;
@@ -2105,9 +2114,12 @@ namespace ocl_patch_matching
 					// read output and launch find min kernels
 					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
 					{
-						simple_cl::cl::Event response_finished_event{read_output_image(m_matching_resource_pool[r].sqdiff_result, m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r].event_list, num_feature_batches % 2ull, m_matching_resource_pool[r])};
-						m_matching_resource_pool[r].event_list.clear();
-						m_matching_resource_pool[r].event_list.push_back(std::move(response_finished_event));
+						if(return_cost_matrix)
+						{
+							simple_cl::cl::Event response_finished_event{read_output_image(m_matching_resource_pool[r].sqdiff_result, m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r].event_list, num_feature_batches % 2ull, m_matching_resource_pool[r])};
+							m_matching_resource_pool[r].event_list.clear();
+							m_matching_resource_pool[r].event_list.push_back(std::move(response_finished_event));
+						}
 						// launch find min kernel
 						simple_cl::cl::Event find_min_kernel_event{(*m_program_find_min)(
 							m_kernel_find_min,
@@ -2147,7 +2159,8 @@ namespace ocl_patch_matching
 				const Texture& kernel,
 				const std::vector<double>& texture_rotations,
 				MatchingResult& match_res_out,
-				bool erode_texture_mask)
+				bool erode_texture_mask,
+				bool return_cost_matrix)
 			{
 				// global event list
 				static std::vector<simple_cl::cl::Event> global_events;
@@ -2546,9 +2559,12 @@ namespace ocl_patch_matching
 					// read output and launch find min kernels
 					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
 					{
-						simple_cl::cl::Event response_finished_event{read_output_image(m_matching_resource_pool[r].sqdiff_result, m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r].event_list, num_feature_batches % 2ull, m_matching_resource_pool[r])};
-						m_matching_resource_pool[r].event_list.clear();
-						m_matching_resource_pool[r].event_list.push_back(std::move(response_finished_event));
+						if(return_cost_matrix)
+						{
+							simple_cl::cl::Event response_finished_event{read_output_image(m_matching_resource_pool[r].sqdiff_result, m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r].event_list, num_feature_batches % 2ull, m_matching_resource_pool[r])};
+							m_matching_resource_pool[r].event_list.clear();
+							m_matching_resource_pool[r].event_list.push_back(std::move(response_finished_event));
+						}
 						// if erode texture mask is active, append the erode events from the previous step to make the find min kernels wait on them.
 						if(erode_texture_mask)
 						{
@@ -2596,7 +2612,8 @@ namespace ocl_patch_matching
 				const cv::Mat& kernel_mask,
 				const std::vector<double>& texture_rotations,
 				MatchingResult& match_res_out,
-				bool erode_texture_mask)
+				bool erode_texture_mask,
+				bool return_cost_matrix)
 			{
 				// global event list
 				static std::vector<simple_cl::cl::Event> global_events;
@@ -3036,9 +3053,12 @@ namespace ocl_patch_matching
 					// read output and launch find min kernels
 					for(std::size_t r = 0ull; r < num_batch_rotations; ++r)
 					{
-						simple_cl::cl::Event response_finished_event{read_output_image(m_matching_resource_pool[r].sqdiff_result, m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r].event_list, num_feature_batches % 2ull, m_matching_resource_pool[r])};
-						m_matching_resource_pool[r].event_list.clear();
-						m_matching_resource_pool[r].event_list.push_back(std::move(response_finished_event));
+						if(return_cost_matrix)
+						{
+							simple_cl::cl::Event response_finished_event{read_output_image(m_matching_resource_pool[r].sqdiff_result, m_matching_resource_pool[r].response_dims, m_matching_resource_pool[r].event_list, num_feature_batches % 2ull, m_matching_resource_pool[r])};
+							m_matching_resource_pool[r].event_list.clear();
+							m_matching_resource_pool[r].event_list.push_back(std::move(response_finished_event));
+						}
 						// if erode texture mask is active, append the erode events from the previous step to make the find min kernels wait on them.
 						if(erode_texture_mask)
 						{
@@ -3145,18 +3165,20 @@ void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(
 	const Texture& kernel,
 	const cv::Mat& kernel_mask,
 	const std::vector<double>& texture_rotations,
-	MatchingResult& match_res_out)
+	MatchingResult& match_res_out,
+	bool return_cost_matrix)
 {
-	impl()->compute_matches(texture, kernel, kernel_mask, texture_rotations, match_res_out);
+	impl()->compute_matches(texture, kernel, kernel_mask, texture_rotations, match_res_out, return_cost_matrix);
 }
 
 void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(
 	const Texture& texture,
 	const Texture& kernel,
 	const std::vector<double>& texture_rotations,
-	MatchingResult& match_res_out)
+	MatchingResult& match_res_out,
+	bool return_cost_matrix)
 {
-	impl()->compute_matches(texture, kernel, texture_rotations, match_res_out);
+	impl()->compute_matches(texture, kernel, texture_rotations, match_res_out, return_cost_matrix);
 }
 
 void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(
@@ -3165,9 +3187,10 @@ void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(
 	const Texture& kernel,
 	const std::vector<double>& texture_rotations,
 	MatchingResult& match_res_out,
-	bool erode_texture_mask)
+	bool erode_texture_mask,
+	bool return_cost_matrix)
 {
-	impl()->compute_matches(texture, texture_mask, kernel, texture_rotations, match_res_out, erode_texture_mask);
+	impl()->compute_matches(texture, texture_mask, kernel, texture_rotations, match_res_out, erode_texture_mask, return_cost_matrix);
 }
 
 void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(
@@ -3177,9 +3200,10 @@ void ocl_patch_matching::matching_policies::CLMatcher::compute_matches(
 	const cv::Mat& kernel_mask,
 	const std::vector<double>& texture_rotations,
 	MatchingResult& match_res_out,
-	bool erode_texture_mask)
+	bool erode_texture_mask,
+	bool return_cost_matrix)
 {
-	impl()->compute_matches(texture, texture_mask, kernel, kernel_mask, texture_rotations, match_res_out, erode_texture_mask);
+	impl()->compute_matches(texture, texture_mask, kernel, kernel_mask, texture_rotations, match_res_out, erode_texture_mask, return_cost_matrix);
 }
 
 cv::Vec3i ocl_patch_matching::matching_policies::CLMatcher::response_dimensions(

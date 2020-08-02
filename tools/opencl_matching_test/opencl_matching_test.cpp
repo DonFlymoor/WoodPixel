@@ -72,12 +72,9 @@ int main()
 	kernel_tex.response = feval.evaluate(kernel_tex.texture, kernel_tex.mask());
 	cv::erode(kernel_tex.mask_rotation, kernel_tex.mask_rotation, kernel, cv::Point(-1, -1), 1, cv::BORDER_CONSTANT, cv::Scalar(0));
 
-	cv::Mat eroded_mask_cv;
-	cv::erode(texture_mask, eroded_mask_cv, kernel_mask, cv::Point(0, 0), 1, cv::BORDER_CONSTANT, cv::Scalar(0));
-
 	std::cout << "Texture size: " << input_tex.response.cols() << " x " << input_tex.response.rows() << std::endl;
 
-	std::size_t max_kernel_size = 128;
+	std::size_t max_kernel_size = 200;
 
 	cv::Point kernel_pos = cv::Point((input_tex.response.cols() - 1) / 2, (input_tex.response.cols() - 1) / 2);
 
@@ -92,6 +89,8 @@ int main()
 		cv::Mat kernel_mask_sc;
 		cv::resize(kernel_mask, kernel_mask_sc, cv::Size(kernel_tex_sc.response.cols(), kernel_tex_sc.response.rows()));		
 		auto t1{std::chrono::high_resolution_clock::now()};
+		cv::Mat eroded_mask_cv;
+		cv::erode(texture_mask, eroded_mask_cv, kernel_mask_sc, cv::Point(0, 0), 1, cv::BORDER_CONSTANT, cv::Scalar(0));
 		cv::Mat texture_mask_cv{eroded_mask_cv(cv::Rect(0, 0, eroded_mask_cv.cols - kernel_tex_sc.response.cols() + 1, eroded_mask_cv.rows - kernel_tex_sc.response.rows() + 1))};
 		rescv = cv_input_tex.template_match(kernel_tex_sc, kernel_mask_sc);
 		cv::minMaxLoc(rescv, &minval, nullptr, &minpos, nullptr, texture_mask_cv);
